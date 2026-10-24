@@ -441,6 +441,20 @@ def background_otp_scanner():
             pass
         time.sleep(5)
 
+# 🔄 ĐỊNH NGHĨA HÀM GIÁM SÁT LUỒNG NGẦM (ĐÃ ĐƯA LÊN TRƯỚC KHI GỌI)
+scanner_thread = None
+
+def ensure_scanner_running():
+    global scanner_thread
+    while True:
+        try:
+            if scanner_thread is None or not scanner_thread.is_alive():
+                scanner_thread = threading.Thread(target=background_otp_scanner, daemon=True)
+                scanner_thread.start()
+        except Exception:
+            pass
+        time.sleep(10)
+
 # 📱 GIAO DIỆN USER (CHIA 2 CỘT)
 def get_user_markup(chat_id):
     phone = USER_ACTIVE_PHONES.get(chat_id, "Chưa chọn số")
@@ -789,7 +803,7 @@ def callback_query(call):
         try:
             bot.edit_message_text(text, chat_id, message_id, parse_mode="HTML", reply_markup=markup)
         except Exception:
-            bot.send_message(text, chat_id, message_id, parse_mode="HTML", reply_markup=markup)
+            bot.send_message(text, chat_id, text, message_id, parse_mode="HTML", reply_markup=markup)
 
     elif call.data == "admin_sync":
         if not is_admin:
@@ -862,10 +876,8 @@ def callback_query(call):
         except Exception:
             bot.answer_callback_query(call.id, "Lỗi kết nối kiểm tra!", show_alert=True)
 
-# Khởi chạy luồng web server Flask ngầm
+# 🚀 KHỞI CHẠY CÁC LUỒNG NGẦM & WEB SERVER
 threading.Thread(target=run_web, daemon=True).start()
-
-# Khởi chạy luồng quét OTP ngầm
 threading.Thread(target=ensure_scanner_running, daemon=True).start()
 
 print("🚀 Bot Kho Số Toàn Cầu đang chạy trên Render (Không Proxy)...")
