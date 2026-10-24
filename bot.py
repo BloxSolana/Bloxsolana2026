@@ -880,7 +880,7 @@ def callback_query(call):
 threading.Thread(target=run_web, daemon=True).start()
 
 # Khởi chạy luồng quét OTP ngầm
-threading.Thread(target=ensure_scanner_running, daemon=Thread=True if 'Thread' in globals() else daemon=True).start() # <--- Hoặc dùng daemon=True chuẩn bên dưới:
+threading.Thread(target=ensure_scanner_running, daemon=True).start()
 
 print("🚀 Bot Kho Số Toàn Cầu đang chạy trên Render (Không Proxy)...")
 bot.infinity_polling(timeout=20, long_polling_timeout=10, drop_pending_updates=True)
