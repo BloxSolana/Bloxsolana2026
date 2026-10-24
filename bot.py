@@ -186,7 +186,7 @@ GLOBAL_COUNTRY_PREFIXES = {
     "977": ("🇳🇵 Nepal (+977)", "NP"), "93": ("🇦🇫 Afghanistan (+93)", "AF"), "98": ("🇮🇷 Iran (+98)", "IR"),
     "964": ("🇮🇶 Iraq (+964)", "IQ"), "90": ("🇹🇷 Thổ Nhĩ Kỳ (+90)", "TR"), "972": ("🇮🇱 Israel (+972)", "IL"),
     "962": ("🇯🇴 Jordan (+962)", "JO"), "961": ("🇱🇧 Lebanon (+961)", "LB"), "963": ("🇸🇾 Syria (+963)", "SY"),
-    "965": ("🇰🇼 Kuwait (+965)", "KW"), "966": ("🇸🇦 Ả Rập Xê Úت (+966)", "SA"), "971": ("🇦🇪 UAE (+971)", "AE"),
+    "965": ("🇰🇼 Kuwait (+965)", "KW"), "966": ("🇸🇦 Ả Rập Xê Út (+966)", "SA"), "971": ("🇦🇪 UAE (+971)", "AE"),
     "974": ("🇶🇦 Qatar (+974)", "QA"), "973": ("🇧🇭 Bahrain (+973)", "BH"), "968": ("🇴🇲 Oman (+968)", "OM"),
     "967": ("🇾🇪 Yemen (+967)", "YE"), "886": ("🇹🇼 Đài Loan (+886)", "TW"), "852": ("🇭🇰 Hồng Kong (+852)", "HK"),
     "853": ("🇲🇦 Ma Cao (+853)", "MO"), "976": ("🇲🇳 Mông Cổ (+976)", "MN"), "998": ("🇺🇿 Uzbekistan (+998)", "UZ"),
@@ -202,7 +202,7 @@ GLOBAL_COUNTRY_PREFIXES = {
     "27": ("🇿🇦 Nam Phi (+27)", "ZA"), "234": ("🇳🇬 Nigeria (+234)", "NG"), "254": ("🇰🇪 Kenya (+254)", "KE"),
     "251": ("🇪🇹 Ethiopia (+251)", "ET"), "212": ("🇲🇦 Maroc (+212)", "MA"), "213": ("🇩🇿 Algeria (+213)", "DZ"),
     "216": ("🇹🇳 Tunisia (+216)", "TN"), "218": ("🇱🇾 Libya (+218)", "LY"), "233": ("🇬🇭 Ghana (+233)", "GH"),
-    "225": ("🇨🇮 Bờ Biển Ngà (+225)", "CI"), "237": ("🇨🇲 Cameroon (+237)", "CM"), "255": ("🇹ℤ Tanzania (+255)", "TZ"),
+    "225": ("🇨🇮 Bờ Biển Ngà (+225)", "CI"), "237": ("🇨🇲 Cameroon (+237)", "CM"), "255": ("🇹🇿 Tanzania (+255)", "TZ"),
     "256": ("🇺🇬 Uganda (+256)", "UG"), "250": ("🇷🇼 Rwanda (+250)", "RW"), "260": ("🇿🇲 Zambia (+260)", "ZM"),
     "263": ("🇿🇼 Zimbabwe (+263)", "ZW"), "258": ("🇲ℤ Mozambique (+258)", "MZ"), "244": ("🇦🇴 Angola (+244)", "AO"),
     "261": ("🇲🇬 Madagascar (+261)", "MG"), "249": ("🇸🇩 Sudan (+249)", "SD"), "221": ("🇸🇳 Senegal (+221)", "SN"),
@@ -440,20 +440,6 @@ def background_otp_scanner():
         except Exception:
             pass
         time.sleep(5)
-
-# 🔄 BỘ GIÁM SÁT TỰ ĐỘNG HỒI PHỤC LUỒNG NGẦM
-scanner_thread = None
-
-def ensure_scanner_running():
-    global scanner_thread
-    while True:
-        try:
-            if scanner_thread is None or not scanner_thread.is_alive():
-                scanner_thread = threading.Thread(target=background_otp_scanner, daemon=True)
-                scanner_thread.start()
-        except Exception:
-            pass
-        time.sleep(10)
 
 # 📱 GIAO DIỆN USER (CHIA 2 CỘT)
 def get_user_markup(chat_id):
@@ -803,7 +789,7 @@ def callback_query(call):
         try:
             bot.edit_message_text(text, chat_id, message_id, parse_mode="HTML", reply_markup=markup)
         except Exception:
-            bot.send_message(text, chat_id, text, message_id, parse_mode="HTML", reply_markup=markup)
+            bot.send_message(text, chat_id, message_id, parse_mode="HTML", reply_markup=markup)
 
     elif call.data == "admin_sync":
         if not is_admin:
@@ -883,4 +869,4 @@ threading.Thread(target=run_web, daemon=True).start()
 threading.Thread(target=ensure_scanner_running, daemon=True).start()
 
 print("🚀 Bot Kho Số Toàn Cầu đang chạy trên Render (Không Proxy)...")
-bot.infinity_polling(timeout=20, long_polling_timeout=10, drop_pending_updates=True)
+bot.infinity_polling(timeout=20, long_polling_timeout=10)
