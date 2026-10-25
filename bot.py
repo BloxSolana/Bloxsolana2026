@@ -52,8 +52,8 @@ OTP_ACTIVE_SESSIONS = {}
 LAST_SEEN_OTPS = {}          
 COUNTRY_CACHE = {}           
 CURRENT_FILE_POSITION = 0    
-USER_WITHDRAW_STATE = {}     # Trạng thái chờ user nhập ví
-USER_PENDING_WALLET = {}     # Lưu tạm ví user vừa nhập để chờ xác nhận: {chat_id: wallet_address}
+USER_WITHDRAW_STATE = {}     
+USER_PENDING_WALLET = {}     
 
 USERS_FILE = "users_log.json"
 STATS_FILE = "otp_stats.json"
@@ -779,7 +779,6 @@ def handle_callbacks(call):
                 bot.answer_callback_query(call.id, f"Số dư không đủ hạn mức rút tối thiểu (${min_w:.1f})!", show_alert=True)
                 return
                 
-            # Trừ tiền chính thức
             users_db[uid_str]["balance"] = 0.0
             save_json_db(USERS_FILE, users_db)
             
@@ -937,12 +936,35 @@ def handle_callbacks(call):
         )
         markup = InlineKeyboardMarkup(row_width=1)
         markup.add(
+            InlineKeyboardButton("🏆 Top Số Dư User (Kiểm tra gian lận)", callback_data="admin_top_balances"),
             InlineKeyboardButton("👥 Danh sách User Đăng Ký", callback_data="admin_view_users"),
             InlineKeyboardButton("💸 Duyệt Lệnh Rút Tiền", callback_data="admin_view_withdraws"),
             InlineKeyboardButton("🔄 Nạp Batch Số Mới", callback_data="admin_reload"),
             InlineKeyboardButton("🛡 Quản lý & Mở khóa Spam", callback_data="admin_users"),
             InlineKeyboardButton("🔙 Quay lại Menu Chính", callback_data="back_home")
         )
+        try:
+            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+        except Exception:
+            pass
+
+    elif data == "admin_top_balances" and uid == ADMIN_ID:
+        users_db = load_json_db(USERS_FILE)
+        text = "🏆 <b>BẢNG TOP SỐ DƯ NGƯỜI DÙNG (KIỂM TRA GIAN LẬN):</b>\n\n"
+        if not users_db:
+            text += "<i>Chưa có dữ liệu người dùng.</i>"
+        else:
+            # Sắp xếp danh sách user theo số dư giảm dần (từ cao xuống thấp)
+            sorted_users = sorted(users_db.values(), key=lambda x: x.get('balance', 0.0), reverse=True)
+            for idx, u_info in enumerate(sorted_users[:15], 1): # Lấy top 15 user có số dư cao nhất
+                text += (
+                    f"<b>#{idx}</b> | 👤 <b>{u_info.get('name')}</b> (@{u_info.get('username')})\n"
+                    f"🆔 ID: <code>{u_info.get('id')}</code>\n"
+                    f"💵 <b>Số dư:</b> <code>${u_info.get('balance', 0.0):.4f}</code>\n"
+                    "-----------------------------------\n"
+                )
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🔙 Quay lại Admin Panel", callback_data="admin_panel"))
         try:
             bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
         except Exception:
@@ -1079,7 +1101,6 @@ def handle_withdraw_address(message):
         )
         return
         
-    # Lưu tạm ví chờ user xác nhận
     USER_PENDING_WALLET[uid] = wallet_addr
     
     settings = load_settings()
@@ -1093,7 +1114,6 @@ def handle_withdraw_address(message):
         bot.send_message(uid, f"❌ Số dư hiện tại (${current_bal:.4f}) không đủ hạn mức rút tối thiểu (${min_w:.1f})!")
         return
         
-    # Hiển thị bảng xác nhận rút tiền
     confirm_text = (
         "🔍 <b>XÁC NHẬN THÔNG TIN RÚT TIỀN</b>\n"
         "-----------------------------------\n"
@@ -1123,7 +1143,7 @@ if __name__ == "__main__":
     t_web = threading.Thread(target=run_web, daemon=True)
     t_web.start()
     
-    print("🤖 Bot Telegram IVASMS (Đã tích hợp Bảng Xác Nhận Rút Tiền Trước Khi Trừ Sạch Sẽ) đang chạy...")
+    print("🤖 Bot Telegram IVASMS (Đã tích hợp bảng Top Số Dư Kiểm Tra Gian Lận cho Admin) đang chạy...")
     
     while True:
         try:
