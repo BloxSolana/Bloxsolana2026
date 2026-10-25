@@ -4,3 +4,4 @@ Flask
 gunicorn
 pyTelegramBotAPI
 beautifulsoup4
+pyotp
