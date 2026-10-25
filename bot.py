@@ -12,12 +12,12 @@ import random
 from flask import Flask
 
 # ==========================================
-# 👑 1. CẤU HÌNH ADMIN TỐI CAO & TELEGRAM BOT
+# 👑 1. CẤU HÌNH THÔNG TIN RIÊNG CỦA BẠN (HÃY THAY VÀO ĐÂY)
 # ==========================================
-ADMIN_ID = 6726769296
-TOKEN = "8622066775:AAG08FcNdjAapQcc1e5lCJBEsUMH-kzhYHM"
-GROUP_CHAT_ID = "-1004341368656"
-GROUP_OTP_LINK = "https://t.me/LIVEOTPIVAS"
+ADMIN_ID = 6726769296          # ⬅️ Thay Telegram ID của bạn vào đây
+TOKEN = "8622066775:AAG08FcNdjAapQcc1e5lCJBEsUMH-kzhYHM"  # ⬅️ Thay Token Bot của bạn vào đây
+GROUP_CHAT_ID = "-1004341368656"   # ⬅️ Thay ID group thông báo của bạn vào đây
+GROUP_OTP_LINK = "https://t.me/LIVEOTPIVAS"  # ⬅️ Thay link nhóm của bạn vào đây
 
 bot = telebot.TeleBot(TOKEN)
 
@@ -28,7 +28,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Bot IVASMS OTP Global & Ultimate Security đang chạy 24/7 trên Render!"
+    return "Bot OTP Global của bạn đang chạy 24/7 trên Render!"
 
 def run_web():
     port = int(os.environ.get("PORT", 5000))
@@ -317,7 +317,7 @@ def broadcast_stock_updated(added_count, total_stock):
         pass
 
 # ==========================================
-# 🧹 8. TỰ ĐỘNG XÓA HẲN SỐ & AN TOÀN TUYỆT ĐỐI (TRÁNH LỖI SẬP LƯỚI)
+# 🧹 8. TỰ ĐỘNG XÓA HẲN SỐ & AN TOÀN TUYỆT ĐỐI
 # ==========================================
 def clean_expired_sessions():
     try:
@@ -679,7 +679,7 @@ def cmd_start(message):
                 save_json_db(USERS_FILE, users_db)
 
     text = (
-        f"👋 Chào mừng <b>{name}</b> đến với hệ thống <b>IVASMS OTP Global</b>!\n\n"
+        f"👋 Chào mừng <b>{name}</b> đến với hệ thống nhận OTP tự động của bạn!\n\n"
         "🌐 Hỗ trợ nhận số & OTP tự động 195+ quốc gia.\n"
         "💰 Kiếm <b>0.009$</b> thưởng tự động khi nhận mã OTP thành công!\n"
         "⏳ Mỗi số có tổng thời hạn tối đa 15 phút tồn tại trên hệ thống."
@@ -1114,7 +1114,7 @@ def handle_callbacks(call):
         elif data == "back_home":
             USER_WITHDRAW_STATE.pop(uid, None)
             USER_PENDING_WALLET.pop(uid, None)
-            text = "👋 Chào mừng bạn quay lại menu chính của **IVASMS OTP Global**!"
+            text = "👋 Chào mừng bạn quay lại menu chính!"
             markup = InlineKeyboardMarkup(row_width=2)
             markup.add(
                 InlineKeyboardButton("📲 Bắt đầu Lấy Số", callback_data="open_countries"),
@@ -1352,7 +1352,7 @@ if __name__ == "__main__":
     t_web = threading.Thread(target=run_web, daemon=True)
     t_web.start()
     
-    print("🤖 Bot Telegram IVASMS (Đã fix bọc try-except toàn diện chống sập luồng) đang chạy...")
+    print("🤖 Bot của bạn đã khởi động thành công và sẵn sàng hoạt động 24/7!")
     
     while True:
         try:
