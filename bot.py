@@ -222,7 +222,7 @@ GLOBAL_COUNTRY_PREFIXES = {
     "94": ("🇱🇰 Sri Lanka (+94)", "LK"), "977": ("🇳🇵 Nepal (+977)", "NP"), "93": ("🇦🇫 Afghanistan (+93)", "AF"),
     "98": ("🇮🇷 Iran (+98)", "IR"), "964": ("🇮🇶 Iraq (+964)", "IQ"), "90": ("🇹🇷 Thổ Nhĩ Kỳ (+90)", "TR"),
     "972": ("🇮🇱 Israel (+972)", "IL"), "962": ("🇯🇴 Jordan (+962)", "JO"), "961": ("🇱🇧 Lebanon (+961)", "LB"),
-    "963": ("🇸🇾 Syria (+963)", "SY"), "965": ("🇰🇼 Kuwait (+965)", "KW"), "966": ("🇸🇦 Ả Rập Xê Út (+966)", "SA"),
+    "963": ("🇸🇾 Syria (+963)", "SY"), "965": ("🇰🇼 Kuwait (+965)", "KW"), "966": ("🇸🇦 Ả Rập Xê Úت (+966)", "SA"),
     "971": ("🇦🇪 UAE (+971)", "AE"), "974": ("🇶🇦 Qatar (+974)", "QA"), "973": ("🇧🇭 Bahrain (+973)", "BH"),
     "968": ("🇴🇲 Oman (+968)", "OM"), "967": ("🇾🇪 Yemen (+967)", "YE"), "886": ("🇹🇼 Đài Loan (+886)", "TW"),
     "852": ("🇭🇰 Hồng Kong (+852)", "HK"), "853": ("🇲🇦 Ma Cao (+853)", "MO"), "976": ("🇲🇳 Mông Cổ (+976)", "MN"),
@@ -668,7 +668,6 @@ def handle_callbacks(call):
         if balance < min_w:
             bot.answer_callback_query(call.id, f"Số dư chưa đủ để rút! Tối thiểu cần ${min_w:.1f}", show_alert=True)
         else:
-            # Kích hoạt trạng thái nhập ví TON
             USER_WITHDRAW_STATE[uid] = True
             markup = InlineKeyboardMarkup()
             markup.add(InlineKeyboardButton("❌ Hủy bỏ & Quay lại", callback_data="my_wallet"))
@@ -815,7 +814,6 @@ def handle_withdraw_address(message):
         USER_WITHDRAW_STATE.pop(uid, None)
         return
         
-    # Regex kiểm tra chính xác ví TON chuẩn (Bắt đầu EQ hoặc UQ, tổng đúng 48 ký tự)
     TON_ADDRESS_REGEX = re.compile(r'^(EQ|UQ)[A-Za-z0-9\-_]{46}$')
     if not TON_ADDRESS_REGEX.match(wallet_addr):
         bot.send_message(
@@ -829,7 +827,6 @@ def handle_withdraw_address(message):
         )
         return
         
-    # Hợp lệ -> Xóa trạng thái chờ
     USER_WITHDRAW_STATE.pop(uid, None)
     
     settings = load_settings()
@@ -844,11 +841,9 @@ def handle_withdraw_address(message):
             bot.send_message(uid, f"❌ Số dư hiện tại (${with_amount:.4f}) không đủ hạn mức rút tối thiểu (${min_w:.1f})!")
             return
             
-        # Trừ tiền trong ví user
         users_db[uid_str]["balance"] = 0.0
         save_json_db(USERS_FILE, users_db)
         
-        # Gửi thông báo chi tiết đến Admin
         admin_text = (
             "💸 <b>YÊU CẦU RÚT TIỀN THÀNH CÔNG (0% PHÍ)</b>\n"
             "-----------------------------------\n"
@@ -878,7 +873,7 @@ def handle_withdraw_address(message):
         )
 
 # ==========================================
-# 🚀 13. KHỞI ĐỘNG HỆ THỐNG SONG SONG 24/7
+# 🚀 13. KHỞI ĐỘNG HỆ THỐNG AN TOÀN TRÁNH LỖI 409
 # ==========================================
 if __name__ == "__main__":
     t_scanner = threading.Thread(target=background_sms_scanner, daemon=True)
@@ -888,4 +883,11 @@ if __name__ == "__main__":
     t_web.start()
     
     print("🤖 Bot Telegram IVASMS (Auto Thu Hồi 5p + Quét Ví TON 0% Phí + Full 195+ Quốc Gia) đang chạy...")
-    bot.infinity_polling(skip_pending=True)
+    
+    while True:
+        try:
+            bot.infinity_polling(skip_pending=True, timeout=60, long_polling_timeout=60)
+        except Exception as e:
+            print(f"⚠️ Phát hiện xung đột kết nối Telegram (409): {e}")
+            print("⏳ Đang chờ 10 giây để Telegram giải phóng kết nối cũ rồi tự động kết nối lại...")
+            time.sleep(10)
