@@ -9,6 +9,7 @@ import html
 import threading
 import firebase_admin
 from firebase_admin import credentials, firestore
+from flask import Flask
 
 # ==========================================
 # Configuration (Đã cập nhật ID của bạn)
