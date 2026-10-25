@@ -115,6 +115,10 @@ def update_balance(uid, amount):
         users[uid_str]["balance"] = round(users[uid_str].get("balance", 0.0) + amount, 4)
         save_json_db(USERS_FILE, users)
         return users[uid_str]["balance"]
+    else:
+        # Tạo mới nếu chưa có trong DB
+        get_user(uid)
+        return update_balance(uid, amount)
     return 0.0
 
 def mask_phone_number(phone):
@@ -484,7 +488,107 @@ def background_sms_scanner():
         time.sleep(3)
 
 # ==========================================
-# 📲 10. LỆNH /START & GIAO DIỆN CHÍNH
+# 🛠️ 10. CÁC LỆNH TEST & KIỂM TRA DÀNH CHO ADMIN
+# ==========================================
+@bot.message_handler(commands=['adminhelp'])
+def cmd_admin_help(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    help_text = (
+        "👑 <b>BẢNG LỆNH TEST & KIỂM TRA DÀNH CHO ADMIN</b>\n"
+        "-----------------------------------\n"
+        "💰 <b>/addmoney [số tiền]</b> hoặc <b>[ID] [số tiền]</b>\n"
+        "   <i>Cộng tiền ảo vào ví để test rút tiền (Ví dụ: /addmoney 10).</i>\n\n"
+        "✏️ <b>/setbal [ID_User] [số tiền]</b>\n"
+        "   <i>Đặt lại chính xác số dư cho một user cụ thể.</i>\n\n"
+        "🔍 <b>/userinfo [ID_User]</b>\n"
+        "   <i>Xem chi tiết thông tin, số dư, lượt giới thiệu của user.</i>\n\n"
+        "🛡 <b>/adminhelp</b>\n"
+        "   <i>Hiển thị bảng trợ giúp lệnh Admin này.</i>"
+    )
+    bot.send_message(message.chat.id, help_text, parse_mode="HTML")
+
+@bot.message_handler(commands=['addmoney'])
+def cmd_admin_add_money(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.split()
+    target_uid = ADMIN_ID
+    amount = 10.0
+    
+    try:
+        if len(args) == 2:
+            amount = float(args[1])
+        elif len(args) >= 3:
+            target_uid = int(args[1])
+            amount = float(args[2])
+            
+        new_bal = update_balance(target_uid, amount)
+        bot.send_message(
+            message.chat.id,
+            f"✅ <b>TEST THÀNH CÔNG!</b>\n"
+            f"👤 Đã cộng thêm <code>${amount:.4f}</code> cho User ID: <code>{target_uid}</code>\n"
+            f"💵 Số dư mới: <code>${new_bal:.4f}</code>",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Lỗi cú pháp! Dùng: <code>/addmoney [số_tiền]</code> hoặc <code>/addmoney [id] [số_tiền]</code>", parse_mode="HTML")
+
+@bot.message_handler(commands=['setbal'])
+def cmd_admin_set_balance(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.split()
+    try:
+        if len(args) < 3:
+            bot.send_message(message.chat.id, "❌ Cú pháp sai! Dùng: <code>/setbal [ID_User] [Số_tiền]</code>", parse_mode="HTML")
+            return
+        target_uid = str(args[1])
+        amount = float(args[2])
+        
+        users = load_json_db(USERS_FILE)
+        if target_uid in users:
+            users[target_uid]["balance"] = round(amount, 4)
+            save_json_db(USERS_FILE, users)
+            bot.send_message(message.chat.id, f"✅ Đã đặt lại số dư của ID <code>{target_uid}</code> thành <code>${amount:.4f}</code>", parse_mode="HTML")
+        else:
+            bot.send_message(message.chat.id, f"❌ Không tìm thấy User ID: {target_uid} trong cơ sở dữ liệu!")
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Lỗi thực thi: {e}")
+
+@bot.message_handler(commands=['userinfo'])
+def cmd_admin_user_info(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.split()
+    try:
+        if len(args) < 2:
+            target_uid = str(message.from_user.id)
+        else:
+            target_uid = str(args[1])
+            
+        users = load_json_db(USERS_FILE)
+        if target_uid in users:
+            u = users[target_uid]
+            text = (
+                "👤 <b>THÔNG TIN CHI TIẾT USER (TEST)</b>\n"
+                "-----------------------------------\n"
+                f"📌 <b>Họ tên:</b> {u.get('name')}\n"
+                f"🔗 <b>Username:</b> @{u.get('username')}\n"
+                f"🆔 <b>Telegram ID:</b> <code>{u.get('id')}</code>\n"
+                f"💵 <b>Số dư:</b> <code>${u.get('balance', 0.0):.4f}</code>\n"
+                f"👥 <b>Số bạn giới thiệu:</b> {u.get('referrals', 0)} người\n"
+                f"💸 <b>Tiền hoa hồng:</b> ${u.get('referral_earnings', 0.0):.4f}\n"
+                f"📅 <b>Ngày đăng ký:</b> {u.get('joined_at')}"
+            )
+            bot.send_message(message.chat.id, text, parse_mode="HTML")
+        else:
+            bot.send_message(message.chat.id, f"❌ Không tìm thấy dữ liệu của user ID: {target_uid}")
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Lỗi: {e}")
+
+# ==========================================
+# 📲 11. LỆNH /START & GIAO DIỆN CHÍNH
 # ==========================================
 @bot.message_handler(commands=['start'])
 def cmd_start(message):
@@ -540,7 +644,7 @@ def cmd_start(message):
     bot.send_message(uid, text, parse_mode="HTML", reply_markup=markup)
 
 # ==========================================
-# 🔄 11. XỬ LÝ SỰ KIỆN CALLBACK QUERY
+# 🔄 12. XỬ LÝ SỰ KIỆN CALLBACK QUERY
 # ==========================================
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callbacks(call):
@@ -834,7 +938,7 @@ def handle_callbacks(call):
             bot.answer_callback_query(call.id, "Không tìm thấy user này trong danh sách phạt!", show_alert=True)
 
 # ==========================================
-# 💸 12. XỬ LÝ QUÉT VÍ TON & LƯU LỊCH SỬ RÚT
+# 💸 13. XỬ LÝ QUÉT VÍ TON & LƯU LỊCH SỬ RÚT
 # ==========================================
 @bot.message_handler(func=lambda message: USER_WITHDRAW_STATE.get(message.from_user.id, False))
 def handle_withdraw_address(message):
@@ -928,7 +1032,7 @@ def handle_withdraw_address(message):
         )
 
 # ==========================================
-# 🚀 13. KHỞI ĐỘNG HỆ THỐNG AN TOÀN TRÁNH LỖI 409
+# 🚀 14. KHỞI ĐỘNG HỆ THỐNG AN TOÀN TRÁNH LỖI 409
 # ==========================================
 if __name__ == "__main__":
     t_scanner = threading.Thread(target=background_sms_scanner, daemon=True)
@@ -937,7 +1041,7 @@ if __name__ == "__main__":
     t_web = threading.Thread(target=run_web, daemon=True)
     t_web.start()
     
-    print("🤖 Bot Telegram IVASMS (Auto Thu Hồi 5p + Lịch Sử Rút TON + Full 195+ Quốc Gia) đang chạy...")
+    print("🤖 Bot Telegram IVASMS (Auto Thu Hồi 5p + Bộ Lệnh Test Admin + Full 195+ Quốc Gia) đang chạy...")
     
     while True:
         try:
