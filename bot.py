@@ -317,59 +317,62 @@ def broadcast_stock_updated(added_count, total_stock):
         pass
 
 # ==========================================
-# 🧹 8. TỰ ĐỘNG XÓA HẲN SỐ & TỰ KHÓA NÚT KHI HẾT 15P
+# 🧹 8. TỰ ĐỘNG XÓA HẲN SỐ & AN TOÀN TUYỆT ĐỐI (TRÁNH LỖI SẬP LƯỚI)
 # ==========================================
 def clean_expired_sessions():
-    now = time.time()
-    expired_phones = []
-    for phone, create_time in list(PHONE_CREATION_TIME.items()):
-        if now - create_time > 900:
-            expired_phones.append(phone)
+    try:
+        now = time.time()
+        expired_phones = []
+        for phone, create_time in list(PHONE_CREATION_TIME.items()):
+            if now - create_time > 900:
+                expired_phones.append(phone)
 
-    for phone in expired_phones:
-        remove_number_from_file(phone)
-        if phone in PHONE_CREATION_TIME:
-            del PHONE_CREATION_TIME[phone]
-        if phone in OTP_ACTIVE_SESSIONS:
-            del OTP_ACTIVE_SESSIONS[phone]
-        
-        for cid, info in list(USER_ACTIVE_PHONES.items()):
-            if info.get("phone") == phone:
-                msg_id = info.get("msg_id")
-                del USER_ACTIVE_PHONES[cid]
-                try:
-                    if msg_id:
-                        bot.edit_message_text(
-                            f"⏰ <b>SỐ ĐIỆN THOẠI <code>{phone}</code> ĐÃ HẾT HẠN!</b>\n"
-                            "Số này đã quá thời hạn 15 phút tồn tại và bị xóa vĩnh viễn khỏi hệ thống.",
-                            cid, msg_id, parse_mode="HTML", reply_markup=None
-                        )
-                except Exception:
-                    pass
-
-    expired_otps = []
-    for phone, info in list(OTP_ACTIVE_SESSIONS.items()):
-        if now > info.get("expire", 0):
-            expired_otps.append(phone)
+        for phone in expired_phones:
+            remove_number_from_file(phone)
+            if phone in PHONE_CREATION_TIME:
+                del PHONE_CREATION_TIME[phone]
+            if phone in OTP_ACTIVE_SESSIONS:
+                del OTP_ACTIVE_SESSIONS[phone]
             
-    for p in expired_otps:
-        remove_number_from_file(p)
-        if p in PHONE_CREATION_TIME:
-            del PHONE_CREATION_TIME[p]
-        if p in OTP_ACTIVE_SESSIONS:
-            del OTP_ACTIVE_SESSIONS[p]
-        for cid, active_info in list(USER_ACTIVE_PHONES.items()):
-            if active_info.get("phone") == p:
-                msg_id = active_info.get("msg_id")
-                del USER_ACTIVE_PHONES[cid]
-                try:
-                    if msg_id:
-                        bot.edit_message_text(
-                            f"✅ <b>SỐ ĐIỆN THOẠI <code>{p}</code> ĐÃ HOÀN TẤT NHẬN OTP!</b>",
-                            cid, msg_id, parse_mode="HTML", reply_markup=None
-                        )
-                except Exception:
-                    pass
+            for cid, info in list(USER_ACTIVE_PHONES.items()):
+                if info.get("phone") == phone:
+                    msg_id = info.get("msg_id")
+                    del USER_ACTIVE_PHONES[cid]
+                    try:
+                        if msg_id:
+                            bot.edit_message_text(
+                                f"⏰ <b>SỐ ĐIỆN THOẠI <code>{phone}</code> ĐÃ HẾT HẠN!</b>\n"
+                                "Số này đã quá thời hạn 15 phút tồn tại và bị xóa vĩnh viễn khỏi hệ thống.",
+                                cid, msg_id, parse_mode="HTML", reply_markup=None
+                            )
+                    except Exception:
+                        pass
+
+        expired_otps = []
+        for phone, info in list(OTP_ACTIVE_SESSIONS.items()):
+            if now > info.get("expire", 0):
+                expired_otps.append(phone)
+                
+        for p in expired_otps:
+            remove_number_from_file(p)
+            if p in PHONE_CREATION_TIME:
+                del PHONE_CREATION_TIME[p]
+            if p in OTP_ACTIVE_SESSIONS:
+                del OTP_ACTIVE_SESSIONS[p]
+            for cid, active_info in list(USER_ACTIVE_PHONES.items()):
+                if active_info.get("phone") == p:
+                    msg_id = active_info.get("msg_id")
+                    del USER_ACTIVE_PHONES[cid]
+                    try:
+                        if msg_id:
+                            bot.edit_message_text(
+                                f"✅ <b>SỐ ĐIỆN THOẠI <code>{p}</code> ĐÃ HOÀN TẤT NHẬN OTP!</b>",
+                                cid, msg_id, parse_mode="HTML", reply_markup=None
+                            )
+                    except Exception:
+                        pass
+    except Exception as e:
+        print(f"Lỗi trong clean_expired_sessions: {e}")
 
 def load_text_batch(reset=False):
     global COUNTRY_CACHE, CURRENT_FILE_POSITION
@@ -459,48 +462,47 @@ def get_available_countries():
 # ⚡ 9. GỬI OTP, CỘNG THƯỞNG & XÓA SỐ VĨNH VIỄN KHI HOÀN TẤT
 # ==========================================
 def send_auto_otp(chat_id, number, otp_code, full_msg="", user_id=None, user_name=None, msg_id=None):
-    settings = load_settings()
-    reward = settings.get("otp_reward", 0.009)
-    
-    if user_id:
-        update_balance(user_id, reward)
-        stats = load_json_db(STATS_FILE)
-        uid_str = str(user_id)
-        if uid_str not in stats:
-            stats[uid_str] = {"name": user_name, "count": 0}
-        stats[uid_str]["count"] += 1
-        save_json_db(STATS_FILE, stats)
-
-    remove_number_from_file(number)
-    if number in PHONE_CREATION_TIME:
-        del PHONE_CREATION_TIME[number]
-    if number in OTP_ACTIVE_SESSIONS:
-        del OTP_ACTIVE_SESSIONS[number]
-    for cid, info in list(USER_ACTIVE_PHONES.items()):
-        if info.get("phone") == number:
-            del USER_ACTIVE_PHONES[cid]
-
-    # Tự động xóa nút bấm của bảng số đang hiển thị (nếu có)
-    if msg_id:
-        try:
-            bot.edit_message_reply_markup(chat_id, msg_id, reply_markup=None)
-        except Exception:
-            pass
-
-    text = (
-        "⚡️ <b>HỆ THỐNG XÁC THỰC TỰ ĐỘNG</b> ⚡️\n"
-        "-----------------------------------\n"
-        f"📞 <b>Số điện thoại:</b> <code>{number}</code>\n"
-        f"🔑 <b>Mã OTP:</b> <code>{otp_code}</code>\n"
-        f"💰 <b>Thưởng nhận OTP:</b> +<code>${reward:.3f}</code>\n"
-    )
-    if full_msg:
-        text += f"💬 <b>Nội dung:</b> <i>{full_msg[:100]}</i>\n"
-    text += "\n⏳ <b>Trạng thái:</b> <i>Đã nhận OTP thành công, cộng tiền vào ví và số này đã tự động xóa vĩnh viễn khỏi hệ thống!</i>"
-
-    markup = InlineKeyboardMarkup()
-    markup.add(InlineKeyboardButton(f"📋 COPY OTP • {otp_code}", callback_data=f"copy_{otp_code}"))
     try:
+        settings = load_settings()
+        reward = settings.get("otp_reward", 0.009)
+        
+        if user_id:
+            update_balance(user_id, reward)
+            stats = load_json_db(STATS_FILE)
+            uid_str = str(user_id)
+            if uid_str not in stats:
+                stats[uid_str] = {"name": user_name, "count": 0}
+            stats[uid_str]["count"] += 1
+            save_json_db(STATS_FILE, stats)
+
+        remove_number_from_file(number)
+        if number in PHONE_CREATION_TIME:
+            del PHONE_CREATION_TIME[number]
+        if number in OTP_ACTIVE_SESSIONS:
+            del OTP_ACTIVE_SESSIONS[number]
+        for cid, info in list(USER_ACTIVE_PHONES.items()):
+            if info.get("phone") == number:
+                del USER_ACTIVE_PHONES[cid]
+
+        if msg_id:
+            try:
+                bot.edit_message_reply_markup(chat_id, msg_id, reply_markup=None)
+            except Exception:
+                pass
+
+        text = (
+            "⚡️ <b>HỆ THỐNG XÁC THỰC TỰ ĐỘNG</b> ⚡️\n"
+            "-----------------------------------\n"
+            f"📞 <b>Số điện thoại:</b> <code>{number}</code>\n"
+            f"🔑 <b>Mã OTP:</b> <code>{otp_code}</code>\n"
+            f"💰 <b>Thưởng nhận OTP:</b> +<code>${reward:.3f}</code>\n"
+        )
+        if full_msg:
+            text += f"💬 <b>Nội dung:</b> <i>{full_msg[:100]}</i>\n"
+        text += "\n⏳ <b>Trạng thái:</b> <i>Đã nhận OTP thành công, cộng tiền vào ví và số này đã tự động xóa vĩnh viễn khỏi hệ thống!</i>"
+
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton(f"📋 COPY OTP • {otp_code}", callback_data=f"copy_{otp_code}"))
         bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=markup)
     except Exception as e:
         print(f"Lỗi gửi OTP tới {chat_id}: {e}")
@@ -703,583 +705,586 @@ def cmd_start(message):
 # ==========================================
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callbacks(call):
-    uid = call.from_user.id
-    data = call.data
-    chat_id = call.message.chat.id
-    msg_id = call.message.message_id
-    
-    if data == "open_countries":
-        if uid in USER_ACTIVE_PHONES:
-            curr_p = USER_ACTIVE_PHONES[uid].get("phone")
-            bot.answer_callback_query(call.id, f"Bạn đang giữ số {curr_p}. Vui lòng hoàn thành hoặc Đổi số mới!", show_alert=True)
-            return
-
-        countries = get_available_countries()
-        if not countries:
-            bot.answer_callback_query(call.id, "Kho số hiện tại đang trống hoặc đang cập nhật!", show_alert=True)
-            return
-            
-        markup = InlineKeyboardMarkup(row_width=1)
-        for code, label in countries.items():
-            markup.add(InlineKeyboardButton(label, callback_data=f"country_{code}_0"))
-        markup.add(InlineKeyboardButton("🔙 Quay lại", callback_data="back_home"))
+    try:
+        uid = call.from_user.id
+        data = call.data
+        chat_id = call.message.chat.id
+        msg_id = call.message.message_id
         
-        try:
-            bot.edit_message_text("🌍 <b>Chọn Quốc Gia Cần Lấy Số:</b>", chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
-        except Exception:
-            pass
+        if data == "open_countries":
+            if uid in USER_ACTIVE_PHONES:
+                curr_p = USER_ACTIVE_PHONES[uid].get("phone")
+                bot.answer_callback_query(call.id, f"Bạn đang giữ số {curr_p}. Vui lòng hoàn thành hoặc Đổi số mới!", show_alert=True)
+                return
 
-    elif data.startswith("country_"):
-        parts = data.split("_")
-        code = parts[1]
-        page = int(parts[2])
-        
-        numbers, total = get_numbers_by_category(code, page)
-        if not numbers:
-            bot.answer_callback_query(call.id, "Hết số trong danh mục này!", show_alert=True)
-            return
-            
-        markup = InlineKeyboardMarkup(row_width=1)
-        for num in numbers:
-            masked = mask_phone_number(num)
-            markup.add(InlineKeyboardButton(f"📞 {masked} (Lấy ngay)", callback_data=f"getnum_{code}_{page}_{num}"))
-            
-        nav_buttons = []
-        if page > 0:
-            nav_buttons.append(InlineKeyboardButton("⬅️ Trang trước", callback_data=f"country_{code}_{page-1}"))
-        if (page + 1) * 6 < total:
-            nav_buttons.append(InlineKeyboardButton("Trang sau ➡️", callback_data=f"country_{code}_{page+1}"))
-        if nav_buttons:
-            markup.row(*nav_buttons)
-            
-        markup.add(InlineKeyboardButton("🔙 Chọn Quốc Gia Khác", callback_data="open_countries"))
-        
-        try:
-            bot.edit_message_text(f"📋 <b>Danh sách số sẵn sàng ({code}):</b>", chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
-        except Exception:
-            pass
-
-    elif data.startswith("getnum_"):
-        parts = data.split("_")
-        code = parts[1]
-        phone = parts[3]
-
-        if is_phone_busy(phone):
-            bot.answer_callback_query(call.id, "❌ Số này vừa có người khác lấy mất rồi! Vui lòng chọn số khác.", show_alert=True)
-            return
-        
-        if chat_id in USER_ACTIVE_PHONES:
-            del USER_ACTIVE_PHONES[chat_id]
-
-        if phone not in PHONE_CREATION_TIME:
-            PHONE_CREATION_TIME[phone] = time.time()
-
-        elapsed = time.time() - PHONE_CREATION_TIME[phone]
-        remaining_time = 900 - elapsed
-        if remaining_time <= 0:
-            remove_number_from_file(phone)
-            bot.answer_callback_query(call.id, "⚠️ Số này đã hết thời hạn 15 phút tồn tại!", show_alert=True)
-            return
-
-        expire_time = time.time() + remaining_time
-        USER_ACTIVE_PHONES[chat_id] = {
-            "phone": phone,
-            "expire": expire_time,
-            "code": code,
-            "msg_id": msg_id
-        }
-        
-        text = (
-            "✅ <b>ĐÃ CẤP SỐ ĐỘC QUYỀN THÀNH CÔNG!</b>\n"
-            "-----------------------------------\n"
-            f"📞 <b>Số điện thoại:</b> <code>{phone}</code>\n"
-            "💬 <b>Trạng thái:</b> Đang chờ mã OTP từ dịch vụ...\n"
-            f"⏳ <i>Số này còn lại khoảng {int(remaining_time/60)} phút tổng thời gian sống. Nếu bạn hủy, số sẽ được trả về kho cho người khác lụm!</i>"
-        )
-        markup = InlineKeyboardMarkup(row_width=1)
-        markup.add(InlineKeyboardButton("🔄 Kiểm tra tin nhắn ngay", callback_data=f"checksms_{phone}"))
-        markup.add(InlineKeyboardButton("🔄 Đổi số mới ngay", callback_data=f"nextnum_{code}_{phone}"))
-        markup.add(InlineKeyboardButton("❌ Hủy số / Về Menu", callback_data=f"cancelnum_{phone}"))
-        
-        try:
-            bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
-            bot.answer_callback_query(call.id, "Đã lấy số thành công!", show_alert=False)
-        except Exception:
-            pass
-
-    elif data.startswith("nextnum_"):
-        parts = data.split("_")
-        code = parts[1]
-        old_phone = parts[2]
-
-        if chat_id in USER_ACTIVE_PHONES:
-            del USER_ACTIVE_PHONES[chat_id]
-        if old_phone in OTP_ACTIVE_SESSIONS:
-            del OTP_ACTIVE_SESSIONS[old_phone]
-
-        available_nums, _ = get_numbers_by_category(code, page=0, limit=50)
-        available_nums = [n for n in available_nums if n != old_phone]
-
-        if not available_nums:
-            bot.answer_callback_query(call.id, "⚠️ Đã hết số khác trong danh mục này rồi!", show_alert=True)
-            call.data = "open_countries"
-            handle_callbacks(call)
-            return
-
-        new_phone = random.choice(available_nums)
-
-        if new_phone not in PHONE_CREATION_TIME:
-            PHONE_CREATION_TIME[new_phone] = time.time()
-
-        elapsed = time.time() - PHONE_CREATION_TIME[new_phone]
-        remaining_time = 900 - elapsed
-        if remaining_time <= 0:
-            remove_number_from_file(new_phone)
-            bot.answer_callback_query(call.id, "⚠️ Số này đã hết hạn!", show_alert=True)
-            return
-
-        expire_time = time.time() + remaining_time
-        USER_ACTIVE_PHONES[chat_id] = {
-            "phone": new_phone,
-            "expire": expire_time,
-            "code": code,
-            "msg_id": msg_id
-        }
-
-        text = (
-            "✅ <b>ĐÃ ĐỔI SỐ MỚI THÀNH CÔNG!</b>\n"
-            "-----------------------------------\n"
-            f"📞 <b>Số điện thoại mới:</b> <code>{new_phone}</code>\n"
-            "💬 <b>Trạng thái:</b> Đang chờ mã OTP từ dịch vụ...\n"
-            f"⏳ <i>Số này còn lại khoảng {int(remaining_time/60)} phút tổng thời gian sống.</i>"
-        )
-        markup = InlineKeyboardMarkup(row_width=1)
-        markup.add(InlineKeyboardButton("🔄 Kiểm tra tin nhắn ngay", callback_data=f"checksms_{new_phone}"))
-        markup.add(InlineKeyboardButton("🔄 Đổi số mới ngay", callback_data=f"nextnum_{code}_{new_phone}"))
-        markup.add(InlineKeyboardButton("❌ Hủy số / Về Menu", callback_data=f"cancelnum_{new_phone}"))
-
-        try:
-            bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
-            bot.answer_callback_query(call.id, "Đã đổi sang số mới thành công!", show_alert=False)
-        except Exception:
-            pass
-
-    elif data.startswith("cancelnum_"):
-        phone = data.replace("cancelnum_", "")
-        if chat_id in USER_ACTIVE_PHONES:
-            del USER_ACTIVE_PHONES[chat_id]
-        if phone in OTP_ACTIVE_SESSIONS:
-            del OTP_ACTIVE_SESSIONS[phone]
-
-        bot.answer_callback_query(call.id, "Đã hủy số và trả lại kho chung cho người khác.", show_alert=False)
-        
-        text = "👋 Bạn đã hủy số thành công. Số này đã được trả về kho chung. Chào mừng bạn quay lại menu chính!"
-        markup = InlineKeyboardMarkup(row_width=2)
-        markup.add(
-            InlineKeyboardButton("📲 Bắt đầu Lấy Số", callback_data="open_countries"),
-            InlineKeyboardButton("💰 Số dư / Ví", callback_data="my_wallet")
-        )
-        markup.add(
-            InlineKeyboardButton("👥 Giới thiệu", callback_data="refer_earn"),
-            InlineKeyboardButton("📊 Thống kê", callback_data="my_stats")
-        )
-        markup.add(InlineKeyboardButton("💬 Hỗ trợ", url=GROUP_OTP_LINK))
-        if uid == ADMIN_ID:
-            markup.add(InlineKeyboardButton("👑 Bảng Điều Khiển Admin", callback_data="admin_panel"))
-            
-        try:
-            bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
-        except Exception:
-            pass
-
-    elif data.startswith("checksms_"):
-        phone = data.replace("checksms_", "")
-        if phone in OTP_ACTIVE_SESSIONS and OTP_ACTIVE_SESSIONS[phone]["otp"] != "PENDING":
-            info = OTP_ACTIVE_SESSIONS[phone]
-            send_auto_otp(chat_id, phone, info["otp"], user_id=uid, user_name=call.from_user.first_name, msg_id=msg_id)
-            bot.answer_callback_query(call.id, "Đã tìm thấy mã OTP gần nhất!", show_alert=False)
-        else:
-            bot.answer_callback_query(call.id, "Chưa có tin nhắn OTP nào cho số này. Thử lại sau ít giây!", show_alert=True)
-
-    elif data.startswith("copy_"):
-        otp_val = data.replace("copy_", "")
-        bot.answer_callback_query(call.id, f"Đã copy mã OTP: {otp_val}", show_alert=False)
-
-    elif data == "my_wallet":
-        user_info = get_user(uid, call.from_user.first_name, call.from_user.username or "")
-        settings = load_settings()
-        balance = user_info.get("balance", 0.0)
-        min_w = settings.get("min_withdraw", 5.0)
-        
-        text = (
-            "💰 <b>VÍ TÀI KHOẢN & THÔNG TIN CÁ NHÂN</b>\n"
-            "-----------------------------------\n"
-            f"👤 <b>Họ và tên:</b> {user_info.get('name')}\n"
-            f"🆔 <b>Telegram ID:</b> <code>{uid}</code>\n"
-            f"📅 <b>Ngày đăng ký:</b> {user_info.get('joined_at')}\n"
-            f"💵 <b>Số dư hiện tại:</b> <code>${balance:.4f}</code>\n"
-            f"📉 <b>Hạn mức rút tối thiểu:</b> <code>${min_w:.1f}</code>\n"
-            f"⚡ <b>Phí giao dịch rút:</b> <code>0% (Miễn phí)</code>\n"
-        )
-        markup = InlineKeyboardMarkup(row_width=1)
-        markup.add(
-            InlineKeyboardButton("💸 Yêu cầu Rút tiền (USDT - Mạng TON)", callback_data="request_withdraw"),
-            InlineKeyboardButton("📜 Lịch sử & Trạng thái rút", callback_data="withdraw_history"),
-            InlineKeyboardButton("🔙 Quay lại Menu Chính", callback_data="back_home")
-        )
-        try:
-            bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
-        except Exception:
-            pass
-
-    elif data == "request_withdraw":
-        user_info = get_user(uid)
-        settings = load_settings()
-        balance = user_info.get("balance", 0.0)
-        min_w = settings.get("min_withdraw", 5.0)
-        
-        if balance < min_w:
-            bot.answer_callback_query(call.id, f"Số dư chưa đủ để rút! Tối thiểu cần ${min_w:.1f}", show_alert=True)
-        else:
-            USER_WITHDRAW_STATE[uid] = True
-            markup = InlineKeyboardMarkup()
-            markup.add(InlineKeyboardButton("❌ Hủy bỏ & Quay lại", callback_data="cancel_withdraw"))
-            try:
-                bot.edit_message_text(
-                    "📥 <b>HỆ THỐNG RÚT TIỀN TỰ ĐỘNG</b>\n"
-                    "-----------------------------------\n"
-                    "💎 <b>Loại tài sản:</b> USDT (Mạng TON)\n"
-                    "💸 <b>Phí rút tiền:</b> <code>0% (Miễn phí hoàn toàn)</code>\n\n"
-                    "👇 <b>HÀNH ĐỘNG CẦN LÀM:</b>\n"
-                    "Vui lòng nhập trực tiếp địa chỉ ví <b>USDT mạng TON</b> của bạn vào ô chat bên dưới:\n"
-                    "<i>(Ví chuẩn TON phải bắt đầu bằng <b>EQ</b> hoặc <b>UQ</b> và có đúng <b>48 ký tự</b>).</i>",
-                    chat_id, msg_id, parse_mode="HTML", reply_markup=markup
-                )
-            except Exception:
-                pass
-
-    elif data == "cancel_withdraw":
-        USER_WITHDRAW_STATE.pop(uid, None)
-        USER_PENDING_WALLET.pop(uid, None)
-        bot.answer_callback_query(call.id, "Đã hủy yêu cầu rút tiền.", show_alert=False)
-        call.data = "my_wallet"
-        handle_callbacks(call)
-
-    elif data == "confirm_withdraw_action":
-        wallet_addr = USER_PENDING_WALLET.pop(uid, None)
-        USER_WITHDRAW_STATE.pop(uid, None)
-        
-        if not wallet_addr:
-            bot.answer_callback_query(call.id, "Phiên giao dịch đã hết hạn, vui lòng thao tác lại!", show_alert=True)
-            return
-            
-        settings = load_settings()
-        users_db = load_json_db(USERS_FILE)
-        uid_str = str(uid)
-        min_w = settings.get("min_withdraw", 5.0)
-        
-        if uid_str in users_db:
-            with_amount = users_db[uid_str]["balance"]
-            if with_amount < min_w:
-                bot.answer_callback_query(call.id, f"Số dư không đủ hạn mức rút tối thiểu (${min_w:.1f})!", show_alert=True)
+            countries = get_available_countries()
+            if not countries:
+                bot.answer_callback_query(call.id, "Kho số hiện tại đang trống hoặc đang cập nhật!", show_alert=True)
                 return
                 
-            users_db[uid_str]["balance"] = 0.0
-            save_json_db(USERS_FILE, users_db)
+            markup = InlineKeyboardMarkup(row_width=1)
+            for code, label in countries.items():
+                markup.add(InlineKeyboardButton(label, callback_data=f"country_{code}_0"))
+            markup.add(InlineKeyboardButton("🔙 Quay lại", callback_data="back_home"))
             
-            current_time_str = datetime.datetime.now().strftime('%H:%M:%S - %d/%m/%Y')
-            history_db = load_json_db(WITHDRAW_HISTORY_FILE)
-            if uid_str not in history_db:
-                history_db[uid_str] = []
+            try:
+                bot.edit_message_text("🌍 <b>Chọn Quốc Gia Cần Lấy Số:</b>", chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
+            except Exception:
+                pass
+
+        elif data.startswith("country_"):
+            parts = data.split("_")
+            code = parts[1]
+            page = int(parts[2])
+            
+            numbers, total = get_numbers_by_category(code, page)
+            if not numbers:
+                bot.answer_callback_query(call.id, "Hết số trong danh mục này!", show_alert=True)
+                return
                 
-            history_db[uid_str].append({
-                "amount": with_amount,
-                "wallet": wallet_addr,
-                "status": "⏳ Đang chờ duyệt",
-                "time": current_time_str
-            })
-            save_json_db(WITHDRAW_HISTORY_FILE, history_db)
+            markup = InlineKeyboardMarkup(row_width=1)
+            for num in numbers:
+                masked = mask_phone_number(num)
+                markup.add(InlineKeyboardButton(f"📞 {masked} (Lấy ngay)", callback_data=f"getnum_{code}_{page}_{num}"))
+                
+            nav_buttons = []
+            if page > 0:
+                nav_buttons.append(InlineKeyboardButton("⬅️ Trang trước", callback_data=f"country_{code}_{page-1}"))
+            if (page + 1) * 6 < total:
+                nav_buttons.append(InlineKeyboardButton("Trang sau ➡️", callback_data=f"country_{code}_{page+1}"))
+            if nav_buttons:
+                markup.row(*nav_buttons)
+                
+            markup.add(InlineKeyboardButton("🔙 Chọn Quốc Gia Khác", callback_data="open_countries"))
             
-            user_info = get_user(uid)
-            admin_text = (
-                "💸 <b>YÊU CẦU RÚT TIỀN MỚI (0% PHÍ)</b>\n"
+            try:
+                bot.edit_message_text(f"📋 <b>Danh sách số sẵn sàng ({code}):</b>", chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
+            except Exception:
+                pass
+
+        elif data.startswith("getnum_"):
+            parts = data.split("_")
+            code = parts[1]
+            phone = parts[3]
+
+            if is_phone_busy(phone):
+                bot.answer_callback_query(call.id, "❌ Số này vừa có người khác lấy mất rồi! Vui lòng chọn số khác.", show_alert=True)
+                return
+            
+            if chat_id in USER_ACTIVE_PHONES:
+                del USER_ACTIVE_PHONES[chat_id]
+
+            if phone not in PHONE_CREATION_TIME:
+                PHONE_CREATION_TIME[phone] = time.time()
+
+            elapsed = time.time() - PHONE_CREATION_TIME[phone]
+            remaining_time = 900 - elapsed
+            if remaining_time <= 0:
+                remove_number_from_file(phone)
+                bot.answer_callback_query(call.id, "⚠️ Số này đã hết thời hạn 15 phút tồn tại!", show_alert=True)
+                return
+
+            expire_time = time.time() + remaining_time
+            USER_ACTIVE_PHONES[chat_id] = {
+                "phone": phone,
+                "expire": expire_time,
+                "code": code,
+                "msg_id": msg_id
+            }
+            
+            text = (
+                "✅ <b>ĐÃ CẤP SỐ ĐỘC QUYỀN THÀNH CÔNG!</b>\n"
                 "-----------------------------------\n"
-                f"👤 <b>Họ tên người rút:</b> {user_info.get('name')}\n"
-                f"🆔 <b>Telegram ID:</b> <code>{uid}</code>\n"
-                f"🔗 <b>Username:</b> @{user_info.get('username', 'Không có')}\n"
-                f"💵 <b>Số tiền rút:</b> <code>${with_amount:.4f} USDT</code>\n"
-                f"💎 <b>Mạng lưới:</b> TON Network\n"
-                f"📤 <b>Địa chỉ ví TON:</b> <code>{wallet_addr}</code>\n"
-                f"⏰ <b>Thời gian thực:</b> {current_time_str}"
+                f"📞 <b>Số điện thoại:</b> <code>{phone}</code>\n"
+                "💬 <b>Trạng thái:</b> Đang chờ mã OTP từ dịch vụ...\n"
+                f"⏳ <i>Số này còn lại khoảng {int(remaining_time/60)} phút tổng thời gian sống. Nếu bạn hủy, số sẽ được trả về kho cho người khác lụm!</i>"
             )
+            markup = InlineKeyboardMarkup(row_width=1)
+            markup.add(InlineKeyboardButton("🔄 Kiểm tra tin nhắn ngay", callback_data=f"checksms_{phone}"))
+            markup.add(InlineKeyboardButton("🔄 Đổi số mới ngay", callback_data=f"nextnum_{code}_{phone}"))
+            markup.add(InlineKeyboardButton("❌ Hủy số / Về Menu", callback_data=f"cancelnum_{phone}"))
             
-            markup_admin = InlineKeyboardMarkup()
-            markup_admin.add(InlineKeyboardButton("💸 Vào Menu Duyệt Lệnh", callback_data="admin_view_withdraws"))
             try:
-                bot.send_message(ADMIN_ID, admin_text, parse_mode="HTML", reply_markup=markup_admin)
-            except Exception as e:
-                print(f"Lỗi gửi thông báo cho Admin: {e}")
+                bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
+                bot.answer_callback_query(call.id, "Đã lấy số thành công!", show_alert=False)
+            except Exception:
+                pass
+
+        elif data.startswith("nextnum_"):
+            parts = data.split("_")
+            code = parts[1]
+            old_phone = parts[2]
+
+            if chat_id in USER_ACTIVE_PHONES:
+                del USER_ACTIVE_PHONES[chat_id]
+            if old_phone in OTP_ACTIVE_SESSIONS:
+                del OTP_ACTIVE_SESSIONS[old_phone]
+
+            available_nums, _ = get_numbers_by_category(code, page=0, limit=50)
+            available_nums = [n for n in available_nums if n != old_phone]
+
+            if not available_nums:
+                bot.answer_callback_query(call.id, "⚠️ Đã hết số khác trong danh mục này rồi!", show_alert=True)
+                call.data = "open_countries"
+                handle_callbacks(call)
+                return
+
+            new_phone = random.choice(available_nums)
+
+            if new_phone not in PHONE_CREATION_TIME:
+                PHONE_CREATION_TIME[new_phone] = time.time()
+
+            elapsed = time.time() - PHONE_CREATION_TIME[new_phone]
+            remaining_time = 900 - elapsed
+            if remaining_time <= 0:
+                remove_number_from_file(new_phone)
+                bot.answer_callback_query(call.id, "⚠️ Số này đã hết hạn!", show_alert=True)
+                return
+
+            expire_time = time.time() + remaining_time
+            USER_ACTIVE_PHONES[chat_id] = {
+                "phone": new_phone,
+                "expire": expire_time,
+                "code": code,
+                "msg_id": msg_id
+            }
+
+            text = (
+                "✅ <b>ĐÃ ĐỔI SỐ MỚI THÀNH CÔNG!</b>\n"
+                "-----------------------------------\n"
+                f"📞 <b>Số điện thoại mới:</b> <code>{new_phone}</code>\n"
+                "💬 <b>Trạng thái:</b> Đang chờ mã OTP từ dịch vụ...\n"
+                f"⏳ <i>Số này còn lại khoảng {int(remaining_time/60)} phút tổng thời gian sống.</i>"
+            )
+            markup = InlineKeyboardMarkup(row_width=1)
+            markup.add(InlineKeyboardButton("🔄 Kiểm tra tin nhắn ngay", callback_data=f"checksms_{new_phone}"))
+            markup.add(InlineKeyboardButton("🔄 Đổi số mới ngay", callback_data=f"nextnum_{code}_{new_phone}"))
+            markup.add(InlineKeyboardButton("❌ Hủy số / Về Menu", callback_data=f"cancelnum_{new_phone}"))
+
+            try:
+                bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
+                bot.answer_callback_query(call.id, "Đã đổi sang số mới thành công!", show_alert=False)
+            except Exception:
+                pass
+
+        elif data.startswith("cancelnum_"):
+            phone = data.replace("cancelnum_", "")
+            if chat_id in USER_ACTIVE_PHONES:
+                del USER_ACTIVE_PHONES[chat_id]
+            if phone in OTP_ACTIVE_SESSIONS:
+                del OTP_ACTIVE_SESSIONS[phone]
+
+            bot.answer_callback_query(call.id, "Đã hủy số và trả lại kho chung cho người khác.", show_alert=False)
+            
+            text = "👋 Bạn đã hủy số thành công. Số này đã được trả về kho chung. Chào mừng bạn quay lại menu chính!"
+            markup = InlineKeyboardMarkup(row_width=2)
+            markup.add(
+                InlineKeyboardButton("📲 Bắt đầu Lấy Số", callback_data="open_countries"),
+                InlineKeyboardButton("💰 Số dư / Ví", callback_data="my_wallet")
+            )
+            markup.add(
+                InlineKeyboardButton("👥 Giới thiệu", callback_data="refer_earn"),
+                InlineKeyboardButton("📊 Thống kê", callback_data="my_stats")
+            )
+            markup.add(InlineKeyboardButton("💬 Hỗ trợ", url=GROUP_OTP_LINK))
+            if uid == ADMIN_ID:
+                markup.add(InlineKeyboardButton("👑 Bảng Điều Khiển Admin", callback_data="admin_panel"))
                 
+            try:
+                bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
+            except Exception:
+                pass
+
+        elif data.startswith("checksms_"):
+            phone = data.replace("checksms_", "")
+            if phone in OTP_ACTIVE_SESSIONS and OTP_ACTIVE_SESSIONS[phone]["otp"] != "PENDING":
+                info = OTP_ACTIVE_SESSIONS[phone]
+                send_auto_otp(chat_id, phone, info["otp"], user_id=uid, user_name=call.from_user.first_name, msg_id=msg_id)
+                bot.answer_callback_query(call.id, "Đã tìm thấy mã OTP gần nhất!", show_alert=False)
+            else:
+                bot.answer_callback_query(call.id, "Chưa có tin nhắn OTP nào cho số này. Thử lại sau ít giây!", show_alert=True)
+
+        elif data.startswith("copy_"):
+            otp_val = data.replace("copy_", "")
+            bot.answer_callback_query(call.id, f"Đã copy mã OTP: {otp_val}", show_alert=False)
+
+        elif data == "my_wallet":
+            user_info = get_user(uid, call.from_user.first_name, call.from_user.username or "")
+            settings = load_settings()
+            balance = user_info.get("balance", 0.0)
+            min_w = settings.get("min_withdraw", 5.0)
+            
+            text = (
+                "💰 <b>VÍ TÀI KHOẢN & THÔNG TIN CÁ NHÂN</b>\n"
+                "-----------------------------------\n"
+                f"👤 <b>Họ và tên:</b> {user_info.get('name')}\n"
+                f"🆔 <b>Telegram ID:</b> <code>{uid}</code>\n"
+                f"📅 <b>Ngày đăng ký:</b> {user_info.get('joined_at')}\n"
+                f"💵 <b>Số dư hiện tại:</b> <code>${balance:.4f}</code>\n"
+                f"📉 <b>Hạn mức rút tối thiểu:</b> <code>${min_w:.1f}</code>\n"
+                f"⚡ <b>Phí giao dịch rút:</b> <code>0% (Miễn phí)</code>\n"
+            )
+            markup = InlineKeyboardMarkup(row_width=1)
+            markup.add(
+                InlineKeyboardButton("💸 Yêu cầu Rút tiền (USDT - Mạng TON)", callback_data="request_withdraw"),
+                InlineKeyboardButton("📜 Lịch sử & Trạng thái rút", callback_data="withdraw_history"),
+                InlineKeyboardButton("🔙 Quay lại Menu Chính", callback_data="back_home")
+            )
+            try:
+                bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
+            except Exception:
+                pass
+
+        elif data == "request_withdraw":
+            user_info = get_user(uid)
+            settings = load_settings()
+            balance = user_info.get("balance", 0.0)
+            min_w = settings.get("min_withdraw", 5.0)
+            
+            if balance < min_w:
+                bot.answer_callback_query(call.id, f"Số dư chưa đủ để rút! Tối thiểu cần ${min_w:.1f}", show_alert=True)
+            else:
+                USER_WITHDRAW_STATE[uid] = True
+                markup = InlineKeyboardMarkup()
+                markup.add(InlineKeyboardButton("❌ Hủy bỏ & Quay lại", callback_data="cancel_withdraw"))
+                try:
+                    bot.edit_message_text(
+                        "📥 <b>HỆ THỐNG RÚT TIỀN TỰ ĐỘNG</b>\n"
+                        "-----------------------------------\n"
+                        "💎 <b>Loại tài sản:</b> USDT (Mạng TON)\n"
+                        "💸 <b>Phí rút tiền:</b> <code>0% (Miễn phí hoàn toàn)</code>\n\n"
+                        "👇 <b>HÀNH ĐỘNG CẦN LÀM:</b>\n"
+                        "Vui lòng nhập trực tiếp địa chỉ ví <b>USDT mạng TON</b> của bạn vào ô chat bên dưới:\n"
+                        "<i>(Ví chuẩn TON phải bắt đầu bằng <b>EQ</b> hoặc <b>UQ</b> và có đúng <b>48 ký tự</b>).</i>",
+                        chat_id, msg_id, parse_mode="HTML", reply_markup=markup
+                    )
+                except Exception:
+                    pass
+
+        elif data == "cancel_withdraw":
+            USER_WITHDRAW_STATE.pop(uid, None)
+            USER_PENDING_WALLET.pop(uid, None)
+            bot.answer_callback_query(call.id, "Đã hủy yêu cầu rút tiền.", show_alert=False)
+            call.data = "my_wallet"
+            handle_callbacks(call)
+
+        elif data == "confirm_withdraw_action":
+            wallet_addr = USER_PENDING_WALLET.pop(uid, None)
+            USER_WITHDRAW_STATE.pop(uid, None)
+            
+            if not wallet_addr:
+                bot.answer_callback_query(call.id, "Phiên giao dịch đã hết hạn, vui lòng thao tác lại!", show_alert=True)
+                return
+                
+            settings = load_settings()
+            users_db = load_json_db(USERS_FILE)
+            uid_str = str(uid)
+            min_w = settings.get("min_withdraw", 5.0)
+            
+            if uid_str in users_db:
+                with_amount = users_db[uid_str]["balance"]
+                if with_amount < min_w:
+                    bot.answer_callback_query(call.id, f"Số dư không đủ hạn mức rút tối thiểu (${min_w:.1f})!", show_alert=True)
+                    return
+                    
+                users_db[uid_str]["balance"] = 0.0
+                save_json_db(USERS_FILE, users_db)
+                
+                current_time_str = datetime.datetime.now().strftime('%H:%M:%S - %d/%m/%Y')
+                history_db = load_json_db(WITHDRAW_HISTORY_FILE)
+                if uid_str not in history_db:
+                    history_db[uid_str] = []
+                    
+                history_db[uid_str].append({
+                    "amount": with_amount,
+                    "wallet": wallet_addr,
+                    "status": "⏳ Đang chờ duyệt",
+                    "time": current_time_str
+                })
+                save_json_db(WITHDRAW_HISTORY_FILE, history_db)
+                
+                user_info = get_user(uid)
+                admin_text = (
+                    "💸 <b>YÊU CẦU RÚT TIỀN MỚI (0% PHÍ)</b>\n"
+                    "-----------------------------------\n"
+                    f"👤 <b>Họ tên người rút:</b> {user_info.get('name')}\n"
+                    f"🆔 <b>Telegram ID:</b> <code>{uid}</code>\n"
+                    f"🔗 <b>Username:</b> @{user_info.get('username', 'Không có')}\n"
+                    f"💵 <b>Số tiền rút:</b> <code>${with_amount:.4f} USDT</code>\n"
+                    f"💎 <b>Mạng lưới:</b> TON Network\n"
+                    f"📤 <b>Địa chỉ ví TON:</b> <code>{wallet_addr}</code>\n"
+                    f"⏰ <b>Thời gian thực:</b> {current_time_str}"
+                )
+                
+                markup_admin = InlineKeyboardMarkup()
+                markup_admin.add(InlineKeyboardButton("💸 Vào Menu Duyệt Lệnh", callback_data="admin_view_withdraws"))
+                try:
+                    bot.send_message(ADMIN_ID, admin_text, parse_mode="HTML", reply_markup=markup_admin)
+                except Exception as e:
+                    print(f"Lỗi gửi thông báo cho Admin: {e}")
+                    
+                markup = InlineKeyboardMarkup()
+                markup.add(InlineKeyboardButton("📜 Xem Lịch sử & Trạng thái rút", callback_data="withdraw_history"))
+                markup.add(InlineKeyboardButton("🔙 Về Menu Chính", callback_data="back_home"))
+                
+                try:
+                    bot.edit_message_text(
+                        "✅ <b>GỬI YÊU CẦU RÚT TIỀN THÀNH CÔNG!</b>\n"
+                        "-----------------------------------\n"
+                        f"💵 Số tiền: <b>${with_amount:.4f} USDT</b>\n"
+                        f"⚡ Phí giao dịch: <b>0% (Miễn phí)</b>\n"
+                        f"📤 Ví nhận (TON): <code>{wallet_addr}</code>\n"
+                        f"📌 Trạng thái: <b>⏳ Đang chờ duyệt</b>\n"
+                        f"⏰ Thời điểm: <i>{current_time_str}</i>\n\n"
+                        "⏳ Yêu cầu của bạn đã được gửi trực tiếp đến Admin để xử lý!",
+                        chat_id, msg_id, parse_mode="HTML", reply_markup=markup
+                    )
+                except Exception:
+                    pass
+
+        elif data == "withdraw_history":
+            history_db = load_json_db(WITHDRAW_HISTORY_FILE)
+            uid_str = str(uid)
+            user_histories = history_db.get(uid_str, [])
+            
+            text = (
+                "📜 <b>LỊCH SỬ & TRẠNG THÁI RÚT TIỀN</b>\n"
+                "-----------------------------------\n"
+            )
+            if not user_histories:
+                text += "<i>Bạn chưa có lịch sử yêu cầu rút tiền nào.</i>"
+            else:
+                for idx, item in enumerate(user_histories[::-1], 1):
+                    text += (
+                        f"<b>#{idx}. Số tiền:</b> <code>${item.get('amount'):.4f} USDT</code>\n"
+                        f"📤 <b>Ví TON:</b> <code>{item.get('wallet')}</code>\n"
+                        f"📌 <b>Trạng thái:</b> <b>{item.get('status')}</b>\n"
+                        f"⏰ <b>Thời gian:</b> <i>{item.get('time')}</i>\n"
+                        "-----------------------------------\n"
+                    )
+                    
             markup = InlineKeyboardMarkup()
-            markup.add(InlineKeyboardButton("📜 Xem Lịch sử & Trạng thái rút", callback_data="withdraw_history"))
-            markup.add(InlineKeyboardButton("🔙 Về Menu Chính", callback_data="back_home"))
-            
+            markup.add(InlineKeyboardButton("🔙 Quay lại Ví", callback_data="my_wallet"))
             try:
-                bot.edit_message_text(
-                    "✅ <b>GỬI YÊU CẦU RÚT TIỀN THÀNH CÔNG!</b>\n"
-                    "-----------------------------------\n"
-                    f"💵 Số tiền: <b>${with_amount:.4f} USDT</b>\n"
-                    f"⚡ Phí giao dịch: <b>0% (Miễn phí)</b>\n"
-                    f"📤 Ví nhận (TON): <code>{wallet_addr}</code>\n"
-                    f"📌 Trạng thái: <b>⏳ Đang chờ duyệt</b>\n"
-                    f"⏰ Thời điểm: <i>{current_time_str}</i>\n\n"
-                    "⏳ Yêu cầu của bạn đã được gửi trực tiếp đến Admin để xử lý!",
-                    chat_id, msg_id, parse_mode="HTML", reply_markup=markup
-                )
+                bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
             except Exception:
                 pass
 
-    elif data == "withdraw_history":
-        history_db = load_json_db(WITHDRAW_HISTORY_FILE)
-        uid_str = str(uid)
-        user_histories = history_db.get(uid_str, [])
-        
-        text = (
-            "📜 <b>LỊCH SỬ & TRẠNG THÁI RÚT TIỀN</b>\n"
-            "-----------------------------------\n"
-        )
-        if not user_histories:
-            text += "<i>Bạn chưa có lịch sử yêu cầu rút tiền nào.</i>"
-        else:
-            for idx, item in enumerate(user_histories[::-1], 1):
-                text += (
-                    f"<b>#{idx}. Số tiền:</b> <code>${item.get('amount'):.4f} USDT</code>\n"
-                    f"📤 <b>Ví TON:</b> <code>{item.get('wallet')}</code>\n"
-                    f"📌 <b>Trạng thái:</b> <b>{item.get('status')}</b>\n"
-                    f"⏰ <b>Thời gian:</b> <i>{item.get('time')}</i>\n"
-                    "-----------------------------------\n"
-                )
+        elif data == "refer_earn":
+            bot_info = bot.get_me()
+            ref_link = f"https://t.me/{bot_info.username}?start={uid}"
+            user_info = get_user(uid)
+            settings = load_settings()
+            bonus = settings.get("refer_bonus", 0.01)
+            
+            text = (
+                "👥 <b>CHƯƠNG TRÌNH GIỚI THIỆU BẠN BÈ</b>\n"
+                "-----------------------------------\n"
+                f"🎁 <b>Thưởng mỗi lượt mời:</b> <code>${bonus:.2f}</code>\n"
+                f"📊 <b>Tổng số bạn đã mời:</b> <b>{user_info.get('referrals', 0)}</b> người\n"
+                f"💵 <b>Tổng tiền hoa hồng:</b> <code>${user_info.get('referral_earnings', 0.0):.4f}</code>\n\n"
+                "🔗 <b>Link giới thiệu của bạn:</b>\n"
+                f"<code>{ref_link}</code>"
+            )
+            markup = InlineKeyboardMarkup()
+            markup.add(InlineKeyboardButton("🔙 Quay lại", callback_data="back_home"))
+            try:
+                bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
+            except Exception:
+                pass
+
+        elif data == "my_stats":
+            stats = load_json_db(STATS_FILE)
+            uid_str = str(uid)
+            my_count = stats.get(uid_str, {}).get("count", 0)
+            
+            text = (
+                "📊 <b>Thống kê cá nhân:</b>\n"
+                f"👤 <b>Tên:</b> {call.from_user.first_name}\n"
+                f"🆔 <b>Telegram ID:</b> <code>{uid}</code>\n"
+                f"🔑 <b>Tổng số OTP nhận thành công:</b> <b>{my_count}</b> mã\n"
+            )
+            markup = InlineKeyboardMarkup()
+            markup.add(InlineKeyboardButton("🔙 Quay lại", callback_data="back_home"))
+            try:
+                bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
+            except Exception:
+                pass
+
+        elif data == "back_home":
+            USER_WITHDRAW_STATE.pop(uid, None)
+            USER_PENDING_WALLET.pop(uid, None)
+            text = "👋 Chào mừng bạn quay lại menu chính của **IVASMS OTP Global**!"
+            markup = InlineKeyboardMarkup(row_width=2)
+            markup.add(
+                InlineKeyboardButton("📲 Bắt đầu Lấy Số", callback_data="open_countries"),
+                InlineKeyboardButton("💰 Số dư / Ví", callback_data="my_wallet")
+            )
+            markup.add(
+                InlineKeyboardButton("👥 Giới thiệu", callback_data="refer_earn"),
+                InlineKeyboardButton("📊 Thống kê", callback_data="my_stats")
+            )
+            markup.add(InlineKeyboardButton("💬 Hỗ trợ", url=GROUP_OTP_LINK))
+            if uid == ADMIN_ID:
+                markup.add(InlineKeyboardButton("👑 Bảng Điều Khiển Admin", callback_data="admin_panel"))
+            try:
+                bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
+            except Exception:
+                pass
+
+        elif data == "admin_panel" and uid == ADMIN_ID:
+            users = load_json_db(USERS_FILE)
+            spam_data = load_json_db(SPAM_TRACKER_FILE)
+            text = (
+                "👑 <b>BẢNG ĐIỀU KHIỂN ADMIN TỐI CAO</b>\n"
+                "-----------------------------------\n"
+                f"👥 Tổng số user: <b>{len(users)}</b>\n"
+                f"📊 Tổng số stock: <b>{sum(len(d['numbers']) for d in COUNTRY_CACHE.values())}</b>\n"
+                f"🛡 Tài khoản bị phạt/khóa: <b>{len(spam_data)}</b>\n"
+            )
+            markup = InlineKeyboardMarkup(row_width=1)
+            markup.add(
+                InlineKeyboardButton("🏆 Top Số Dư User (Kiểm tra gian lận)", callback_data="admin_top_balances"),
+                InlineKeyboardButton("👥 Danh sách User Đăng Ký", callback_data="admin_view_users"),
+                InlineKeyboardButton("💸 Duyệt Lệnh Rút Tiền", callback_data="admin_view_withdraws"),
+                InlineKeyboardButton("🔄 Nạp Batch Số Mới", callback_data="admin_reload"),
+                InlineKeyboardButton("🛡 Quản lý & Mở khóa Spam", callback_data="admin_users"),
+                InlineKeyboardButton("🔙 Quay lại Menu Chính", callback_data="back_home")
+            )
+            try:
+                bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
+            except Exception:
+                pass
+
+        elif data == "admin_top_balances" and uid == ADMIN_ID:
+            users_db = load_json_db(USERS_FILE)
+            text = "🏆 <b>BẢNG TOP SỐ DƯ NGƯỜI DÙNG (KIỂM TRA GIAN LẬN):</b>\n\n"
+            if not users_db:
+                text += "<i>Chưa có dữ liệu người dùng.</i>"
+            else:
+                sorted_users = sorted(users_db.values(), key=lambda x: x.get('balance', 0.0), reverse=True)
+                for idx, u_info in enumerate(sorted_users[:15], 1):
+                    text += (
+                        f"<b>#{idx}</b> | 👤 <b>{u_info.get('name')}</b> (@{u_info.get('username')})\n"
+                        f"🆔 ID: <code>{u_info.get('id')}</code>\n"
+                        f"💵 <b>Số dư:</b> <code>${u_info.get('balance', 0.0):.4f}</code>\n"
+                        "-----------------------------------\n"
+                    )
+            markup = InlineKeyboardMarkup()
+            markup.add(InlineKeyboardButton("🔙 Quay lại Admin Panel", callback_data="admin_panel"))
+            try:
+                bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
+            except Exception:
+                pass
+
+        elif data == "admin_view_users" and uid == ADMIN_ID:
+            users_db = load_json_db(USERS_FILE)
+            text = "👥 <b>DANH SÁCH NGƯỜI DÙNG ĐĂNG KÝ:</b>\n\n"
+            if not users_db:
+                text += "<i>Chưa có người dùng nào đăng ký.</i>"
+            else:
+                for u_id, u_info in list(users_db.items())[-10:]:
+                    text += (
+                        f"👤 <b>Tên:</b> {u_info.get('name')}\n"
+                        f"🆔 <b>ID:</b> <code>{u_info.get('id')}</code>\n"
+                        f"🔗 <b>Username:</b> @{u_info.get('username')}\n"
+                        f"💵 <b>Số dư:</b> <code>${u_info.get('balance', 0.0):.4f}</code>\n"
+                        f"📅 <b>Đăng ký lúc:</b> {u_info.get('joined_at')}\n"
+                        "-----------------------------------\n"
+                    )
+            markup = InlineKeyboardMarkup()
+            markup.add(InlineKeyboardButton("🔙 Quay lại Admin Panel", callback_data="admin_panel"))
+            try:
+                bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
+            except Exception:
+                pass
+
+        elif data == "admin_view_withdraws" and uid == ADMIN_ID:
+            history_db = load_json_db(WITHDRAW_HISTORY_FILE)
+            pending_items = []
+            for u_id, items in history_db.items():
+                for idx, it in enumerate(items):
+                    if "⏳" in it.get("status", ""):
+                        pending_items.append((u_id, idx, it))
+
+            if not pending_items:
+                bot.answer_callback_query(call.id, "Hiện không có lệnh rút tiền nào đang chờ duyệt!", show_alert=True)
+                return
+
+            text = "💸 <b>DANH SÁCH LỆNH RÚT ĐANG CHỜ DUYỆT:</b>\n\n"
+            markup = InlineKeyboardMarkup(row_width=1)
+            for u_id, idx, it in pending_items[:5]:
+                text += f"• ID: <code>{u_id}</code> | <b>${it.get('amount'):.4f}</b> | <code>{it.get('wallet')[:10]}...</code>\n"
+                markup.add(InlineKeyboardButton(f"✅ Duyệt thanh toán ID {u_id} (${it.get('amount')})", callback_data=f"done_w_{u_id}_{idx}"))
+
+            markup.add(InlineKeyboardButton("🔙 Quay lại Admin Panel", callback_data="admin_panel"))
+            try:
+                bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
+            except Exception:
+                pass
+
+        elif data.startswith("done_w_") and uid == ADMIN_ID:
+            parts = data.split("_")
+            target_uid = parts[2]
+            item_idx = int(parts[3])
+            
+            history_db = load_json_db(WITHDRAW_HISTORY_FILE)
+            if target_uid in history_db and len(history_db[target_uid]) > item_idx:
+                history_db[target_uid][item_idx]["status"] = "✅ Đã thanh toán thành công"
+                save_json_db(WITHDRAW_HISTORY_FILE, history_db)
                 
-        markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("🔙 Quay lại Ví", callback_data="my_wallet"))
-        try:
-            bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
-        except Exception:
-            pass
+                try:
+                    bot.send_message(
+                        int(target_uid),
+                        f"🎉 <b>YÊU CẦU RÚT TIỀN ĐÃ ĐƯỢC DUYỆT!</b>\n"
+                        f"💵 Số tiền: <b>${history_db[target_uid][item_idx]['amount']:.4f} USDT</b>\n"
+                        f"📤 Ví nhận: <code>{history_db[target_uid][item_idx]['wallet']}</code>\n"
+                        f"📌 Trạng thái: <b>✅ Đã chuyển tiền thành công qua mạng TON!</b>",
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
 
-    elif data == "refer_earn":
-        bot_info = bot.get_me()
-        ref_link = f"https://t.me/{bot_info.username}?start={uid}"
-        user_info = get_user(uid)
-        settings = load_settings()
-        bonus = settings.get("refer_bonus", 0.01)
-        
-        text = (
-            "👥 <b>CHƯƠNG TRÌNH GIỚI THIỆU BẠN BÈ</b>\n"
-            "-----------------------------------\n"
-            f"🎁 <b>Thưởng mỗi lượt mời:</b> <code>${bonus:.2f}</code>\n"
-            f"📊 <b>Tổng số bạn đã mời:</b> <b>{user_info.get('referrals', 0)}</b> người\n"
-            f"💵 <b>Tổng tiền hoa hồng:</b> <code>${user_info.get('referral_earnings', 0.0):.4f}</code>\n\n"
-            "🔗 <b>Link giới thiệu của bạn:</b>\n"
-            f"<code>{ref_link}</code>"
-        )
-        markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("🔙 Quay lại", callback_data="back_home"))
-        try:
-            bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
-        except Exception:
-            pass
+                bot.answer_callback_query(call.id, "Đã duyệt và cập nhật trạng thái thành công!", show_alert=True)
+                call.data = "admin_view_withdraws"
+                handle_callbacks(call)
+            else:
+                bot.answer_callback_query(call.id, "Không tìm thấy dữ liệu lệnh rút này!", show_alert=True)
 
-    elif data == "my_stats":
-        stats = load_json_db(STATS_FILE)
-        uid_str = str(uid)
-        my_count = stats.get(uid_str, {}).get("count", 0)
-        
-        text = (
-            "📊 <b>Thống kê cá nhân:</b>\n"
-            f"👤 <b>Tên:</b> {call.from_user.first_name}\n"
-            f"🆔 <b>Telegram ID:</b> <code>{uid}</code>\n"
-            f"🔑 <b>Tổng số OTP nhận thành công:</b> <b>{my_count}</b> mã\n"
-        )
-        markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("🔙 Quay lại", callback_data="back_home"))
-        try:
-            bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
-        except Exception:
-            pass
+        elif data == "admin_reload" and uid == ADMIN_ID:
+            success, res = load_text_batch(reset=False)
+            if success:
+                bot.answer_callback_query(call.id, f"Đã nạp thành công: {res} số!", show_alert=True)
+            else:
+                bot.answer_callback_query(call.id, f"Lỗi: {res}", show_alert=True)
 
-    elif data == "back_home":
-        USER_WITHDRAW_STATE.pop(uid, None)
-        USER_PENDING_WALLET.pop(uid, None)
-        text = "👋 Chào mừng bạn quay lại menu chính của **IVASMS OTP Global**!"
-        markup = InlineKeyboardMarkup(row_width=2)
-        markup.add(
-            InlineKeyboardButton("📲 Bắt đầu Lấy Số", callback_data="open_countries"),
-            InlineKeyboardButton("💰 Số dư / Ví", callback_data="my_wallet")
-        )
-        markup.add(
-            InlineKeyboardButton("👥 Giới thiệu", callback_data="refer_earn"),
-            InlineKeyboardButton("📊 Thống kê", callback_data="my_stats")
-        )
-        markup.add(InlineKeyboardButton("💬 Hỗ trợ", url=GROUP_OTP_LINK))
-        if uid == ADMIN_ID:
-            markup.add(InlineKeyboardButton("👑 Bảng Điều Khiển Admin", callback_data="admin_panel"))
-        try:
-            bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
-        except Exception:
-            pass
-
-    elif data == "admin_panel" and uid == ADMIN_ID:
-        users = load_json_db(USERS_FILE)
-        spam_data = load_json_db(SPAM_TRACKER_FILE)
-        text = (
-            "👑 <b>BẢNG ĐIỀU KHIỂN ADMIN TỐI CAO</b>\n"
-            "-----------------------------------\n"
-            f"👥 Tổng số user: <b>{len(users)}</b>\n"
-            f"📊 Tổng số stock: <b>{sum(len(d['numbers']) for d in COUNTRY_CACHE.values())}</b>\n"
-            f"🛡 Tài khoản bị phạt/khóa: <b>{len(spam_data)}</b>\n"
-        )
-        markup = InlineKeyboardMarkup(row_width=1)
-        markup.add(
-            InlineKeyboardButton("🏆 Top Số Dư User (Kiểm tra gian lận)", callback_data="admin_top_balances"),
-            InlineKeyboardButton("👥 Danh sách User Đăng Ký", callback_data="admin_view_users"),
-            InlineKeyboardButton("💸 Duyệt Lệnh Rút Tiền", callback_data="admin_view_withdraws"),
-            InlineKeyboardButton("🔄 Nạp Batch Số Mới", callback_data="admin_reload"),
-            InlineKeyboardButton("🛡 Quản lý & Mở khóa Spam", callback_data="admin_users"),
-            InlineKeyboardButton("🔙 Quay lại Menu Chính", callback_data="back_home")
-        )
-        try:
-            bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
-        except Exception:
-            pass
-
-    elif data == "admin_top_balances" and uid == ADMIN_ID:
-        users_db = load_json_db(USERS_FILE)
-        text = "🏆 <b>BẢNG TOP SỐ DƯ NGƯỜI DÙNG (KIỂM TRA GIAN LẬN):</b>\n\n"
-        if not users_db:
-            text += "<i>Chưa có dữ liệu người dùng.</i>"
-        else:
-            sorted_users = sorted(users_db.values(), key=lambda x: x.get('balance', 0.0), reverse=True)
-            for idx, u_info in enumerate(sorted_users[:15], 1):
-                text += (
-                    f"<b>#{idx}</b> | 👤 <b>{u_info.get('name')}</b> (@{u_info.get('username')})\n"
-                    f"🆔 ID: <code>{u_info.get('id')}</code>\n"
-                    f"💵 <b>Số dư:</b> <code>${u_info.get('balance', 0.0):.4f}</code>\n"
-                    "-----------------------------------\n"
-                )
-        markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("🔙 Quay lại Admin Panel", callback_data="admin_panel"))
-        try:
-            bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
-        except Exception:
-            pass
-
-    elif data == "admin_view_users" and uid == ADMIN_ID:
-        users_db = load_json_db(USERS_FILE)
-        text = "👥 <b>DANH SÁCH NGƯỜI DÙNG ĐĂNG KÝ:</b>\n\n"
-        if not users_db:
-            text += "<i>Chưa có người dùng nào đăng ký.</i>"
-        else:
-            for u_id, u_info in list(users_db.items())[-10:]:
-                text += (
-                    f"👤 <b>Tên:</b> {u_info.get('name')}\n"
-                    f"🆔 <b>ID:</b> <code>{u_info.get('id')}</code>\n"
-                    f"🔗 <b>Username:</b> @{u_info.get('username')}\n"
-                    f"💵 <b>Số dư:</b> <code>${u_info.get('balance', 0.0):.4f}</code>\n"
-                    f"📅 <b>Đăng ký lúc:</b> {u_info.get('joined_at')}\n"
-                    "-----------------------------------\n"
-                )
-        markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("🔙 Quay lại Admin Panel", callback_data="admin_panel"))
-        try:
-            bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
-        except Exception:
-            pass
-
-    elif data == "admin_view_withdraws" and uid == ADMIN_ID:
-        history_db = load_json_db(WITHDRAW_HISTORY_FILE)
-        pending_items = []
-        for u_id, items in history_db.items():
-            for idx, it in enumerate(items):
-                if "⏳" in it.get("status", ""):
-                    pending_items.append((u_id, idx, it))
-
-        if not pending_items:
-            bot.answer_callback_query(call.id, "Hiện không có lệnh rút tiền nào đang chờ duyệt!", show_alert=True)
-            return
-
-        text = "💸 <b>DANH SÁCH LỆNH RÚT ĐANG CHỜ DUYỆT:</b>\n\n"
-        markup = InlineKeyboardMarkup(row_width=1)
-        for u_id, idx, it in pending_items[:5]:
-            text += f"• ID: <code>{u_id}</code> | <b>${it.get('amount'):.4f}</b> | <code>{it.get('wallet')[:10]}...</code>\n"
-            markup.add(InlineKeyboardButton(f"✅ Duyệt thanh toán ID {u_id} (${it.get('amount')})", callback_data=f"done_w_{u_id}_{idx}"))
-
-        markup.add(InlineKeyboardButton("🔙 Quay lại Admin Panel", callback_data="admin_panel"))
-        try:
-            bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
-        except Exception:
-            pass
-
-    elif data.startswith("done_w_") and uid == ADMIN_ID:
-        parts = data.split("_")
-        target_uid = parts[2]
-        item_idx = int(parts[3])
-        
-        history_db = load_json_db(WITHDRAW_HISTORY_FILE)
-        if target_uid in history_db and len(history_db[target_uid]) > item_idx:
-            history_db[target_uid][item_idx]["status"] = "✅ Đã thanh toán thành công"
-            save_json_db(WITHDRAW_HISTORY_FILE, history_db)
-            
+        elif data == "admin_users" and uid == ADMIN_ID:
+            spam_data = load_json_db(SPAM_TRACKER_FILE)
+            text = f"🛡 <b>Danh sách tài khoản đang vi phạm / bị khóa:</b>\n\n"
+            markup = InlineKeyboardMarkup(row_width=1)
+            if not spam_data:
+                text += "<i>Hiện không có user nào bị phạt.</i>"
+            else:
+                for s_id, info in spam_data.items():
+                    b_type = "Vĩnh viễn" if info.get('ban_until') == 0 else "Tạm thời"
+                    text += f"• ID: <code>{s_id}</code> | Tên: {info.get('name')} | Vi phạm: {info.get('count')} lần ({b_type})\n"
+                    markup.add(InlineKeyboardButton(f"🔓 Mở khóa ID: {s_id}", callback_data=f"unban_{s_id}"))
+            markup.add(InlineKeyboardButton("🔙 Quay lại Admin Panel", callback_data="admin_panel"))
             try:
-                bot.send_message(
-                    int(target_uid),
-                    f"🎉 <b>YÊU CẦU RÚT TIỀN ĐÃ ĐƯỢC DUYỆT!</b>\n"
-                    f"💵 Số tiền: <b>${history_db[target_uid][item_idx]['amount']:.4f} USDT</b>\n"
-                    f"📤 Ví nhận: <code>{history_db[target_uid][item_idx]['wallet']}</code>\n"
-                    f"📌 Trạng thái: <b>✅ Đã chuyển tiền thành công qua mạng TON!</b>",
-                    parse_mode="HTML"
-                )
+                bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
             except Exception:
                 pass
 
-            bot.answer_callback_query(call.id, "Đã duyệt và cập nhật trạng thái thành công!", show_alert=True)
-            call.data = "admin_view_withdraws"
-            handle_callbacks(call)
-        else:
-            bot.answer_callback_query(call.id, "Không tìm thấy dữ liệu lệnh rút này!", show_alert=True)
-
-    elif data == "admin_reload" and uid == ADMIN_ID:
-        success, res = load_text_batch(reset=False)
-        if success:
-            bot.answer_callback_query(call.id, f"Đã nạp thành công: {res} số!", show_alert=True)
-        else:
-            bot.answer_callback_query(call.id, f"Lỗi: {res}", show_alert=True)
-
-    elif data == "admin_users" and uid == ADMIN_ID:
-        spam_data = load_json_db(SPAM_TRACKER_FILE)
-        text = f"🛡 <b>Danh sách tài khoản đang vi phạm / bị khóa:</b>\n\n"
-        markup = InlineKeyboardMarkup(row_width=1)
-        if not spam_data:
-            text += "<i>Hiện không có user nào bị phạt.</i>"
-        else:
-            for s_id, info in spam_data.items():
-                b_type = "Vĩnh viễn" if info.get('ban_until') == 0 else "Tạm thời"
-                text += f"• ID: <code>{s_id}</code> | Tên: {info.get('name')} | Vi phạm: {info.get('count')} lần ({b_type})\n"
-                markup.add(InlineKeyboardButton(f"🔓 Mở khóa ID: {s_id}", callback_data=f"unban_{s_id}"))
-        markup.add(InlineKeyboardButton("🔙 Quay lại Admin Panel", callback_data="admin_panel"))
-        try:
-            bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
-        except Exception:
-            pass
-
-    elif data.startswith("unban_") and uid == ADMIN_ID:
-        target_uid = data.replace("unban_", "")
-        if unban_user_manual(target_uid):
-            bot.answer_callback_query(call.id, f"Đã gỡ khóa thành công cho ID: {target_uid}", show_alert=True)
-            call.data = "admin_users"
-            handle_callbacks(call)
-        else:
-            bot.answer_callback_query(call.id, "Không tìm thấy user này trong danh sách phạt!", show_alert=True)
+        elif data.startswith("unban_") and uid == ADMIN_ID:
+            target_uid = data.replace("unban_", "")
+            if unban_user_manual(target_uid):
+                bot.answer_callback_query(call.id, f"Đã gỡ khóa thành công cho ID: {target_uid}", show_alert=True)
+                call.data = "admin_users"
+                handle_callbacks(call)
+            else:
+                bot.answer_callback_query(call.id, "Không tìm thấy user này trong danh sách phạt!", show_alert=True)
+    except Exception as e:
+        print(f"Lỗi trong handle_callbacks: {e}")
 
 # ==========================================
 # 💸 13. XỬ LÝ NHẬP VÍ & HIỂN THỊ BẢNG XÁC NHẬN
@@ -1338,7 +1343,7 @@ def handle_withdraw_address(message):
     bot.send_message(uid, confirm_text, parse_mode="HTML", reply_markup=markup)
 
 # ==========================================
-# 🚀 14. KHỞI ĐỘNG HỆ THỐNG AN TOÀN TRÁNH LỖI NGẮT KẾT NỐI
+# 🚀 14. KHỞI ĐỘNG HỆ THỐNG AN TOÀN TUYỆT ĐỐI
 # ==========================================
 if __name__ == "__main__":
     t_scanner = threading.Thread(target=background_sms_scanner, daemon=True)
@@ -1347,7 +1352,7 @@ if __name__ == "__main__":
     t_web = threading.Thread(target=run_web, daemon=True)
     t_web.start()
     
-    print("🤖 Bot Telegram IVASMS (Đã fix triệt để lỗi callback đơ nút cũ) đang chạy...")
+    print("🤖 Bot Telegram IVASMS (Đã fix bọc try-except toàn diện chống sập luồng) đang chạy...")
     
     while True:
         try:
