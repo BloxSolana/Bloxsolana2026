@@ -116,7 +116,6 @@ def update_balance(uid, amount):
         save_json_db(USERS_FILE, users)
         return users[uid_str]["balance"]
     else:
-        # Tạo mới nếu chưa có trong DB
         get_user(uid)
         return update_balance(uid, amount)
     return 0.0
@@ -488,7 +487,7 @@ def background_sms_scanner():
         time.sleep(3)
 
 # ==========================================
-# 🛠️ 10. CÁC LỆNH TEST & KIỂM TRA DÀNH CHO ADMIN
+# 🛠️ 10. CÁC LỆNH TEST & QUẢN LÝ DÀNH CHO ADMIN
 # ==========================================
 @bot.message_handler(commands=['adminhelp'])
 def cmd_admin_help(message):
@@ -498,13 +497,11 @@ def cmd_admin_help(message):
         "👑 <b>BẢNG LỆNH TEST & KIỂM TRA DÀNH CHO ADMIN</b>\n"
         "-----------------------------------\n"
         "💰 <b>/addmoney [số tiền]</b> hoặc <b>[ID] [số tiền]</b>\n"
-        "   <i>Cộng tiền ảo vào ví để test rút tiền (Ví dụ: /addmoney 10).</i>\n\n"
+        "   <i>Cộng tiền ảo vào ví để test rút tiền.</i>\n\n"
         "✏️ <b>/setbal [ID_User] [số tiền]</b>\n"
-        "   <i>Đặt lại chính xác số dư cho một user cụ thể.</i>\n\n"
+        "   <i>Đặt lại chính xác số dư cho user.</i>\n\n"
         "🔍 <b>/userinfo [ID_User]</b>\n"
-        "   <i>Xem chi tiết thông tin, số dư, lượt giới thiệu của user.</i>\n\n"
-        "🛡 <b>/adminhelp</b>\n"
-        "   <i>Hiển thị bảng trợ giúp lệnh Admin này.</i>"
+        "   <i>Xem chi tiết thông tin user.</i>"
     )
     bot.send_message(message.chat.id, help_text, parse_mode="HTML")
 
@@ -532,7 +529,7 @@ def cmd_admin_add_money(message):
             parse_mode="HTML"
         )
     except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Lỗi cú pháp! Dùng: <code>/addmoney [số_tiền]</code> hoặc <code>/addmoney [id] [số_tiền]</code>", parse_mode="HTML")
+        bot.send_message(message.chat.id, f"❌ Lỗi cú pháp! Dùng: <code>/addmoney [số_tiền]</code>", parse_mode="HTML")
 
 @bot.message_handler(commands=['setbal'])
 def cmd_admin_set_balance(message):
@@ -552,9 +549,9 @@ def cmd_admin_set_balance(message):
             save_json_db(USERS_FILE, users)
             bot.send_message(message.chat.id, f"✅ Đã đặt lại số dư của ID <code>{target_uid}</code> thành <code>${amount:.4f}</code>", parse_mode="HTML")
         else:
-            bot.send_message(message.chat.id, f"❌ Không tìm thấy User ID: {target_uid} trong cơ sở dữ liệu!")
+            bot.send_message(message.chat.id, f"❌ Không tìm thấy User ID: {target_uid}!")
     except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Lỗi thực thi: {e}")
+        bot.send_message(message.chat.id, f"❌ Lỗi: {e}")
 
 @bot.message_handler(commands=['userinfo'])
 def cmd_admin_user_info(message):
@@ -562,28 +559,21 @@ def cmd_admin_user_info(message):
         return
     args = message.text.split()
     try:
-        if len(args) < 2:
-            target_uid = str(message.from_user.id)
-        else:
-            target_uid = str(args[1])
-            
+        target_uid = str(args[1]) if len(args) >= 2 else str(message.from_user.id)
         users = load_json_db(USERS_FILE)
         if target_uid in users:
             u = users[target_uid]
             text = (
-                "👤 <b>THÔNG TIN CHI TIẾT USER (TEST)</b>\n"
+                "👤 <b>THÔNG TIN CHI TIẾT USER</b>\n"
                 "-----------------------------------\n"
                 f"📌 <b>Họ tên:</b> {u.get('name')}\n"
-                f"🔗 <b>Username:</b> @{u.get('username')}\n"
                 f"🆔 <b>Telegram ID:</b> <code>{u.get('id')}</code>\n"
                 f"💵 <b>Số dư:</b> <code>${u.get('balance', 0.0):.4f}</code>\n"
-                f"👥 <b>Số bạn giới thiệu:</b> {u.get('referrals', 0)} người\n"
-                f"💸 <b>Tiền hoa hồng:</b> ${u.get('referral_earnings', 0.0):.4f}\n"
                 f"📅 <b>Ngày đăng ký:</b> {u.get('joined_at')}"
             )
             bot.send_message(message.chat.id, text, parse_mode="HTML")
         else:
-            bot.send_message(message.chat.id, f"❌ Không tìm thấy dữ liệu của user ID: {target_uid}")
+            bot.send_message(message.chat.id, f"❌ Không tìm thấy user ID: {target_uid}")
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ Lỗi: {e}")
 
@@ -603,7 +593,6 @@ def cmd_start(message):
         
     get_user(uid, name, username)
     
-    # Xử lý link giới thiệu
     args = message.text.split()
     if len(args) > 1 and args[1].isdigit():
         ref_id = int(args[1])
@@ -785,8 +774,7 @@ def handle_callbacks(call):
                     "💸 <b>Phí rút tiền:</b> <code>0% (Miễn phí hoàn toàn)</code>\n\n"
                     "👇 <b>HÀNH ĐỘNG CẦN LÀM:</b>\n"
                     "Vui lòng nhập trực tiếp địa chỉ ví <b>USDT mạng TON</b> của bạn vào ô chat bên dưới:\n"
-                    "<i>(Ví chuẩn TON phải bắt đầu bằng <b>EQ</b> hoặc <b>UQ</b> và có đúng <b>48 ký tự</b>).</i>\n\n"
-                    "⚠️ <i>Lưu ý: Sau khi gửi ví lên khung chat, hệ thống sẽ tự động kiểm tra định dạng và tạo lệnh rút!</i>",
+                    "<i>(Ví chuẩn TON phải bắt đầu bằng <b>EQ</b> hoặc <b>UQ</b> và có đúng <b>48 ký tự</b>).</i>",
                     call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup
                 )
             except Exception:
@@ -889,18 +877,72 @@ def handle_callbacks(call):
             "-----------------------------------\n"
             f"👥 Tổng số user: <b>{len(users)}</b>\n"
             f"📊 Tổng số stock: <b>{sum(len(d['numbers']) for d in COUNTRY_CACHE.values())}</b>\n"
-            f"🛡 Số tài khoản đang bị phạt/khóa: <b>{len(spam_data)}</b>\n"
+            f"🛡 Tài khoản bị phạt/khóa: <b>{len(spam_data)}</b>\n"
         )
-        markup = InlineKeyboardMarkup(row_width=2)
+        markup = InlineKeyboardMarkup(row_width=1)
         markup.add(
+            InlineKeyboardButton("💸 Duyệt Lệnh Rút Tiền", callback_data="admin_view_withdraws"),
             InlineKeyboardButton("🔄 Nạp Batch Số Mới", callback_data="admin_reload"),
-            InlineKeyboardButton("🛡 Quản lý & Mở khóa Spam", callback_data="admin_users")
+            InlineKeyboardButton("🛡 Quản lý & Mở khóa Spam", callback_data="admin_users"),
+            InlineKeyboardButton("🔙 Quay lại Menu Chính", callback_data="back_home")
         )
-        markup.add(InlineKeyboardButton("🔙 Quay lại Menu Chính", callback_data="back_home"))
         try:
             bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
         except Exception:
             pass
+
+    elif data == "admin_view_withdraws" and uid == ADMIN_ID:
+        history_db = load_json_db(WITHDRAW_HISTORY_FILE)
+        pending_items = []
+        for u_id, items in history_db.items():
+            for idx, it in enumerate(items):
+                if "⏳" in it.get("status", ""):
+                    pending_items.append((u_id, idx, it))
+
+        if not pending_items:
+            bot.answer_callback_query(call.id, "Hiện không có lệnh rút tiền nào đang chờ duyệt!", show_alert=True)
+            return
+
+        text = "💸 <b>DANH SÁCH LỆNH RÚT ĐANG CHỜ DUYỆT:</b>\n\n"
+        markup = InlineKeyboardMarkup(row_width=1)
+        for u_id, idx, it in pending_items[:5]: # Hiển thị 5 lệnh chờ gần nhất
+            text += f"• ID: <code>{u_id}</code> | <b>${it.get('amount'):.4f}</b> | <code>{it.get('wallet')[:10]}...</code>\n"
+            markup.add(InlineKeyboardButton(f"✅ Duyệt thanh toán ID {u_id} (${it.get('amount')})", callback_data=f"done_w_{u_id}_{idx}"))
+
+        markup.add(InlineKeyboardButton("🔙 Quay lại Admin Panel", callback_data="admin_panel"))
+        try:
+            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+        except Exception:
+            pass
+
+    elif data.startswith("done_w_") and uid == ADMIN_ID:
+        parts = data.split("_")
+        target_uid = parts[2]
+        item_idx = int(parts[3])
+        
+        history_db = load_json_db(WITHDRAW_HISTORY_FILE)
+        if target_uid in history_db and len(history_db[target_uid]) > item_idx:
+            history_db[target_uid][item_idx]["status"] = "✅ Đã thanh toán thành công"
+            save_json_db(WITHDRAW_HISTORY_FILE, history_db)
+            
+            # Gửi tin nhắn thông báo cho user đó
+            try:
+                bot.send_message(
+                    int(target_uid),
+                    f"🎉 <b>YÊU CẦU RÚT TIỀN ĐÃ ĐƯỢC DUYỆT!</b>\n"
+                    f"💵 Số tiền: <b>${history_db[target_uid][item_idx]['amount']:.4f} USDT</b>\n"
+                    f"📤 Ví nhận: <code>{history_db[target_uid][item_idx]['wallet']}</code>\n"
+                    f"📌 Trạng thái: <b>✅ Đã chuyển tiền thành công qua mạng TON!</b>",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+
+            bot.answer_callback_query(call.id, "Đã duyệt và cập nhật trạng thái thành công!", show_alert=True)
+            call.data = "admin_view_withdraws"
+            handle_callbacks(call)
+        else:
+            bot.answer_callback_query(call.id, "Không tìm thấy dữ liệu lệnh rút này!", show_alert=True)
 
     elif data == "admin_reload" and uid == ADMIN_ID:
         success, res = load_text_batch(reset=False)
@@ -912,7 +954,6 @@ def handle_callbacks(call):
     elif data == "admin_users" and uid == ADMIN_ID:
         spam_data = load_json_db(SPAM_TRACKER_FILE)
         text = f"🛡 <b>Danh sách tài khoản đang vi phạm / bị khóa:</b>\n\n"
-        
         markup = InlineKeyboardMarkup(row_width=1)
         if not spam_data:
             text += "<i>Hiện không có user nào bị phạt.</i>"
@@ -921,7 +962,6 @@ def handle_callbacks(call):
                 b_type = "Vĩnh viễn" if info.get('ban_until') == 0 else "Tạm thời"
                 text += f"• ID: <code>{s_id}</code> | Tên: {info.get('name')} | Vi phạm: {info.get('count')} lần ({b_type})\n"
                 markup.add(InlineKeyboardButton(f"🔓 Mở khóa ID: {s_id}", callback_data=f"unban_{s_id}"))
-                
         markup.add(InlineKeyboardButton("🔙 Quay lại Admin Panel", callback_data="admin_panel"))
         try:
             bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
@@ -949,16 +989,13 @@ def handle_withdraw_address(message):
         USER_WITHDRAW_STATE.pop(uid, None)
         return
         
-    # Regex kiểm tra chính xác ví TON chuẩn (Bắt đầu EQ hoặc UQ, tổng đúng 48 ký tự)
     TON_ADDRESS_REGEX = re.compile(r'^(EQ|UQ)[A-Za-z0-9\-_]{46}$')
     if not TON_ADDRESS_REGEX.match(wallet_addr):
         bot.send_message(
             uid,
             "❌ <b>ĐỊA CHỈ VÍ KHÔNG HỢP LỆ!</b>\n\n"
-            "Hệ thống kiểm tra thấy địa chỉ ví bạn vừa nhập <b>không đúng chuẩn mạng TON</b>.\n"
-            "• Ví USDT mạng TON phải bắt đầu bằng <b>EQ</b> hoặc <b>UQ</b>.\n"
-            "• Tổng chiều dài phải chính xác <b>48 ký tự</b>.\n\n"
-            "Vui lòng kiểm tra lại ví của bạn (Tonkeeper, Telegram Wallet...) và gửi lại chính xác:",
+            "Ví USDT mạng TON phải bắt đầu bằng <b>EQ</b> hoặc <b>UQ</b> và có đúng <b>48 ký tự</b>.\n"
+            "Vui lòng kiểm tra lại và gửi lại chính xác:",
             parse_mode="HTML"
         )
         return
@@ -977,11 +1014,9 @@ def handle_withdraw_address(message):
             bot.send_message(uid, f"❌ Số dư hiện tại (${with_amount:.4f}) không đủ hạn mức rút tối thiểu (${min_w:.1f})!")
             return
             
-        # Trừ tiền trong ví user
         users_db[uid_str]["balance"] = 0.0
         save_json_db(USERS_FILE, users_db)
         
-        # Lưu lịch sử rút tiền với thời gian thực
         current_time_str = datetime.datetime.now().strftime('%H:%M:%S - %d/%m/%Y')
         history_db = load_json_db(WITHDRAW_HISTORY_FILE)
         if uid_str not in history_db:
@@ -1026,7 +1061,7 @@ def handle_withdraw_address(message):
             f"📤 Ví nhận (TON): <code>{wallet_addr}</code>\n"
             f"📌 Trạng thái: <b>⏳ Đang chờ duyệt</b>\n"
             f"⏰ Thời điểm: <i>{current_time_str}</i>\n\n"
-            "⏳ Yêu cầu của bạn đã được ghi vào hệ thống và gửi đến Admin. Bạn có thể bấm nút bên dưới để theo dõi lịch sử:",
+            "⏳ Yêu cầu của bạn đã được gửi đến Admin để xử lý!",
             parse_mode="HTML",
             reply_markup=markup
         )
@@ -1041,7 +1076,7 @@ if __name__ == "__main__":
     t_web = threading.Thread(target=run_web, daemon=True)
     t_web.start()
     
-    print("🤖 Bot Telegram IVASMS (Auto Thu Hồi 5p + Bộ Lệnh Test Admin + Full 195+ Quốc Gia) đang chạy...")
+    print("🤖 Bot Telegram IVASMS (Auto Thu Hồi 5p + Duyệt Rút Admin + Full 195+ Quốc Gia) đang chạy...")
     
     while True:
         try:
