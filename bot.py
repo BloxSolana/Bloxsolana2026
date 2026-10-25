@@ -647,11 +647,12 @@ def handle_callbacks(call):
             f"📅 <b>Ngày đăng ký:</b> {user_info.get('joined_at')}\n"
             f"💵 <b>Số dư hiện tại:</b> <code>${balance:.4f}</code>\n"
             f"📉 <b>Hạn mức rút tối thiểu:</b> <code>${min_w:.1f}</code>\n"
+            f"⚡ <b>Phí giao dịch rút:</b> <code>0% (Miễn phí)</code>\n"
         )
-        markup = InlineKeyboardMarkup(row_width=2)
+        markup = InlineKeyboardMarkup(row_width=1)
         markup.add(
-            InlineKeyboardButton("💸 Yêu cầu Rút tiền (USDT TON)", callback_data="request_withdraw"),
-            InlineKeyboardButton("🔙 Quay lại", callback_data="back_home")
+            InlineKeyboardButton("💸 Yêu cầu Rút tiền (USDT - Mạng TON)", callback_data="request_withdraw"),
+            InlineKeyboardButton("🔙 Quay lại Menu Chính", callback_data="back_home")
         )
         try:
             bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
@@ -670,14 +671,16 @@ def handle_callbacks(call):
             # Kích hoạt trạng thái nhập ví TON
             USER_WITHDRAW_STATE[uid] = True
             markup = InlineKeyboardMarkup()
-            markup.add(InlineKeyboardButton("❌ Hủy bỏ", callback_data="my_wallet"))
+            markup.add(InlineKeyboardButton("❌ Hủy bỏ & Quay lại", callback_data="my_wallet"))
             try:
                 bot.edit_message_text(
-                    "📤 <b>YÊU CẦU RÚT TIỀN USDT (MẠNG TON)</b>\n"
+                    "📥 <b>HỆ THỐNG RÚT TIỀN TỰ ĐỘNG</b>\n"
                     "-----------------------------------\n"
-                    "Vui lòng gửi địa chỉ ví <b>USDT mạng TON</b> của bạn vào khung chat:\n"
-                    "<i>(Ví chuẩn TON phải bắt đầu bằng <b>EQ</b> hoặc <b>UQ</b> và có đúng 48 ký tự).</i>\n\n"
-                    "⚠️ <i>Lưu ý: Nhập sai mạng hoặc sai địa chỉ ví sẽ dẫn đến mất vĩnh viễn tài sản!</i>",
+                    "💎 <b>Loại tài sản:</b> USDT (Mạng TON)\n"
+                    "💸 <b>Phí rút tiền:</b> <code>0% (Miễn phí hoàn toàn)</code>\n\n"
+                    "👇 Vui lòng gửi địa chỉ ví <b>USDT mạng TON</b> của bạn vào khung chat bên dưới:\n"
+                    "<i>(Ví chuẩn TON phải bắt đầu bằng <b>EQ</b> hoặc <b>UQ</b> và có đúng <b>48 ký tự</b>).</i>\n\n"
+                    "⚠️ <i>Lưu ý: Hệ thống sẽ tự động quét đúng định dạng mạng TON để bảo vệ tài sản của bạn!</i>",
                     call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup
                 )
             except Exception:
@@ -801,7 +804,7 @@ def handle_callbacks(call):
             bot.answer_callback_query(call.id, "Không tìm thấy user này trong danh sách phạt!", show_alert=True)
 
 # ==========================================
-# 💸 12. XỬ LÝ NHẬP VÍ RÚT TIỀN USDT (MẠNG TON)
+# 💸 12. XỬ LÝ QUÉT & KIỂM TRA ĐỊNH DẠNG VÍ TON (0% PHÍ)
 # ==========================================
 @bot.message_handler(func=lambda message: USER_WITHDRAW_STATE.get(message.from_user.id, False))
 def handle_withdraw_address(message):
@@ -812,14 +815,16 @@ def handle_withdraw_address(message):
         USER_WITHDRAW_STATE.pop(uid, None)
         return
         
-    # Regex kiểm tra định dạng ví TON chuẩn (Bắt đầu bằng EQ hoặc UQ, tổng đúng 48 ký tự)
+    # Regex kiểm tra chính xác ví TON chuẩn (Bắt đầu EQ hoặc UQ, tổng đúng 48 ký tự)
     TON_ADDRESS_REGEX = re.compile(r'^(EQ|UQ)[A-Za-z0-9\-_]{46}$')
     if not TON_ADDRESS_REGEX.match(wallet_addr):
         bot.send_message(
             uid,
-            "❌ <b>Địa chỉ ví không hợp lệ!</b>\n"
-            "Ví USDT mạng TON phải bắt đầu bằng <b>EQ</b> hoặc <b>UQ</b> và có đúng <b>48 ký tự</b>.\n"
-            "Vui lòng kiểm tra lại ví của bạn (ví dụ từ Tonkeeper, Telegram Wallet...) và gửi lại:",
+            "❌ <b>ĐỊA CHỈ VÍ KHÔNG HỢP LỆ!</b>\n\n"
+            "Hệ thống kiểm tra thấy địa chỉ ví bạn vừa nhập <b>không đúng chuẩn mạng TON</b>.\n"
+            "• Ví USDT mạng TON phải bắt đầu bằng <b>EQ</b> hoặc <b>UQ</b>.\n"
+            "• Tổng chiều dài phải chính xác <b>48 ký tự</b>.\n\n"
+            "Vui lòng kiểm tra lại ví của bạn (Tonkeeper, Telegram Wallet...) và gửi lại chính xác:",
             parse_mode="HTML"
         )
         return
@@ -836,22 +841,23 @@ def handle_withdraw_address(message):
     if uid_str in users_db:
         with_amount = users_db[uid_str]["balance"]
         if with_amount < min_w:
-            bot.send_message(uid, f"❌ Số dư của bạn (${with_amount:.4f}) không đủ hạn mức rút tối thiểu (${min_w:.1f})!")
+            bot.send_message(uid, f"❌ Số dư hiện tại (${with_amount:.4f}) không đủ hạn mức rút tối thiểu (${min_w:.1f})!")
             return
             
-        # Trừ tiền trong ví
+        # Trừ tiền trong ví user
         users_db[uid_str]["balance"] = 0.0
         save_json_db(USERS_FILE, users_db)
         
-        # Gửi thông báo đến Admin
+        # Gửi thông báo chi tiết đến Admin
         admin_text = (
-            "💸 <b>YÊU CẦU RÚT TIỀN MỚI (USDT - MẠNG TON)</b>\n"
+            "💸 <b>YÊU CẦU RÚT TIỀN THÀNH CÔNG (0% PHÍ)</b>\n"
             "-----------------------------------\n"
             f"👤 <b>Họ tên:</b> {user_info.get('name')}\n"
             f"🆔 <b>Telegram ID:</b> <code>{uid}</code>\n"
             f"🔗 <b>Username:</b> @{user_info.get('username', 'Không có')}\n"
-            f"💵 <b>Số tiền rút:</b> <code>${with_amount:.4f}</code>\n"
-            f"📤 <b>Địa chỉ ví (TON):</b> <code>{wallet_addr}</code>\n"
+            f"💵 <b>Số tiền rút:</b> <code>${with_amount:.4f} USDT</code>\n"
+            f"💎 <b>Mạng lưới:</b> TON Network (Phí 0%)\n"
+            f"📤 <b>Địa chỉ ví đích:</b> <code>{wallet_addr}</code>\n"
             f"⏰ <b>Thời gian:</b> {datetime.datetime.now().strftime('%H:%M:%S - %d/%m/%Y')}"
         )
         
@@ -862,11 +868,12 @@ def handle_withdraw_address(message):
             
         bot.send_message(
             uid,
-            "✅ <b>Gửi yêu cầu rút tiền thành công!</b>\n"
+            "✅ <b>GỬI YÊU CẦU RÚT TIỀN THÀNH CÔNG!</b>\n"
             "-----------------------------------\n"
-            f"💵 Số tiền: <b>${with_amount:.4f}</b>\n"
+            f"💵 Số tiền: <b>${with_amount:.4f} USDT</b>\n"
+            f"⚡ Phí giao dịch: <b>0% (Miễn phí)</b>\n"
             f"📤 Ví nhận (Mạng TON): <code>{wallet_addr}</code>\n\n"
-            "⏳ Yêu cầu của bạn đã được gửi đến Admin. Tiền sẽ được thanh toán qua mạng TON sau khi được kiểm duyệt!",
+            "⏳ Địa chỉ ví của bạn đã vượt qua bộ lọc chuẩn mạng TON. Yêu cầu đã được gửi đến Admin để thanh toán!",
             parse_mode="HTML"
         )
 
@@ -880,5 +887,5 @@ if __name__ == "__main__":
     t_web = threading.Thread(target=run_web, daemon=True)
     t_web.start()
     
-    print("🤖 Bot Telegram IVASMS (Auto Thu Hồi 5p + Ví TON chuẩn + Full 195+ Quốc Gia) đang chạy...")
+    print("🤖 Bot Telegram IVASMS (Auto Thu Hồi 5p + Quét Ví TON 0% Phí + Full 195+ Quốc Gia) đang chạy...")
     bot.infinity_polling(skip_pending=True)
