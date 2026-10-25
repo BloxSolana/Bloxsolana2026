@@ -48,9 +48,9 @@ headers = {
     'X-Requested-With': 'XMLHttpRequest'
 }
 
-USER_ACTIVE_PHONES = {}      # {chat_id: {"phone": phone_num, "expire": time_luyen_tap, "code": country_code}}
+USER_ACTIVE_PHONES = {}      # {chat_id: {"phone": phone_num, "expire": time_luyen_tap, "code": country_code, "msg_id": message_id}}
 OTP_ACTIVE_SESSIONS = {}     # Các số đang chờ SMS hoặc đã có OTP
-PHONE_CREATION_TIME = {}     # {phone: timestamp} -> Theo dõi mốc thời gian 15 phút từ lúc số xuất hiện
+PHONE_CREATION_TIME = {}     # {phone: timestamp}
 LAST_SEEN_OTPS = {}          
 COUNTRY_CACHE = {}           
 CURRENT_FILE_POSITION = 0    
@@ -317,7 +317,7 @@ def broadcast_stock_updated(added_count, total_stock):
         pass
 
 # ==========================================
-# 🧹 8. TỰ ĐỘNG XÓA HẲN SỐ NẾU QUÁ 15 PHÚT TỪ LÚC TẠO
+# 🧹 8. TỰ ĐỘNG XÓA HẲN SỐ & TỰ KHÓA NÚT KHI HẾT 15P
 # ==========================================
 def clean_expired_sessions():
     now = time.time()
@@ -335,14 +335,15 @@ def clean_expired_sessions():
         
         for cid, info in list(USER_ACTIVE_PHONES.items()):
             if info.get("phone") == phone:
+                msg_id = info.get("msg_id")
                 del USER_ACTIVE_PHONES[cid]
                 try:
-                    bot.send_message(
-                        cid,
-                        "⏰ <b>ĐÃ HẾT TỔNG THỜI GIAN 15 PHÚT CỦA SỐ!</b>\n"
-                        "Số điện thoại này đã chính thức hết hạn và bị xóa vĩnh viễn khỏi hệ thống.",
-                        parse_mode="HTML"
-                    )
+                    if msg_id:
+                        bot.edit_message_text(
+                            f"⏰ <b>SỐ ĐIỆN THOẠI <code>{phone}</code> ĐÃ HẾT HẠN!</b>\n"
+                            "Số này đã quá thời hạn 15 phút tồn tại và bị xóa vĩnh viễn khỏi hệ thống.",
+                            cid, msg_id, parse_mode="HTML", reply_markup=None
+                        )
                 except Exception:
                     pass
 
@@ -359,7 +360,16 @@ def clean_expired_sessions():
             del OTP_ACTIVE_SESSIONS[p]
         for cid, active_info in list(USER_ACTIVE_PHONES.items()):
             if active_info.get("phone") == p:
+                msg_id = active_info.get("msg_id")
                 del USER_ACTIVE_PHONES[cid]
+                try:
+                    if msg_id:
+                        bot.edit_message_text(
+                            f"✅ <b>SỐ ĐIỆN THOẠI <code>{p}</code> ĐÃ HOÀN TẤT NHẬN OTP!</b>",
+                            cid, msg_id, parse_mode="HTML", reply_markup=None
+                        )
+                except Exception:
+                    pass
 
 def load_text_batch(reset=False):
     global COUNTRY_CACHE, CURRENT_FILE_POSITION
@@ -448,7 +458,7 @@ def get_available_countries():
 # ==========================================
 # ⚡ 9. GỬI OTP, CỘNG THƯỞNG & XÓA SỐ VĨNH VIỄN KHI HOÀN TẤT
 # ==========================================
-def send_auto_otp(chat_id, number, otp_code, full_msg="", user_id=None, user_name=None):
+def send_auto_otp(chat_id, number, otp_code, full_msg="", user_id=None, user_name=None, msg_id=None):
     settings = load_settings()
     reward = settings.get("otp_reward", 0.009)
     
@@ -469,6 +479,13 @@ def send_auto_otp(chat_id, number, otp_code, full_msg="", user_id=None, user_nam
     for cid, info in list(USER_ACTIVE_PHONES.items()):
         if info.get("phone") == number:
             del USER_ACTIVE_PHONES[cid]
+
+    # Tự động xóa nút bấm của bảng số đang hiển thị (nếu có)
+    if msg_id:
+        try:
+            bot.edit_message_reply_markup(chat_id, msg_id, reply_markup=None)
+        except Exception:
+            pass
 
     text = (
         "⚡️ <b>HỆ THỐNG XÁC THỰC TỰ ĐỘNG</b> ⚡️\n"
@@ -528,11 +545,13 @@ def fetch_and_parse_otps():
                                                 "time": current_time_str
                                             }
                                         target_cid = None
+                                        target_msg_id = None
                                         for cid, info in USER_ACTIVE_PHONES.items():
                                             if info.get("phone") == phone:
                                                 target_cid = cid
+                                                target_msg_id = info.get("msg_id")
                                                 break
-                                        found_otps.append((phone, otp, text_content, target_cid))
+                                        found_otps.append((phone, otp, text_content, target_cid, target_msg_id))
         except Exception as e:
             print(f"Lỗi quét SMS từ {url}: {e}")
     return found_otps
@@ -541,13 +560,13 @@ def background_sms_scanner():
     while True:
         try:
             results = fetch_and_parse_otps()
-            for phone, otp, full_msg, target_cid in results:
+            for phone, otp, full_msg, target_cid, target_msg_id in results:
                 sig = f"{phone}_{otp}"
                 if sig != LAST_SEEN_OTPS.get(phone):
                     LAST_SEEN_OTPS[phone] = sig
                     if target_cid:
                         user_info = get_user(target_cid)
-                        send_auto_otp(target_cid, phone, otp, full_msg, user_id=target_cid, user_name=user_info.get("name"))
+                        send_auto_otp(target_cid, phone, otp, full_msg, user_id=target_cid, user_name=user_info.get("name"), msg_id=target_msg_id)
         except Exception as e:
             print(f"Lỗi background scanner: {e}")
         time.sleep(3)
@@ -687,6 +706,7 @@ def handle_callbacks(call):
     uid = call.from_user.id
     data = call.data
     chat_id = call.message.chat.id
+    msg_id = call.message.message_id
     
     if data == "open_countries":
         if uid in USER_ACTIVE_PHONES:
@@ -705,7 +725,7 @@ def handle_callbacks(call):
         markup.add(InlineKeyboardButton("🔙 Quay lại", callback_data="back_home"))
         
         try:
-            bot.edit_message_text("🌍 <b>Chọn Quốc Gia Cần Lấy Số:</b>", chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+            bot.edit_message_text("🌍 <b>Chọn Quốc Gia Cần Lấy Số:</b>", chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
         except Exception:
             pass
 
@@ -735,7 +755,7 @@ def handle_callbacks(call):
         markup.add(InlineKeyboardButton("🔙 Chọn Quốc Gia Khác", callback_data="open_countries"))
         
         try:
-            bot.edit_message_text(f"📋 <b>Danh sách số sẵn sàng ({code}):</b>", chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+            bot.edit_message_text(f"📋 <b>Danh sách số sẵn sàng ({code}):</b>", chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
         except Exception:
             pass
 
@@ -765,7 +785,8 @@ def handle_callbacks(call):
         USER_ACTIVE_PHONES[chat_id] = {
             "phone": phone,
             "expire": expire_time,
-            "code": code
+            "code": code,
+            "msg_id": msg_id
         }
         
         text = (
@@ -781,7 +802,7 @@ def handle_callbacks(call):
         markup.add(InlineKeyboardButton("❌ Hủy số / Về Menu", callback_data=f"cancelnum_{phone}"))
         
         try:
-            bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+            bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
             bot.answer_callback_query(call.id, "Đã lấy số thành công!", show_alert=False)
         except Exception:
             pass
@@ -821,7 +842,8 @@ def handle_callbacks(call):
         USER_ACTIVE_PHONES[chat_id] = {
             "phone": new_phone,
             "expire": expire_time,
-            "code": code
+            "code": code,
+            "msg_id": msg_id
         }
 
         text = (
@@ -837,7 +859,7 @@ def handle_callbacks(call):
         markup.add(InlineKeyboardButton("❌ Hủy số / Về Menu", callback_data=f"cancelnum_{new_phone}"))
 
         try:
-            bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+            bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
             bot.answer_callback_query(call.id, "Đã đổi sang số mới thành công!", show_alert=False)
         except Exception:
             pass
@@ -866,7 +888,7 @@ def handle_callbacks(call):
             markup.add(InlineKeyboardButton("👑 Bảng Điều Khiển Admin", callback_data="admin_panel"))
             
         try:
-            bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+            bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
         except Exception:
             pass
 
@@ -874,7 +896,7 @@ def handle_callbacks(call):
         phone = data.replace("checksms_", "")
         if phone in OTP_ACTIVE_SESSIONS and OTP_ACTIVE_SESSIONS[phone]["otp"] != "PENDING":
             info = OTP_ACTIVE_SESSIONS[phone]
-            send_auto_otp(chat_id, phone, info["otp"], user_id=uid, user_name=call.from_user.first_name)
+            send_auto_otp(chat_id, phone, info["otp"], user_id=uid, user_name=call.from_user.first_name, msg_id=msg_id)
             bot.answer_callback_query(call.id, "Đã tìm thấy mã OTP gần nhất!", show_alert=False)
         else:
             bot.answer_callback_query(call.id, "Chưa có tin nhắn OTP nào cho số này. Thử lại sau ít giây!", show_alert=True)
@@ -906,7 +928,7 @@ def handle_callbacks(call):
             InlineKeyboardButton("🔙 Quay lại Menu Chính", callback_data="back_home")
         )
         try:
-            bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+            bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
         except Exception:
             pass
 
@@ -931,7 +953,7 @@ def handle_callbacks(call):
                     "👇 <b>HÀNH ĐỘNG CẦN LÀM:</b>\n"
                     "Vui lòng nhập trực tiếp địa chỉ ví <b>USDT mạng TON</b> của bạn vào ô chat bên dưới:\n"
                     "<i>(Ví chuẩn TON phải bắt đầu bằng <b>EQ</b> hoặc <b>UQ</b> và có đúng <b>48 ký tự</b>).</i>",
-                    chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup
+                    chat_id, msg_id, parse_mode="HTML", reply_markup=markup
                 )
             except Exception:
                 pass
@@ -1012,7 +1034,7 @@ def handle_callbacks(call):
                     f"📌 Trạng thái: <b>⏳ Đang chờ duyệt</b>\n"
                     f"⏰ Thời điểm: <i>{current_time_str}</i>\n\n"
                     "⏳ Yêu cầu của bạn đã được gửi trực tiếp đến Admin để xử lý!",
-                    chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup
+                    chat_id, msg_id, parse_mode="HTML", reply_markup=markup
                 )
             except Exception:
                 pass
@@ -1041,7 +1063,7 @@ def handle_callbacks(call):
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("🔙 Quay lại Ví", callback_data="my_wallet"))
         try:
-            bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+            bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
         except Exception:
             pass
 
@@ -1064,7 +1086,7 @@ def handle_callbacks(call):
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("🔙 Quay lại", callback_data="back_home"))
         try:
-            bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+            bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
         except Exception:
             pass
 
@@ -1082,7 +1104,7 @@ def handle_callbacks(call):
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("🔙 Quay lại", callback_data="back_home"))
         try:
-            bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+            bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
         except Exception:
             pass
 
@@ -1103,7 +1125,7 @@ def handle_callbacks(call):
         if uid == ADMIN_ID:
             markup.add(InlineKeyboardButton("👑 Bảng Điều Khiển Admin", callback_data="admin_panel"))
         try:
-            bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+            bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
         except Exception:
             pass
 
@@ -1127,7 +1149,7 @@ def handle_callbacks(call):
             InlineKeyboardButton("🔙 Quay lại Menu Chính", callback_data="back_home")
         )
         try:
-            bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+            bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
         except Exception:
             pass
 
@@ -1148,7 +1170,7 @@ def handle_callbacks(call):
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("🔙 Quay lại Admin Panel", callback_data="admin_panel"))
         try:
-            bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+            bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
         except Exception:
             pass
 
@@ -1170,7 +1192,7 @@ def handle_callbacks(call):
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("🔙 Quay lại Admin Panel", callback_data="admin_panel"))
         try:
-            bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+            bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
         except Exception:
             pass
 
@@ -1194,7 +1216,7 @@ def handle_callbacks(call):
 
         markup.add(InlineKeyboardButton("🔙 Quay lại Admin Panel", callback_data="admin_panel"))
         try:
-            bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+            bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
         except Exception:
             pass
 
@@ -1246,7 +1268,7 @@ def handle_callbacks(call):
                 markup.add(InlineKeyboardButton(f"🔓 Mở khóa ID: {s_id}", callback_data=f"unban_{s_id}"))
         markup.add(InlineKeyboardButton("🔙 Quay lại Admin Panel", callback_data="admin_panel"))
         try:
-            bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+            bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
         except Exception:
             pass
 
@@ -1325,7 +1347,7 @@ if __name__ == "__main__":
     t_web = threading.Thread(target=run_web, daemon=True)
     t_web.start()
     
-    print("🤖 Bot Telegram IVASMS (Đã tối ưu chạy ngầm 24/7) đang chạy...")
+    print("🤖 Bot Telegram IVASMS (Đã fix triệt để lỗi callback đơ nút cũ) đang chạy...")
     
     while True:
         try:
