@@ -33,7 +33,6 @@ def run_web():
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
 
-# 🧹 Tắt Webhook cũ & xả kẹt hàng chờ Telegram
 try:
     bot.remove_webhook()
 except Exception as e:
@@ -48,25 +47,25 @@ headers = {
     'X-Requested-With': 'XMLHttpRequest'
 }
 
-USER_ACTIVE_PHONES = {}      # {chat_id: phone_number}
-OTP_ACTIVE_SESSIONS = {}     # {phone: {"expire": timestamp, "otp": otp, "time": time_str}}
-LAST_SEEN_OTPS = {}          # {phone: message_signature}
-COUNTRY_CACHE = {}           # Kho số hoạt động theo lô (Phân loại toàn cầu)
-CURRENT_FILE_POSITION = 0    # Con trỏ vị trí đọc file siêu nhẹ
-USER_WITHDRAW_STATE = {}     # Trạng thái chờ user nhập ví USDT TON để rút tiền
+USER_ACTIVE_PHONES = {}      
+OTP_ACTIVE_SESSIONS = {}     
+LAST_SEEN_OTPS = {}          
+COUNTRY_CACHE = {}           
+CURRENT_FILE_POSITION = 0    
+USER_WITHDRAW_STATE = {}     
 
 USERS_FILE = "users_log.json"
 STATS_FILE = "otp_stats.json"
 SPAM_TRACKER_FILE = "spam_tracker.json"
 SETTINGS_FILE = "settings.json"
 WITHDRAW_HISTORY_FILE = "withdraw_history.json"
-USER_LAST_ACTION = {}        # Check thời gian thao tác chống spam
+USER_LAST_ACTION = {}        
 
 DEFAULT_SETTINGS = {
-    "min_withdraw": 5.0,        # Min rút 5$
+    "min_withdraw": 5.0,        
     "max_withdraw": 100.0,
-    "otp_reward": 0.009,        # Thưởng nhận OTP 0.009$
-    "refer_bonus": 0.01,        # Thưởng giới thiệu 0.01$
+    "otp_reward": 0.009,        
+    "refer_bonus": 0.01,        
 }
 
 def load_settings():
@@ -127,7 +126,7 @@ def mask_phone_number(phone):
     return p
 
 # ==========================================
-# 🛡️ 5. HỆ THỐNG CHỐNG SPAM 3 CẤP ĐỘ & UNBAN
+# 🛡️ 5. HỆ THỐNG CHỐNG SPAM & UNBAN
 # ==========================================
 def check_user_status(user_id, name=""):
     if user_id == ADMIN_ID:
@@ -156,13 +155,13 @@ def check_user_status(user_id, name=""):
             count = spam_data[uid].get("count", 0) + 1
             
         if count == 1:
-            ban_until = now + 300  # Phạt 5 phút
+            ban_until = now + 300  
             msg = "⚠️ <b>Cảnh cáo Spam lần 1:</b> Bạn thao tác quá nhanh nên đã bị tạm khóa <b>5 phút</b>."
         elif count == 2:
-            ban_until = now + 1800 # Phạt 30 phút
+            ban_until = now + 1800 
             msg = "⚠️ <b>Cảnh cáo Spam lần 2:</b> Nâng mức phạt tạm khóa <b>30 phút</b>."
         else:
-            ban_until = 0          # Khóa vĩnh viễn
+            ban_until = 0          
             msg = "⛔ <b>Khóa vĩnh viễn (Lần 3):</b> Tài khoản đã bị khóa vĩnh viễn do spam liên tục!"
             
         spam_data[uid] = {
@@ -278,7 +277,7 @@ def get_country_info(phone):
     return f"🌐 Quốc tế Khác (+{fallback_code})", f"OTHER_{fallback_code}"
 
 # ==========================================
-# 📢 7. HÀM BROADCAST THÔNG BÁO STOCK MỚI
+# 📢 7. HÀM BROADCAST THÔNG BÁO (KHÔNG GẮN NÚT)
 # ==========================================
 def broadcast_stock_updated(added_count, total_stock):
     text = (
@@ -288,23 +287,15 @@ def broadcast_stock_updated(added_count, total_stock):
         f"⏩ <b>Added:</b> {added_count}\n"
         f"📊 <b>Total Stock:</b> {total_stock}\n"
         "👤 <b>Uploaded by:</b> A D M I N\n"
-        "__________________________________"
+        "__________________________________\n\n"
+        "💡 <i>Vui lòng vào bot riêng để chọn quốc gia và lấy số nhận mã OTP tự động!</i>"
     )
-    markup = InlineKeyboardMarkup()
-    markup.add(InlineKeyboardButton("📲 Get Number", callback_data="open_countries"))
 
     try:
-        bot.send_message(GROUP_CHAT_ID, text, parse_mode="HTML", reply_markup=markup)
+        # Gửi thông báo thuần túy vào nhóm chung, không đính kèm nút tránh bị người ngoài bấm
+        bot.send_message(GROUP_CHAT_ID, text, parse_mode="HTML")
     except Exception:
         pass
-
-    users = load_json_db(USERS_FILE)
-    for uid in users:
-        try:
-            bot.send_message(int(uid), text, parse_mode="HTML", reply_markup=markup)
-            time.sleep(0.05)
-        except Exception:
-            pass
 
 # ==========================================
 # 🧹 8. TỰ ĐỘNG THU HỒI & XÓA SỐ SAU 5 PHÚT
@@ -392,7 +383,7 @@ def get_available_countries():
     for code, data in COUNTRY_CACHE.items():
         active_nums = [n for n in data["numbers"] if n not in OTP_ACTIVE_SESSIONS]
         if active_nums:
-            valid_countries[code] = f"{data['name']} [{len(active_nums)} Stock]"
+            valid_countries[code] = f"{data['name']} — [{len(active_nums)} Số]"
     return valid_countries
 
 # ==========================================
@@ -494,21 +485,18 @@ def background_sms_scanner():
         time.sleep(3)
 
 # ==========================================
-# 🛠️ 10. CÁC LỆNH TEST & QUẢN LÝ DÀNH CHO ADMIN
+# 🛠️ 10. CÁC LỆNH ADMIN
 # ==========================================
 @bot.message_handler(commands=['adminhelp'])
 def cmd_admin_help(message):
     if message.from_user.id != ADMIN_ID:
         return
     help_text = (
-        "👑 <b>BẢNG LỆNH TEST & KIỂM TRA DÀNH CHO ADMIN</b>\n"
+        "👑 <b>BẢNG LỆNH ADMIN</b>\n"
         "-----------------------------------\n"
-        "💰 <b>/addmoney [số tiền]</b> hoặc <b>[ID] [số tiền]</b>\n"
-        "   <i>Cộng tiền ảo vào ví để test rút tiền.</i>\n\n"
+        "💰 <b>/addmoney [số tiền]</b>\n"
         "✏️ <b>/setbal [ID_User] [số tiền]</b>\n"
-        "   <i>Đặt lại chính xác số dư cho user.</i>\n\n"
-        "🔍 <b>/userinfo [ID_User]</b>\n"
-        "   <i>Xem chi tiết thông tin user.</i>"
+        "🔍 <b>/userinfo [ID_User]</b>"
     )
     bot.send_message(message.chat.id, help_text, parse_mode="HTML")
 
@@ -519,24 +507,16 @@ def cmd_admin_add_money(message):
     args = message.text.split()
     target_uid = ADMIN_ID
     amount = 10.0
-    
     try:
         if len(args) == 2:
             amount = float(args[1])
         elif len(args) >= 3:
             target_uid = int(args[1])
             amount = float(args[2])
-            
         new_bal = update_balance(target_uid, amount)
-        bot.send_message(
-            message.chat.id,
-            f"✅ <b>TEST THÀNH CÔNG!</b>\n"
-            f"👤 Đã cộng thêm <code>${amount:.4f}</code> cho User ID: <code>{target_uid}</code>\n"
-            f"💵 Số dư mới: <code>${new_bal:.4f}</code>",
-            parse_mode="HTML"
-        )
+        bot.send_message(message.chat.id, f"✅ Đã cộng <code>${amount:.4f}</code> cho ID <code>{target_uid}</code>. Số dư mới: <code>${new_bal:.4f}</code>", parse_mode="HTML")
     except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Lỗi cú pháp! Dùng: <code>/addmoney [số_tiền]</code>", parse_mode="HTML")
+        bot.send_message(message.chat.id, f"❌ Lỗi: {e}")
 
 @bot.message_handler(commands=['setbal'])
 def cmd_admin_set_balance(message):
@@ -545,18 +525,14 @@ def cmd_admin_set_balance(message):
     args = message.text.split()
     try:
         if len(args) < 3:
-            bot.send_message(message.chat.id, "❌ Cú pháp sai! Dùng: <code>/setbal [ID_User] [Số_tiền]</code>", parse_mode="HTML")
             return
         target_uid = str(args[1])
         amount = float(args[2])
-        
         users = load_json_db(USERS_FILE)
         if target_uid in users:
             users[target_uid]["balance"] = round(amount, 4)
             save_json_db(USERS_FILE, users)
-            bot.send_message(message.chat.id, f"✅ Đã đặt lại số dư của ID <code>{target_uid}</code> thành <code>${amount:.4f}</code>", parse_mode="HTML")
-        else:
-            bot.send_message(message.chat.id, f"❌ Không tìm thấy User ID: {target_uid}!")
+            bot.send_message(message.chat.id, f"✅ Đã đặt lại số dư ID <code>{target_uid}</code> thành <code>${amount:.4f}</code>", parse_mode="HTML")
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ Lỗi: {e}")
 
@@ -571,16 +547,12 @@ def cmd_admin_user_info(message):
         if target_uid in users:
             u = users[target_uid]
             text = (
-                "👤 <b>THÔNG TIN CHI TIẾT USER</b>\n"
-                "-----------------------------------\n"
-                f"📌 <b>Họ tên:</b> {u.get('name')}\n"
-                f"🆔 <b>Telegram ID:</b> <code>{u.get('id')}</code>\n"
+                f"📌 <b>Tên:</b> {u.get('name')}\n"
+                f"🆔 <b>ID:</b> <code>{u.get('id')}</code>\n"
                 f"💵 <b>Số dư:</b> <code>${u.get('balance', 0.0):.4f}</code>\n"
-                f"📅 <b>Ngày đăng ký:</b> {u.get('joined_at')}"
+                f"📅 <b>Đăng ký:</b> {u.get('joined_at')}"
             )
             bot.send_message(message.chat.id, text, parse_mode="HTML")
-        else:
-            bot.send_message(message.chat.id, f"❌ Không tìm thấy user ID: {target_uid}")
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ Lỗi: {e}")
 
@@ -905,7 +877,7 @@ def handle_callbacks(call):
         if not users_db:
             text += "<i>Chưa có người dùng nào đăng ký.</i>"
         else:
-            for u_id, u_info in list(users_db.items())[-10:]: # Hiển thị 10 user mới nhất
+            for u_id, u_info in list(users_db.items())[-10:]:
                 text += (
                     f"👤 <b>Tên:</b> {u_info.get('name')}\n"
                     f"🆔 <b>ID:</b> <code>{u_info.get('id')}</code>\n"
@@ -1107,7 +1079,7 @@ if __name__ == "__main__":
     t_web = threading.Thread(target=run_web, daemon=True)
     t_web.start()
     
-    print("🤖 Bot Telegram IVASMS (Auto Thu Hồi 5p + Danh Sách User Đăng Ký + Full 195+ Quốc Gia) đang chạy...")
+    print("🤖 Bot Telegram IVASMS (Đã bỏ nút Get Number group + Bảo mật rút tiền tuyệt đối) đang chạy...")
     
     while True:
         try:
