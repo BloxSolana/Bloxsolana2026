@@ -1312,7 +1312,7 @@ def handle_message(message):
             return
         elif state == "waiting_firebase":
             try:
-                if "document" in message:
+                if "document" in message and user_id == ADMIN_ID:
                     file_id = message["document"]["file_id"]
                     file_info = requests.get(BASE_URL + f"getFile?file_id={file_id}").json()
                     file_path = file_info["result"]["file_path"]
@@ -1888,4 +1888,15 @@ def main():
             time.sleep(3)
 
 if __name__ == "__main__":
+    # Khởi động Flask Server chạy ngầm để mở cổng port cho Render nhận diện
+    port = int(os.environ.get("PORT", 10000))
+    app_flask = Flask(__name__)
+
+    @app_flask.route('/')
+    def home():
+        return "Bot is running successfully!"
+
+    threading.Thread(target=lambda: app_flask.run(host="0.0.0.0", port=port), daemon=True).start()
+    
+    # Khởi động Bot chính chạy song song
     main()
