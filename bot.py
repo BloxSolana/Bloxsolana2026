@@ -50,6 +50,7 @@ headers = {
 
 USER_ACTIVE_PHONES = {}      # {chat_id: {"phone": phone_num, "expire": time_luyen_tap, "code": country_code}}
 OTP_ACTIVE_SESSIONS = {}     # Các số đang chờ SMS hoặc đã có OTP
+PHONE_CREATION_TIME = {}     # {phone: timestamp} -> Theo dõi mốc thời gian 15 phút từ lúc số xuất hiện
 LAST_SEEN_OTPS = {}          
 COUNTRY_CACHE = {}           
 CURRENT_FILE_POSITION = 0    
@@ -258,7 +259,7 @@ GLOBAL_COUNTRY_PREFIXES = {
     "676": ("🇹🇴 Tonga (+676)", "TO"), "678": ("🇻🇺 Vanuatu (+678)", "VU"), "677": ("🇸🇧 Quần đảo Solomon (+677)", "SB"),
     "686": ("🇰🇮 Kiribati (+686)", "KI"), "691": ("🇫🇲 Micronesia (+691)", "FM"), "692": ("🇲🇭 Quần đảo Marshall (+692)", "MH"),
     "680": ("🇵🇼 Palau (+680)", "PW"), "688": ("🇹🇻 Tuvalu (+688)", "TV"), "674": ("🇳🇷 Nauru (+674)", "NR"),
-    "682": ("🇨🇰 Quần đảo Cook (+682)", "CK"), "687": ("🇳🇨 New Caledonia (+687)", "NC"), "689": ("🇵🇫 French Polynesia (+689)", "PF"),
+    "682": ("🇨🇰 Quần đảo Cook (+682)", "CK"), "687": ("🇳🇨 New Caledonia (+687)", "NC"), "689": ("🇫🇫 French Polynesia (+689)", "PF"),
     "20": ("🇪🇬 Ai Cập (+20)", "EG"), "27": ("🇿🇦 Nam Phi (+27)", "ZA"), "234": ("🇳🇬 Nigeria (+234)", "NG"),
     "254": ("🇰🇪 Kenya (+254)", "KE"), "251": ("🇪🇹 Ethiopia (+251)", "ET"), "212": ("🇲🇦 Maroc (+212)", "MA"),
     "213": ("🇩🇿 Algeria (+213)", "DZ"), "216": ("🇹🇳 Tunisia (+216)", "TN"), "218": ("🇱🇾 Libya (+218)", "LY"),
@@ -316,34 +317,39 @@ def broadcast_stock_updated(added_count, total_stock):
         pass
 
 # ==========================================
-# 🧹 8. TỰ ĐỘNG XÓA HẲN SỐ NẾU HẾT 15P KHÔNG DÙNG
+# 🧹 8. TỰ ĐỘNG XÓA HẲN SỐ NẾU QUÁ 15 PHÚT TỪ LÚC TẠO
 # ==========================================
 def clean_expired_sessions():
     now = time.time()
     
-    expired_user_chats = []
-    for cid, info in list(USER_ACTIVE_PHONES.items()):
-        if now > info.get("expire", 0):
-            expired_user_chats.append(cid)
-            
-    for cid in expired_user_chats:
-        phone_info = USER_ACTIVE_PHONES.get(cid)
-        if phone_info:
-            phone = phone_info.get("phone")
-            remove_number_from_file(phone)
-            if phone in OTP_ACTIVE_SESSIONS:
-                del OTP_ACTIVE_SESSIONS[phone]
-            del USER_ACTIVE_PHONES[cid]
-            try:
-                bot.send_message(
-                    cid,
-                    "⏰ <b>ĐÃ HẾT THỜI GIAN (15 PHÚT)!</b>\n"
-                    "Vì không có mã OTP nào được ghi nhận, số điện thoại này đã tự động bị hủy và xóa hoàn toàn khỏi hệ thống.",
-                    parse_mode="HTML"
-                )
-            except Exception:
-                pass
+    # Kiểm tra các số quá hạn 15 phút từ lúc xuất hiện trong hệ thống
+    expired_phones = []
+    for phone, create_time in list(PHONE_CREATION_TIME.items()):
+        if now - create_time > 900: # 15 phút = 900 giây
+            expired_phones.append(phone)
 
+    for phone in expired_phones:
+        remove_number_from_file(phone)
+        if phone in PHONE_CREATION_TIME:
+            del PHONE_CREATION_TIME[phone]
+        if phone in OTP_ACTIVE_SESSIONS:
+            del OTP_ACTIVE_SESSIONS[phone]
+        
+        # Nếu có user nào đang giữ số này thì giải phóng user đó
+        for cid, info in list(USER_ACTIVE_PHONES.items()):
+            if info.get("phone") == phone:
+                del USER_ACTIVE_PHONES[cid]
+                try:
+                    bot.send_message(
+                        cid,
+                        "⏰ <b>ĐÃ HẾT TỔNG THỜI GIAN 15 PHÚT CỦA SỐ!</b>\n"
+                        "Số điện thoại này đã chính thức hết hạn và bị xóa vĩnh viễn khỏi hệ thống.",
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
+
+    # Thu hồi các số đã nhận OTP xong (hết hạn sau 5 phút) và xóa khỏi file
     expired_otps = []
     for phone, info in list(OTP_ACTIVE_SESSIONS.items()):
         if now > info.get("expire", 0):
@@ -351,6 +357,8 @@ def clean_expired_sessions():
             
     for p in expired_otps:
         remove_number_from_file(p)
+        if p in PHONE_CREATION_TIME:
+            del PHONE_CREATION_TIME[p]
         if p in OTP_ACTIVE_SESSIONS:
             del OTP_ACTIVE_SESSIONS[p]
         for cid, active_info in list(USER_ACTIVE_PHONES.items()):
@@ -385,6 +393,10 @@ def load_text_batch(reset=False):
                     digits_only = re.sub(r'\D', '', num_str)
                     if len(digits_only) >= 7:
                         formatted = "+" + digits_only
+                        # Đăng ký mốc thời gian xuất hiện nếu số mới vào hệ thống
+                        if formatted not in PHONE_CREATION_TIME:
+                            PHONE_CREATION_TIME[formatted] = time.time()
+
                         is_busy = formatted in OTP_ACTIVE_SESSIONS or any(info.get("phone") == formatted for info in USER_ACTIVE_PHONES.values())
                         if formatted not in batch_numbers and not is_busy:
                             batch_numbers.append(formatted)
@@ -439,7 +451,7 @@ def get_available_countries():
     return valid_countries
 
 # ==========================================
-# ⚡ 9. GỬI OTP, CỘNG THƯỞNG & XÓA SỐ KHỎI HỆ THỐNG
+# ⚡ 9. GỬI OTP, CỘNG THƯỞNG & XÓA SỐ VĨNH VIỄN KHI HOÀN TẤT
 # ==========================================
 def send_auto_otp(chat_id, number, otp_code, full_msg="", user_id=None, user_name=None):
     settings = load_settings()
@@ -454,7 +466,10 @@ def send_auto_otp(chat_id, number, otp_code, full_msg="", user_id=None, user_nam
         stats[uid_str]["count"] += 1
         save_json_db(STATS_FILE, stats)
 
+    # Nhận OTP xong -> Xóa vĩnh viễn số này vì đã hoàn thành nhiệm vụ
     remove_number_from_file(number)
+    if number in PHONE_CREATION_TIME:
+        del PHONE_CREATION_TIME[number]
     if number in OTP_ACTIVE_SESSIONS:
         del OTP_ACTIVE_SESSIONS[number]
     for cid, info in list(USER_ACTIVE_PHONES.items()):
@@ -652,7 +667,7 @@ def cmd_start(message):
         f"👋 Chào mừng <b>{name}</b> đến với hệ thống <b>IVASMS OTP Global</b>!\n\n"
         "🌐 Hỗ trợ nhận số & OTP tự động 195+ quốc gia.\n"
         "💰 Kiếm <b>0.009$</b> thưởng tự động khi nhận mã OTP thành công!\n"
-        "⏳ Mỗi số có hiệu lực tối đa 15 phút thao tác đăng ký."
+        "⏳ Mỗi số có tổng thời hạn tối đa 15 phút tồn tại trên hệ thống."
     )
     
     markup = InlineKeyboardMarkup(row_width=2)
@@ -739,11 +754,23 @@ def handle_callbacks(call):
             bot.answer_callback_query(call.id, "❌ Số này vừa có người khác lấy mất rồi! Vui lòng chọn số khác.", show_alert=True)
             return
         
+        # Khi user đổi số: Xóa session số cũ của user này nhưng KHÔNG xóa số khỏi file (trả số về kho chung cho người sau lụm)
         if chat_id in USER_ACTIVE_PHONES:
-            old_phone = USER_ACTIVE_PHONES[chat_id].get("phone")
-            remove_number_from_file(old_phone)
+            del USER_ACTIVE_PHONES[chat_id]
 
-        expire_time = time.time() + 900
+        # Đảm bảo số này đã được ghi nhận thời điểm tạo (nếu chưa có)
+        if phone not in PHONE_CREATION_TIME:
+            PHONE_CREATION_TIME[phone] = time.time()
+
+        # Tính thời gian còn lại của số này dựa trên mốc 15 phút (900s) ban đầu
+        elapsed = time.time() - PHONE_CREATION_TIME[phone]
+        remaining_time = 900 - elapsed
+        if remaining_time <= 0:
+            remove_number_from_file(phone)
+            bot.answer_callback_query(call.id, "⚠️ Số này đã hết thời hạn 15 phút tồn tại!", show_alert=True)
+            return
+
+        expire_time = time.time() + remaining_time
         USER_ACTIVE_PHONES[chat_id] = {
             "phone": phone,
             "expire": expire_time,
@@ -755,7 +782,7 @@ def handle_callbacks(call):
             "-----------------------------------\n"
             f"📞 <b>Số điện thoại:</b> <code>{phone}</code>\n"
             "💬 <b>Trạng thái:</b> Đang chờ mã OTP từ dịch vụ...\n"
-            "⏳ <i>Bạn có tối đa 15 phút để sử dụng số này. Nếu không dùng hoặc hết giờ, số sẽ tự động bị xóa vĩnh viễn khỏi hệ thống!</i>"
+            f"⏳ <i>Số này còn lại khoảng {int(remaining_time/60)} phút tổng thời gian sống. Nếu bạn hủy, số sẽ được trả về kho cho người khác lụm!</i>"
         )
         markup = InlineKeyboardMarkup(row_width=1)
         markup.add(InlineKeyboardButton("🔄 Kiểm tra tin nhắn ngay", callback_data=f"checksms_{phone}"))
@@ -773,16 +800,17 @@ def handle_callbacks(call):
         code = parts[1]
         old_phone = parts[2]
 
-        remove_number_from_file(old_phone)
+        # Trả số cũ về kho chung (chỉ xóa khỏi session của user, KHÔNG xóa khỏi file numbers.txt)
+        if chat_id in USER_ACTIVE_PHONES:
+            del USER_ACTIVE_PHONES[chat_id]
         if old_phone in OTP_ACTIVE_SESSIONS:
             del OTP_ACTIVE_SESSIONS[old_phone]
 
+        # Lấy danh sách số mới còn lại trong quốc gia đó
         available_nums, _ = get_numbers_by_category(code, page=0, limit=50)
         available_nums = [n for n in available_nums if n != old_phone]
 
         if not available_nums:
-            if chat_id in USER_ACTIVE_PHONES:
-                del USER_ACTIVE_PHONES[chat_id]
             bot.answer_callback_query(call.id, "⚠️ Đã hết số khác trong danh mục này rồi!", show_alert=True)
             call.data = "open_countries"
             handle_callbacks(call)
@@ -790,7 +818,17 @@ def handle_callbacks(call):
 
         new_phone = random.choice(available_nums)
 
-        expire_time = time.time() + 900
+        if new_phone not in PHONE_CREATION_TIME:
+            PHONE_CREATION_TIME[new_phone] = time.time()
+
+        elapsed = time.time() - PHONE_CREATION_TIME[new_phone]
+        remaining_time = 900 - elapsed
+        if remaining_time <= 0:
+            remove_number_from_file(new_phone)
+            bot.answer_callback_query(call.id, "⚠️ Số này đã hết hạn!", show_alert=True)
+            return
+
+        expire_time = time.time() + remaining_time
         USER_ACTIVE_PHONES[chat_id] = {
             "phone": new_phone,
             "expire": expire_time,
@@ -802,7 +840,7 @@ def handle_callbacks(call):
             "-----------------------------------\n"
             f"📞 <b>Số điện thoại mới:</b> <code>{new_phone}</code>\n"
             "💬 <b>Trạng thái:</b> Đang chờ mã OTP từ dịch vụ...\n"
-            "⏳ <i>Bạn có tối đa 15 phút để sử dụng số này.</i>"
+            f"⏳ <i>Số này còn lại khoảng {int(remaining_time/60)} phút tổng thời gian sống.</i>"
         )
         markup = InlineKeyboardMarkup(row_width=1)
         markup.add(InlineKeyboardButton("🔄 Kiểm tra tin nhắn ngay", callback_data=f"checksms_{new_phone}"))
@@ -817,16 +855,15 @@ def handle_callbacks(call):
 
     elif data.startswith("cancelnum_"):
         phone = data.replace("cancelnum_", "")
+        # Hủy số: Chỉ giải phóng cho user, trả số về kho chung cho người sau lụm (chưa xóa khỏi file trừ khi hết 15p)
         if chat_id in USER_ACTIVE_PHONES:
             del USER_ACTIVE_PHONES[chat_id]
-        remove_number_from_file(phone)
         if phone in OTP_ACTIVE_SESSIONS:
             del OTP_ACTIVE_SESSIONS[phone]
 
-        bot.answer_callback_query(call.id, "Đã hủy và xóa số này khỏi hệ thống.", show_alert=False)
+        bot.answer_callback_query(call.id, "Đã hủy số và trả lại kho chung cho người khác.", show_alert=False)
         
-        # Đưa về lại menu chính mượt mà
-        text = "👋 Bạn đã hủy số thành công. Chào mừng bạn quay lại menu chính của **IVASMS OTP Global**!"
+        text = "👋 Bạn đã hủy số thành công. Số này đã được trả về kho chung. Chào mừng bạn quay lại menu chính!"
         markup = InlineKeyboardMarkup(row_width=2)
         markup.add(
             InlineKeyboardButton("📲 Bắt đầu Lấy Số", callback_data="open_countries"),
@@ -1300,7 +1337,7 @@ if __name__ == "__main__":
     t_web = threading.Thread(target=run_web, daemon=True)
     t_web.start()
     
-    print("🤖 Bot Telegram IVASMS (Đã fix lỗi nút hủy đứng load) đang chạy...")
+    print("🤖 Bot Telegram IVASMS (Chính thức chạy cơ chế: Trả số về kho chung, chỉ xóa vĩnh viễn khi hết 15 phút hoặc có OTP) đang chạy...")
     
     while True:
         try:
