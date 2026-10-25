@@ -677,6 +677,7 @@ def cmd_start(message):
 def handle_callbacks(call):
     uid = call.from_user.id
     data = call.data
+    chat_id = call.message.chat.id
     
     if data == "open_countries":
         if uid in USER_ACTIVE_PHONES:
@@ -695,7 +696,7 @@ def handle_callbacks(call):
         markup.add(InlineKeyboardButton("🔙 Quay lại", callback_data="back_home"))
         
         try:
-            bot.edit_message_text("🌍 <b>Chọn Quốc Gia Cần Lấy Số:</b>", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+            bot.edit_message_text("🌍 <b>Chọn Quốc Gia Cần Lấy Số:</b>", chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
         except Exception:
             pass
 
@@ -725,7 +726,7 @@ def handle_callbacks(call):
         markup.add(InlineKeyboardButton("🔙 Chọn Quốc Gia Khác", callback_data="open_countries"))
         
         try:
-            bot.edit_message_text(f"📋 <b>Danh sách số sẵn sàng ({code}):</b>", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+            bot.edit_message_text(f"📋 <b>Danh sách số sẵn sàng ({code}):</b>", chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
         except Exception:
             pass
 
@@ -733,13 +734,11 @@ def handle_callbacks(call):
         parts = data.split("_")
         code = parts[1]
         phone = parts[3]
-        chat_id = call.message.chat.id
 
         if is_phone_busy(phone):
             bot.answer_callback_query(call.id, "❌ Số này vừa có người khác lấy mất rồi! Vui lòng chọn số khác.", show_alert=True)
             return
         
-        # Nếu user đang giữ số cũ, xóa số cũ khỏi file trước khi cấp số mới
         if chat_id in USER_ACTIVE_PHONES:
             old_phone = USER_ACTIVE_PHONES[chat_id].get("phone")
             remove_number_from_file(old_phone)
@@ -765,6 +764,7 @@ def handle_callbacks(call):
         
         try:
             bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+            bot.answer_callback_query(call.id, "Đã lấy số thành công!", show_alert=False)
         except Exception:
             pass
 
@@ -772,16 +772,12 @@ def handle_callbacks(call):
         parts = data.split("_")
         code = parts[1]
         old_phone = parts[2]
-        chat_id = call.message.chat.id
 
-        # Xóa số cũ đang dùng ra khỏi file numbers.txt
         remove_number_from_file(old_phone)
         if old_phone in OTP_ACTIVE_SESSIONS:
             del OTP_ACTIVE_SESSIONS[old_phone]
 
-        # Lấy danh sách số mới còn lại trong quốc gia đó
         available_nums, _ = get_numbers_by_category(code, page=0, limit=50)
-        # Lọc bỏ số cũ (nếu có)
         available_nums = [n for n in available_nums if n != old_phone]
 
         if not available_nums:
@@ -792,7 +788,6 @@ def handle_callbacks(call):
             handle_callbacks(call)
             return
 
-        # Bốc ngẫu nhiên 1 số mới không trùng số cũ
         new_phone = random.choice(available_nums)
 
         expire_time = time.time() + 900
@@ -829,14 +824,32 @@ def handle_callbacks(call):
             del OTP_ACTIVE_SESSIONS[phone]
 
         bot.answer_callback_query(call.id, "Đã hủy và xóa số này khỏi hệ thống.", show_alert=False)
-        call.data = "open_countries"
-        handle_callbacks(call)
+        
+        # Đưa về lại menu chính mượt mà
+        text = "👋 Bạn đã hủy số thành công. Chào mừng bạn quay lại menu chính của **IVASMS OTP Global**!"
+        markup = InlineKeyboardMarkup(row_width=2)
+        markup.add(
+            InlineKeyboardButton("📲 Bắt đầu Lấy Số", callback_data="open_countries"),
+            InlineKeyboardButton("💰 Số dư / Ví", callback_data="my_wallet")
+        )
+        markup.add(
+            InlineKeyboardButton("👥 Giới thiệu", callback_data="refer_earn"),
+            InlineKeyboardButton("📊 Thống kê", callback_data="my_stats")
+        )
+        markup.add(InlineKeyboardButton("💬 Hỗ trợ", url=GROUP_OTP_LINK))
+        if uid == ADMIN_ID:
+            markup.add(InlineKeyboardButton("👑 Bảng Điều Khiển Admin", callback_data="admin_panel"))
+            
+        try:
+            bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+        except Exception:
+            pass
 
     elif data.startswith("checksms_"):
         phone = data.replace("checksms_", "")
         if phone in OTP_ACTIVE_SESSIONS and OTP_ACTIVE_SESSIONS[phone]["otp"] != "PENDING":
             info = OTP_ACTIVE_SESSIONS[phone]
-            send_auto_otp(call.message.chat.id, phone, info["otp"], user_id=uid, user_name=call.from_user.first_name)
+            send_auto_otp(chat_id, phone, info["otp"], user_id=uid, user_name=call.from_user.first_name)
             bot.answer_callback_query(call.id, "Đã tìm thấy mã OTP gần nhất!", show_alert=False)
         else:
             bot.answer_callback_query(call.id, "Chưa có tin nhắn OTP nào cho số này. Thử lại sau ít giây!", show_alert=True)
@@ -868,7 +881,7 @@ def handle_callbacks(call):
             InlineKeyboardButton("🔙 Quay lại Menu Chính", callback_data="back_home")
         )
         try:
-            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+            bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
         except Exception:
             pass
 
@@ -893,7 +906,7 @@ def handle_callbacks(call):
                     "👇 <b>HÀNH ĐỘNG CẦN LÀM:</b>\n"
                     "Vui lòng nhập trực tiếp địa chỉ ví <b>USDT mạng TON</b> của bạn vào ô chat bên dưới:\n"
                     "<i>(Ví chuẩn TON phải bắt đầu bằng <b>EQ</b> hoặc <b>UQ</b> và có đúng <b>48 ký tự</b>).</i>",
-                    call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup
+                    chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup
                 )
             except Exception:
                 pass
@@ -974,7 +987,7 @@ def handle_callbacks(call):
                     f"📌 Trạng thái: <b>⏳ Đang chờ duyệt</b>\n"
                     f"⏰ Thời điểm: <i>{current_time_str}</i>\n\n"
                     "⏳ Yêu cầu của bạn đã được gửi trực tiếp đến Admin để xử lý!",
-                    call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup
+                    chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup
                 )
             except Exception:
                 pass
@@ -1003,7 +1016,7 @@ def handle_callbacks(call):
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("🔙 Quay lại Ví", callback_data="my_wallet"))
         try:
-            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+            bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
         except Exception:
             pass
 
@@ -1026,7 +1039,7 @@ def handle_callbacks(call):
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("🔙 Quay lại", callback_data="back_home"))
         try:
-            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+            bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
         except Exception:
             pass
 
@@ -1044,7 +1057,7 @@ def handle_callbacks(call):
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("🔙 Quay lại", callback_data="back_home"))
         try:
-            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+            bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
         except Exception:
             pass
 
@@ -1065,7 +1078,7 @@ def handle_callbacks(call):
         if uid == ADMIN_ID:
             markup.add(InlineKeyboardButton("👑 Bảng Điều Khiển Admin", callback_data="admin_panel"))
         try:
-            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+            bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
         except Exception:
             pass
 
@@ -1089,7 +1102,7 @@ def handle_callbacks(call):
             InlineKeyboardButton("🔙 Quay lại Menu Chính", callback_data="back_home")
         )
         try:
-            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+            bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
         except Exception:
             pass
 
@@ -1110,7 +1123,7 @@ def handle_callbacks(call):
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("🔙 Quay lại Admin Panel", callback_data="admin_panel"))
         try:
-            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+            bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
         except Exception:
             pass
 
@@ -1132,7 +1145,7 @@ def handle_callbacks(call):
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("🔙 Quay lại Admin Panel", callback_data="admin_panel"))
         try:
-            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+            bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
         except Exception:
             pass
 
@@ -1156,7 +1169,7 @@ def handle_callbacks(call):
 
         markup.add(InlineKeyboardButton("🔙 Quay lại Admin Panel", callback_data="admin_panel"))
         try:
-            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+            bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
         except Exception:
             pass
 
@@ -1208,7 +1221,7 @@ def handle_callbacks(call):
                 markup.add(InlineKeyboardButton(f"🔓 Mở khóa ID: {s_id}", callback_data=f"unban_{s_id}"))
         markup.add(InlineKeyboardButton("🔙 Quay lại Admin Panel", callback_data="admin_panel"))
         try:
-            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+            bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
         except Exception:
             pass
 
@@ -1287,7 +1300,7 @@ if __name__ == "__main__":
     t_web = threading.Thread(target=run_web, daemon=True)
     t_web.start()
     
-    print("🤖 Bot Telegram IVASMS (Đã tích hợp nút Đổi số mới ngay cực mượt) đang chạy...")
+    print("🤖 Bot Telegram IVASMS (Đã fix lỗi nút hủy đứng load) đang chạy...")
     
     while True:
         try:
