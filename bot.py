@@ -53,6 +53,7 @@ OTP_ACTIVE_SESSIONS = {}     # {phone: {"expire": timestamp, "otp": otp, "time":
 LAST_SEEN_OTPS = {}          # {phone: message_signature}
 COUNTRY_CACHE = {}           # Kho số hoạt động theo lô (Phân loại toàn cầu)
 CURRENT_FILE_POSITION = 0    # Con trỏ vị trí đọc file siêu nhẹ
+USER_WITHDRAW_STATE = {}     # Trạng thái chờ user nhập ví USDT TON để rút tiền
 
 USERS_FILE = "users_log.json"
 STATS_FILE = "otp_stats.json"
@@ -185,221 +186,74 @@ def unban_user_manual(user_id):
 # 🌍 6. BỘ TỪ ĐIỂN MỞ RỘNG FULL 195+ QUỐC GIA
 # ==========================================
 GLOBAL_COUNTRY_PREFIXES = {
-    # Bắc Mỹ & Caribe
-    "1": ("🇺🇸 Mỹ / Canada (+1)", "US"),
-    "52": ("🇲🇽 Mexico (+52)", "MX"),
-    "53": ("🇨🇺 Cuba (+53)", "CU"),
-    "509": ("🇭🇹 Haiti (+509)", "HT"),
-    "1809": ("🇩🇴 CH Dominica (+1-809)", "DO"),
-    "1829": ("🇩🇴 CH Dominica (+1-829)", "DO_2"),
-    "1849": ("🇩🇴 CH Dominica (+1-849)", "DO_3"),
-    "502": ("🇬🇹 Guatemala (+502)", "GT"),
-    "504": ("🇭🇳 Honduras (+504)", "HN"),
-    "505": ("🇳🇮 Nicaragua (+505)", "NI"),
-    "506": ("🇨🇷 Costa Rica (+506)", "CR"),
-    "507": ("🇵🇦 Panama (+507)", "PA"),
-    "503": ("🇸🇻 El Salvador (+503)", "SV"),
-    "501": ("🇧🇿 Belize (+501)", "BZ"),
-    "1876": ("🇯🇲 Jamaica (+1-876)", "JM"),
-    "1441": ("🇧🇲 Bermuda (+1-441)", "BM"),
-    "1242": ("🇧🇸 Bahamas (+1-242)", "BS"),
-    "1246": ("🇧🇧 Barbados (+1-246)", "BB"),
-    "1264": ("🇦🇮 Anguilla (+1-264)", "AI"),
-    "1268": ("🇦🇬 Antigua & Barbuda (+1-268)", "AG"),
-    "1758": ("🇱🇨 Saint Lucia (+1-758)", "LC"),
-    "1784": ("🇻🇨 St. Vincent & Grenadines (+1-784)", "VC"),
-    "1473": ("🇬🇩 Grenada (+1-473)", "GD"),
-    "1869": ("🇰🇳 St. Kitts & Nevis (+1-869)", "KN"),
-    "1767": ("🇩🇲 Dominica (+1-767)", "DM"),
-    "1345": ("🇰🇾 Quần đảo Cayman (+1-345)", "KY"),
-
-    # Nam Mỹ
-    "55": ("🇧🇷 Brazil (+55)", "BR"),
-    "54": ("🇦🇷 Argentina (+54)", "AR"),
-    "57": ("🇨🇴 Colombia (+57)", "CO"),
-    "51": ("🇵🇪 Peru (+51)", "PE"),
-    "58": ("🇻🇪 Venezuela (+58)", "VE"),
-    "56": ("🇨🇱 Chile (+56)", "CL"),
-    "593": ("🇪🇨 Ecuador (+593)", "EC"),
-    "591": ("🇧🇴 Bolivia (+591)", "BO"),
-    "595": ("🇵🇾 Paraguay (+595)", "PY"),
-    "598": ("🇺🇾 Uruguay (+598)", "UY"),
-    "592": ("🇬🇾 Guyana (+592)", "GY"),
-    "597": ("🇸🇷 Suriname (+597)", "SR"),
-
-    # Châu Âu
-    "44": ("🇬🇧 Vương Quốc Anh (+44)", "UK"),
-    "33": ("🇫🇷 Pháp (+33)", "FR"),
-    "49": ("🇩🇪 Đức (+49)", "DE"),
-    "39": ("🇮🇹 Ý (+39)", "IT"),
-    "34": ("🇪🇸 Tây Ban Nha (+34)", "ES"),
-    "7": ("🇷🇺 Nga / Kazakhstan (+7)", "RU"),
-    "380": ("🇺🇦 Ukraine (+380)", "UA"),
-    "48": ("🇵🇱 Ba Lan (+48)", "PL"),
-    "31": ("🇳🇱 Hà Lan (+31)", "NL"),
-    "32": ("🇧🇪 Bỉ (+32)", "BE"),
-    "41": ("🇨🇭 Thụy Sĩ (+41)", "CH"),
-    "43": ("🇦🇹 Áo (+43)", "AT"),
-    "46": ("🇸🇪 Thụy Điển (+46)", "SE"),
-    "47": ("🇳🇴 Na Uy (+47)", "NO"),
-    "45": ("🇩🇰 Đan Mạch (+45)", "DK"),
-    "358": ("🇫🇮 Phần Lan (+358)", "FI"),
-    "353": ("🇮🇪 Ai-len (+353)", "IE"),
-    "351": ("🇵🇹 Bồ Đào Nha (+351)", "PT"),
-    "30": ("🇬🇷 Hy Lạp (+30)", "GR"),
-    "420": ("🇨🇿 Cộng Hòa Séc (+420)", "CZ"),
-    "36": ("🇭🇺 Hungary (+36)", "HU"),
-    "40": ("🇷🇴 Romania (+40)", "RO"),
-    "359": ("🇧🇬 Bulgaria (+359)", "BG"),
-    "385": ("🇭🇷 Croatia (+385)", "HR"),
-    "386": ("🇸🇮 Slovenia (+386)", "SI"),
-    "421": ("🇸🇰 Slovakia (+421)", "SK"),
-    "370": ("🇱🇹 Lithuania (+370)", "LT"),
-    "371": ("🇱🇻 Latvia (+371)", "LV"),
-    "372": ("🇪🇪 Estonia (+372)", "EE"),
-    "354": ("🇮🇸 Iceland (+354)", "IS"),
-    "373": ("🇲🇩 Moldova (+373)", "MD"),
-    "375": ("🇧🇾 Belarus (+375)", "BY"),
-    "381": ("🇷🇸 Serbia (+381)", "RS"),
-    "387": ("🇧🇦 Bosnia & Herzegovina (+387)", "BA"),
-    "382": ("🇲🇪 Montenegro (+382)", "ME"),
-    "355": ("🇦🇱 Albania (+355)", "AL"),
-    "356": ("🇲🇹 Malta (+356)", "MT"),
-    "352": ("🇱🇺 Luxembourg (+352)", "LU"),
-    "377": ("🇲🇨 Monaco (+377)", "MC"),
-    "378": ("🇸🇲 San Marino (+378)", "SM"),
-    "379": ("🇻🇦 Vatican (+379)", "VA"),
-    "423": ("🇱🇮 Liechtenstein (+423)", "LI"),
-    "350": ("🇬🇮 Gibraltar (+350)", "GI"),
-    "389": ("🇲🇰 Bắc Macedonia (+389)", "MK"),
-    "298": ("🇫🇴 Quần đảo Faroe (+298)", "FO"),
-    "299": ("🇬🇱 Greenland (+299)", "GL"),
-
-    # Châu Á
-    "84": ("🇻🇳 Việt Nam (+84)", "VN"),
-    "86": ("🇨🇳 Trung Quốc (+86)", "CN"),
-    "81": ("🇯🇵 Nhật Bản (+81)", "JP"),
-    "82": ("🇰🇷 Hàn Quốc (+82)", "KR"),
-    "91": ("🇮🇳 Ấn Độ (+91)", "IN"),
-    "62": ("🇮🇩 Indonesia (+62)", "ID"),
-    "92": ("🇵🇰 Pakistan (+92)", "PK"),
-    "880": ("🇧🇩 Bangladesh (+880)", "BD"),
-    "63": ("🇵🇭 Philippines (+63)", "PH"),
-    "66": ("🇹🇭 Thái Lan (+66)", "TH"),
-    "60": ("🇲🇾 Malaysia (+60)", "MY"),
-    "65": ("🇸🇬 Singapore (+65)", "SG"),
-    "95": ("🇲🇲 Myanmar (+95)", "MM"),
-    "855": ("🇰🇭 Campuchia (+855)", "KH"),
-    "856": ("🇱🇦 Lào (+856)", "LA"),
-    "94": ("🇱🇰 Sri Lanka (+94)", "LK"),
-    "977": ("🇳🇵 Nepal (+977)", "NP"),
-    "93": ("🇦🇫 Afghanistan (+93)", "AF"),
-    "98": ("🇮🇷 Iran (+98)", "IR"),
-    "964": ("🇮🇶 Iraq (+964)", "IQ"),
-    "90": ("🇹🇷 Thổ Nhĩ Kỳ (+90)", "TR"),
-    "972": ("🇮🇱 Israel (+972)", "IL"),
-    "962": ("🇯🇴 Jordan (+962)", "JO"),
-    "961": ("🇱🇧 Lebanon (+961)", "LB"),
-    "963": ("🇸🇾 Syria (+963)", "SY"),
-    "965": ("🇰🇼 Kuwait (+965)", "KW"),
-    "966": ("🇸🇦 Ả Rập Xê Út (+966)", "SA"),
-    "971": ("🇦🇪 UAE (+971)", "AE"),
-    "974": ("🇶🇦 Qatar (+974)", "QA"),
-    "973": ("🇧🇭 Bahrain (+973)", "BH"),
-    "968": ("🇴🇲 Oman (+968)", "OM"),
-    "967": ("🇾🇪 Yemen (+967)", "YE"),
-    "886": ("🇹🇼 Đài Loan (+886)", "TW"),
-    "852": ("🇭🇰 Hồng Kong (+852)", "HK"),
-    "853": ("🇲🇦 Ma Cao (+853)", "MO"),
-    "976": ("🇲🇳 Mông Cổ (+976)", "MN"),
-    "998": ("🇺🇿 Uzbekistan (+998)", "UZ"),
-    "77": ("🇰🇿 Kazakhstan (+77)", "KZ"),
-    "993": ("🇹🇲 Turkmenistan (+993)", "TM"),
-    "992": ("🇹🇯 Tajikistan (+992)", "TJ"),
-    "996": ("🇰🇬 Kyrgyzstan (+996)", "KG"),
-    "994": ("🇦🇿 Azerbaijan (+994)", "AZ"),
-    "374": ("🇦🇲 Armenia (+374)", "AM"),
-    "995": ("🇬🇪 Georgia (+995)", "GE"),
-    "673": ("🇧🇳 Brunei (+673)", "BN"),
-    "670": ("🇹🇱 Đông Timor (+670)", "TL"),
-    "960": ("🇲🇻 Maldives (+960)", "MV"),
-    "970": ("🇵🇸 Palestine (+970)", "PS"),
-    "975": ("🇧🇹 Bhutan (+975)", "BT"),
-
-    # Châu Úc & Thái Bình Dương
-    "61": ("🇦🇺 Úc (+61)", "AU"),
-    "64": ("🇳🇿 New Zealand (+64)", "NZ"),
-    "675": ("🇵🇬 Papua New Guinea (+675)", "PG"),
-    "679": ("🇫🇯 Fiji (+679)", "FJ"),
-    "685": ("🇼🇸 Samoa (+685)", "WS"),
-    "676": ("🇹🇴 Tonga (+676)", "TO"),
-    "678": ("🇻🇺 Vanuatu (+678)", "VU"),
-    "677": ("🇸🇧 Quần đảo Solomon (+677)", "SB"),
-    "686": ("🇰🇮 Kiribati (+686)", "KI"),
-    "691": ("🇫🇲 Micronesia (+691)", "FM"),
-    "692": ("🇲🇭 Quần đảo Marshall (+692)", "MH"),
-    "680": ("🇵🇼 Palau (+680)", "PW"),
-    "688": ("🇹🇻 Tuvalu (+688)", "TV"),
-    "674": ("🇳🇷 Nauru (+674)", "NR"),
-    "682": ("🇨🇰 Quần đảo Cook (+682)", "CK"),
-    "687": ("🇳🇨 New Caledonia (+687)", "NC"),
-    "689": ("🇵🇫 French Polynesia (+689)", "PF"),
-
-    # Châu Phi
-    "20": ("🇪🇬 Ai Cập (+20)", "EG"),
-    "27": ("🇿🇦 Nam Phi (+27)", "ZA"),
-    "234": ("🇳🇬 Nigeria (+234)", "NG"),
-    "254": ("🇰🇪 Kenya (+254)", "KE"),
-    "251": ("🇪🇹 Ethiopia (+251)", "ET"),
-    "212": ("🇲🇦 Maroc (+212)", "MA"),
-    "213": ("🇩🇿 Algeria (+213)", "DZ"),
-    "216": ("🇹🇳 Tunisia (+216)", "TN"),
-    "218": ("🇱🇾 Libya (+218)", "LY"),
-    "233": ("🇬🇭 Ghana (+233)", "GH"),
-    "225": ("🇨🇮 Bờ Biển Ngà (+225)", "CI"),
-    "237": ("🇨🇲 Cameroon (+237)", "CM"),
-    "255": ("🇹ℤ Tanzania (+255)", "TZ"),
-    "256": ("🇺🇬 Uganda (+256)", "UG"),
-    "250": ("🇷🇼 Rwanda (+250)", "RW"),
-    "260": ("🇿🇲 Zambia (+260)", "ZM"),
-    "263": ("🇿🇼 Zimbabwe (+263)", "ZW"),
-    "258": ("🇲ℤ Mozambique (+258)", "MZ"),
-    "244": ("🇦🇴 Angola (+244)", "AO"),
-    "261": ("🇲🇬 Madagascar (+261)", "MG"),
-    "249": ("🇸🇩 Sudan (+249)", "SD"),
-    "221": ("🇸🇳 Senegal (+221)", "SN"),
-    "223": ("🇲🇱 Mali (+223)", "ML"),
-    "226": ("🇧🇫 Burkina Faso (+226)", "BF"),
-    "227": ("🇳🇪 Niger (+227)", "NE"),
-    "228": ("🇹🇬 Togo (+228)", "TG"),
-    "229": ("🇧🇯 Benin (+229)", "BJ"),
-    "235": ("🇹🇩 Chad (+235)", "TD"),
-    "241": ("🇬🇦 Gabon (+241)", "GA"),
-    "242": ("🇨🇬 Congo (+242)", "CG"),
-    "243": ("🇨🇩 CHDC Congo (+243)", "CD"),
-    "257": ("🇧🇮 Burundi (+257)", "BI"),
-    "253": ("🇩🇯 Djibouti (+253)", "DJ"),
-    "252": ("🇸🇴 Somalia (+252)", "SO"),
-    "291": ("🇪🇷 Eritrea (+291)", "ER"),
-    "232": ("🇸🇱 Sierra Leone (+232)", "SL"),
-    "231": ("🇱🇷 Liberia (+231)", "LR"),
-    "224": ("🇬🇳 Guinea (+224)", "GN"),
-    "245": ("🇬🇼 Guinea-Bissau (+245)", "GW"),
-    "220": ("🇬🇲 Gambia (+220)", "GM"),
-    "230": ("🇲🇺 Mauritius (+230)", "MU"),
-    "248": ("🇸🇨 Seychelles (+248)", "SC"),
-    "269": ("🇰🇲 Comoros (+269)", "KM"),
-    "268": ("🇸🇿 Eswatini (+268)", "SZ"),
-    "266": ("🇱🇸 Lesotho (+266)", "LS"),
-    "267": ("🇧🇼 Botswana (+267)", "BW"),
-    "264": ("🇳🇦 Namibia (+264)", "NA"),
-    "265": ("🇲🇼 Malawi (+265)", "MW"),
-    "239": ("🇸🇹 São Tomé & Príncipe (+239)", "ST"),
-    "240": ("🇬🇶 Guinea Xích Đạo (+240)", "GQ"),
-    "236": ("🇨🇫 CH Trung Phi (+236)", "CF"),
-    "222": ("🇲🇷 Mauritania (+222)", "MR"),
-    "211": ("🇸🇸 Nam Sudan (+211)", "SS"),
-    "290": ("🇸🇭 Saint Helena (+290)", "SH"),
+    "1": ("🇺🇸 Mỹ / Canada (+1)", "US"), "52": ("🇲🇽 Mexico (+52)", "MX"), "53": ("🇨🇺 Cuba (+53)", "CU"),
+    "509": ("🇭🇹 Haiti (+509)", "HT"), "1809": ("🇩🇴 CH Dominica (+1-809)", "DO"), "1829": ("🇩🇴 CH Dominica (+1-829)", "DO_2"),
+    "1849": ("🇩🇴 CH Dominica (+1-849)", "DO_3"), "502": ("🇬🇹 Guatemala (+502)", "GT"), "504": ("🇭🇳 Honduras (+504)", "HN"),
+    "505": ("🇳🇮 Nicaragua (+505)", "NI"), "506": ("🇨🇷 Costa Rica (+506)", "CR"), "507": ("🇵🇦 Panama (+507)", "PA"),
+    "503": ("🇸🇻 El Salvador (+503)", "SV"), "501": ("🇧🇿 Belize (+501)", "BZ"), "1876": ("🇯🇲 Jamaica (+1-876)", "JM"),
+    "1441": ("🇧🇲 Bermuda (+1-441)", "BM"), "1242": ("🇧🇸 Bahamas (+1-242)", "BS"), "1246": ("🇧🇧 Barbados (+1-246)", "BB"),
+    "1264": ("🇦🇮 Anguilla (+1-264)", "AI"), "1268": ("🇦🇬 Antigua & Barbuda (+1-268)", "AG"), "1758": ("🇱🇨 Saint Lucia (+1-758)", "LC"),
+    "1784": ("🇻🇨 St. Vincent & Grenadines (+1-784)", "VC"), "1473": ("🇬🇩 Grenada (+1-473)", "GD"), "1869": ("🇰🇳 St. Kitts & Nevis (+1-869)", "KN"),
+    "1767": ("🇩🇲 Dominica (+1-767)", "DM"), "1345": ("🇰🇾 Quần đảo Cayman (+1-345)", "KY"), "55": ("🇧🇷 Brazil (+55)", "BR"),
+    "54": ("🇦🇷 Argentina (+54)", "AR"), "57": ("🇨🇴 Colombia (+57)", "CO"), "51": ("🇵🇪 Peru (+51)", "PE"),
+    "58": ("🇻🇪 Venezuela (+58)", "VE"), "56": ("🇨🇱 Chile (+56)", "CL"), "593": ("🇪🇨 Ecuador (+593)", "EC"),
+    "591": ("🇧🇴 Bolivia (+591)", "BO"), "595": ("🇵🇾 Paraguay (+595)", "PY"), "598": ("🇺🇾 Uruguay (+598)", "UY"),
+    "592": ("🇬🇾 Guyana (+592)", "GY"), "597": ("🇸🇷 Suriname (+597)", "SR"), "44": ("🇬🇧 Vương Quốc Anh (+44)", "UK"),
+    "33": ("🇫🇷 Pháp (+33)", "FR"), "49": ("🇩🇪 Đức (+49)", "DE"), "39": ("🇮🇹 Ý (+39)", "IT"),
+    "34": ("🇪🇸 Tây Ban Nha (+34)", "ES"), "7": ("🇷🇺 Nga / Kazakhstan (+7)", "RU"), "380": ("🇺🇦 Ukraine (+380)", "UA"),
+    "48": ("🇵🇱 Ba Lan (+48)", "PL"), "31": ("🇳🇱 Hà Lan (+31)", "NL"), "32": ("🇧🇪 Bỉ (+32)", "BE"),
+    "41": ("🇨🇭 Thụy Sĩ (+41)", "CH"), "43": ("🇦🇹 Áo (+43)", "AT"), "46": ("🇸🇪 Thụy Điển (+46)", "SE"),
+    "47": ("🇳🇴 Na Uy (+47)", "NO"), "45": ("🇩🇰 Đan Mạch (+45)", "DK"), "358": ("🇫🇮 Phần Lan (+358)", "FI"),
+    "353": ("🇮🇪 Ai-len (+353)", "IE"), "351": ("🇵🇹 Bồ Đào Nha (+351)", "PT"), "30": ("🇬🇷 Hy Lạp (+30)", "GR"),
+    "420": ("🇨🇿 Cộng Hòa Séc (+420)", "CZ"), "36": ("🇭🇺 Hungary (+36)", "HU"), "40": ("🇷🇴 Romania (+40)", "RO"),
+    "359": ("🇧🇬 Bulgaria (+359)", "BG"), "385": ("🇭🇷 Croatia (+385)", "HR"), "386": ("🇸🇮 Slovenia (+386)", "SI"),
+    "421": ("🇸🇰 Slovakia (+421)", "SK"), "370": ("🇱🇹 Lithuania (+370)", "LT"), "371": ("🇱🇻 Latvia (+371)", "LV"),
+    "372": ("🇪🇪 Estonia (+372)", "EE"), "354": ("🇮🇸 Iceland (+354)", "IS"), "373": ("🇲🇩 Moldova (+373)", "MD"),
+    "375": ("🇧🇾 Belarus (+375)", "BY"), "381": ("🇷🇸 Serbia (+381)", "RS"), "387": ("🇧🇦 Bosnia & Herzegovina (+387)", "BA"),
+    "382": ("🇲🇪 Montenegro (+382)", "ME"), "355": ("🇦🇱 Albania (+355)", "AL"), "356": ("🇲🇹 Malta (+356)", "MT"),
+    "352": ("🇱🇺 Luxembourg (+352)", "LU"), "377": ("🇲🇨 Monaco (+377)", "MC"), "378": ("🇸🇲 San Marino (+378)", "SM"),
+    "379": ("🇻🇦 Vatican (+379)", "VA"), "423": ("🇱🇮 Liechtenstein (+423)", "LI"), "350": ("🇬🇮 Gibraltar (+350)", "GI"),
+    "389": ("🇲🇰 Bắc Macedonia (+389)", "MK"), "298": ("🇫🇴 Quần đảo Faroe (+298)", "FO"), "299": ("🇬🇱 Greenland (+299)", "GL"),
+    "84": ("🇻🇳 Việt Nam (+84)", "VN"), "86": ("🇨🇳 Trung Quốc (+86)", "CN"), "81": ("🇯🇵 Nhật Bản (+81)", "JP"),
+    "82": ("🇰🇷 Hàn Quốc (+82)", "KR"), "91": ("🇮🇳 Ấn Độ (+91)", "IN"), "62": ("🇮🇩 Indonesia (+62)", "ID"),
+    "92": ("🇵🇰 Pakistan (+92)", "PK"), "880": ("🇧🇩 Bangladesh (+880)", "BD"), "63": ("🇵🇭 Philippines (+63)", "PH"),
+    "66": ("🇹🇭 Thái Lan (+66)", "TH"), "60": ("🇲🇾 Malaysia (+60)", "MY"), "65": ("🇸🇬 Singapore (+65)", "SG"),
+    "95": ("🇲🇲 Myanmar (+95)", "MM"), "855": ("🇰🇭 Campuchia (+855)", "KH"), "856": ("🇱🇦 Lào (+856)", "LA"),
+    "94": ("🇱🇰 Sri Lanka (+94)", "LK"), "977": ("🇳🇵 Nepal (+977)", "NP"), "93": ("🇦🇫 Afghanistan (+93)", "AF"),
+    "98": ("🇮🇷 Iran (+98)", "IR"), "964": ("🇮🇶 Iraq (+964)", "IQ"), "90": ("🇹🇷 Thổ Nhĩ Kỳ (+90)", "TR"),
+    "972": ("🇮🇱 Israel (+972)", "IL"), "962": ("🇯🇴 Jordan (+962)", "JO"), "961": ("🇱🇧 Lebanon (+961)", "LB"),
+    "963": ("🇸🇾 Syria (+963)", "SY"), "965": ("🇰🇼 Kuwait (+965)", "KW"), "966": ("🇸🇦 Ả Rập Xê Út (+966)", "SA"),
+    "971": ("🇦🇪 UAE (+971)", "AE"), "974": ("🇶🇦 Qatar (+974)", "QA"), "973": ("🇧🇭 Bahrain (+973)", "BH"),
+    "968": ("🇴🇲 Oman (+968)", "OM"), "967": ("🇾🇪 Yemen (+967)", "YE"), "886": ("🇹🇼 Đài Loan (+886)", "TW"),
+    "852": ("🇭🇰 Hồng Kong (+852)", "HK"), "853": ("🇲🇦 Ma Cao (+853)", "MO"), "976": ("🇲🇳 Mông Cổ (+976)", "MN"),
+    "998": ("🇺🇿 Uzbekistan (+998)", "UZ"), "77": ("🇰🇿 Kazakhstan (+77)", "KZ"), "993": ("🇹🇲 Turkmenistan (+993)", "TM"),
+    "992": ("🇹🇯 Tajikistan (+992)", "TJ"), "996": ("🇰🇬 Kyrgyzstan (+996)", "KG"), "994": ("🇦🇿 Azerbaijan (+994)", "AZ"),
+    "374": ("🇦🇲 Armenia (+374)", "AM"), "995": ("🇬🇪 Georgia (+995)", "GE"), "673": ("🇧🇳 Brunei (+673)", "BN"),
+    "670": ("🇹🇱 Đông Timor (+670)", "TL"), "960": ("🇲🇻 Maldives (+960)", "MV"), "970": ("🇵🇸 Palestine (+970)", "PS"),
+    "975": ("🇧🇹 Bhutan (+975)", "BT"), "61": ("🇦🇺 Úc (+61)", "AU"), "64": ("🇳🇿 New Zealand (+64)", "NZ"),
+    "675": ("🇵🇬 Papua New Guinea (+675)", "PG"), "679": ("🇫🇯 Fiji (+679)", "FJ"), "685": ("🇼🇸 Samoa (+685)", "WS"),
+    "676": ("🇹🇴 Tonga (+676)", "TO"), "678": ("🇻🇺 Vanuatu (+678)", "VU"), "677": ("🇸🇧 Quần đảo Solomon (+677)", "SB"),
+    "686": ("🇰🇮 Kiribati (+686)", "KI"), "691": ("🇫🇲 Micronesia (+691)", "FM"), "692": ("🇲🇭 Quần đảo Marshall (+692)", "MH"),
+    "680": ("🇵🇼 Palau (+680)", "PW"), "688": ("🇹🇻 Tuvalu (+688)", "TV"), "674": ("🇳🇷 Nauru (+674)", "NR"),
+    "682": ("🇨🇰 Quần đảo Cook (+682)", "CK"), "687": ("🇳🇨 New Caledonia (+687)", "NC"), "689": ("🇵🇫 French Polynesia (+689)", "PF"),
+    "20": ("🇪🇬 Ai Cập (+20)", "EG"), "27": ("🇿🇦 Nam Phi (+27)", "ZA"), "234": ("🇳🇬 Nigeria (+234)", "NG"),
+    "254": ("🇰🇪 Kenya (+254)", "KE"), "251": ("🇪🇹 Ethiopia (+251)", "ET"), "212": ("🇲🇦 Maroc (+212)", "MA"),
+    "213": ("🇩🇿 Algeria (+213)", "DZ"), "216": ("🇹🇳 Tunisia (+216)", "TN"), "218": ("🇱🇾 Libya (+218)", "LY"),
+    "233": ("🇬🇭 Ghana (+233)", "GH"), "225": ("🇨🇮 Bờ Biển Ngà (+225)", "CI"), "237": ("🇨🇲 Cameroon (+237)", "CM"),
+    "255": ("🇹ℤ Tanzania (+255)", "TZ"), "256": ("🇺🇬 Uganda (+256)", "UG"), "250": ("🇷🇼 Rwanda (+250)", "RW"),
+    "260": ("🇿🇲 Zambia (+260)", "ZM"), "263": ("🇿🇼 Zimbabwe (+263)", "ZW"), "258": ("🇲ℤ Mozambique (+258)", "MZ"),
+    "244": ("🇦🇴 Angola (+244)", "AO"), "261": ("🇲🇬 Madagascar (+261)", "MG"), "249": ("🇸🇩 Sudan (+249)", "SD"),
+    "221": ("🇸🇳 Senegal (+221)", "SN"), "223": ("🇲🇱 Mali (+223)", "ML"), "226": ("🇧🇫 Burkina Faso (+226)", "BF"),
+    "227": ("🇳🇪 Niger (+227)", "NE"), "228": ("🇹🇬 Togo (+228)", "TG"), "229": ("🇧🇯 Benin (+229)", "BJ"),
+    "235": ("🇹🇩 Chad (+235)", "TD"), "241": ("🇬🇦 Gabon (+241)", "GA"), "242": ("🇨🇬 Congo (+242)", "CG"),
+    "243": ("🇨🇩 CHDC Congo (+243)", "CD"), "257": ("🇧🇮 Burundi (+257)", "BI"), "253": ("🇩🇯 Djibouti (+253)", "DJ"),
+    "252": ("🇸🇴 Somalia (+252)", "SO"), "291": ("🇪🇷 Eritrea (+291)", "ER"), "232": ("🇸🇱 Sierra Leone (+232)", "SL"),
+    "231": ("🇱🇷 Liberia (+231)", "LR"), "224": ("🇬🇳 Guinea (+224)", "GN"), "245": ("🇬🇼 Guinea-Bissau (+245)", "GW"),
+    "220": ("🇬🇲 Gambia (+220)", "GM"), "230": ("🇲🇺 Mauritius (+230)", "MU"), "248": ("🇸🇨 Seychelles (+248)", "SC"),
+    "269": ("🇰🇲 Comoros (+269)", "KM"), "268": ("🇸🇿 Eswatini (+268)", "SZ"), "266": ("🇱🇸 Lesotho (+266)", "LS"),
+    "267": ("🇧🇼 Botswana (+267)", "BW"), "264": ("🇳🇦 Namibia (+264)", "NA"), "265": ("🇲🇼 Malawi (+265)", "MW"),
+    "239": ("🇸🇹 São Tomé & Príncipe (+239)", "ST"), "240": ("🇬🇶 Guinea Xích Đạo (+240)", "GQ"), "236": ("🇨🇫 CH Trung Phi (+236)", "CF"),
+    "222": ("🇲🇷 Mauritania (+222)", "MR"), "211": ("🇸🇸 Nam Sudan (+211)", "SS"), "290": ("🇸🇭 Saint Helena (+290)", "SH"),
 }
 
 def get_country_info(phone):
@@ -445,7 +299,6 @@ def broadcast_stock_updated(added_count, total_stock):
 # 🧹 8. TỰ ĐỘNG THU HỒI & XÓA SỐ SAU 5 PHÚT
 # ==========================================
 def clean_expired_sessions():
-    """Tự động xóa/thu hồi các phiên số đã hết hạn 5 phút (300s) để giải phóng số"""
     now = time.time()
     expired_phones = []
     for phone, info in list(OTP_ACTIVE_SESSIONS.items()):
@@ -556,7 +409,7 @@ def send_auto_otp(chat_id, number, otp_code, full_msg="", user_id=None, user_nam
     )
     if full_msg:
         text += f"💬 <b>Nội dung:</b> <i>{full_msg[:100]}</i>\n"
-    text += "\n⏳ <b>Trạng thái:</b> <i>Đã nhận OTP thành công, cộng 0.009$ vào ví và tự động xóa/thu hồi số khỏi danh sách!</i>"
+    text += "\n⏳ <b>Trạng thái:</b> <i>Đã nhận OTP thành công, cộng 0.009$ vào ví và tự động xóa/thu hồi số!</i>"
 
     markup = InlineKeyboardMarkup()
     markup.add(InlineKeyboardButton(f"📋 COPY OTP • {otp_code}", callback_data=f"copy_{otp_code}"))
@@ -781,21 +634,23 @@ def handle_callbacks(call):
         bot.answer_callback_query(call.id, f"Đã copy mã OTP: {otp_val}", show_alert=False)
 
     elif data == "my_wallet":
-        user_info = get_user(uid)
+        user_info = get_user(uid, call.from_user.first_name, call.from_user.username or "")
         settings = load_settings()
         balance = user_info.get("balance", 0.0)
         min_w = settings.get("min_withdraw", 5.0)
         
         text = (
-            "💰 <b>VÍ TÀI KHOẢN CỦA BẠN</b>\n"
+            "💰 <b>VÍ TÀI KHOẢN & THÔNG TIN CÁ NHÂN</b>\n"
             "-----------------------------------\n"
-            f"👤 <b>Tài khoản:</b> {call.from_user.first_name}\n"
+            f"👤 <b>Họ và tên:</b> {user_info.get('name')}\n"
+            f"🆔 <b>Telegram ID:</b> <code>{uid}</code>\n"
+            f"📅 <b>Ngày đăng ký:</b> {user_info.get('joined_at')}\n"
             f"💵 <b>Số dư hiện tại:</b> <code>${balance:.4f}</code>\n"
             f"📉 <b>Hạn mức rút tối thiểu:</b> <code>${min_w:.1f}</code>\n"
         )
         markup = InlineKeyboardMarkup(row_width=2)
         markup.add(
-            InlineKeyboardButton("💸 Yêu cầu Rút tiền", callback_data="request_withdraw"),
+            InlineKeyboardButton("💸 Yêu cầu Rút tiền (USDT TON)", callback_data="request_withdraw"),
             InlineKeyboardButton("🔙 Quay lại", callback_data="back_home")
         )
         try:
@@ -812,7 +667,21 @@ def handle_callbacks(call):
         if balance < min_w:
             bot.answer_callback_query(call.id, f"Số dư chưa đủ để rút! Tối thiểu cần ${min_w:.1f}", show_alert=True)
         else:
-            bot.answer_callback_query(call.id, "Vui lòng liên hệ Admin để thực hiện lệnh rút tiền!", show_alert=True)
+            # Kích hoạt trạng thái nhập ví TON
+            USER_WITHDRAW_STATE[uid] = True
+            markup = InlineKeyboardMarkup()
+            markup.add(InlineKeyboardButton("❌ Hủy bỏ", callback_data="my_wallet"))
+            try:
+                bot.edit_message_text(
+                    "📤 <b>YÊU CẦU RÚT TIỀN USDT (MẠNG TON)</b>\n"
+                    "-----------------------------------\n"
+                    "Vui lòng gửi địa chỉ ví <b>USDT mạng TON</b> của bạn vào khung chat:\n"
+                    "<i>(Ví chuẩn TON phải bắt đầu bằng <b>EQ</b> hoặc <b>UQ</b> và có đúng 48 ký tự).</i>\n\n"
+                    "⚠️ <i>Lưu ý: Nhập sai mạng hoặc sai địa chỉ ví sẽ dẫn đến mất vĩnh viễn tài sản!</i>",
+                    call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup
+                )
+            except Exception:
+                pass
 
     elif data == "refer_earn":
         bot_info = bot.get_me()
@@ -845,6 +714,7 @@ def handle_callbacks(call):
         text = (
             "📊 <b>Thống kê cá nhân:</b>\n"
             f"👤 <b>Tên:</b> {call.from_user.first_name}\n"
+            f"🆔 <b>Telegram ID:</b> <code>{uid}</code>\n"
             f"🔑 <b>Tổng số OTP nhận thành công:</b> <b>{my_count}</b> mã\n"
         )
         markup = InlineKeyboardMarkup()
@@ -855,6 +725,7 @@ def handle_callbacks(call):
             pass
 
     elif data == "back_home":
+        USER_WITHDRAW_STATE.pop(uid, None)
         text = "👋 Chào mừng bạn quay lại menu chính của **IVASMS OTP Global**!"
         markup = InlineKeyboardMarkup(row_width=2)
         markup.add(
@@ -930,7 +801,77 @@ def handle_callbacks(call):
             bot.answer_callback_query(call.id, "Không tìm thấy user này trong danh sách phạt!", show_alert=True)
 
 # ==========================================
-# 🚀 12. KHỞI ĐỘNG HỆ THỐNG SONG SONG 24/7
+# 💸 12. XỬ LÝ NHẬP VÍ RÚT TIỀN USDT (MẠNG TON)
+# ==========================================
+@bot.message_handler(func=lambda message: USER_WITHDRAW_STATE.get(message.from_user.id, False))
+def handle_withdraw_address(message):
+    uid = message.from_user.id
+    wallet_addr = message.text.strip()
+    
+    if wallet_addr.startswith('/'):
+        USER_WITHDRAW_STATE.pop(uid, None)
+        return
+        
+    # Regex kiểm tra định dạng ví TON chuẩn (Bắt đầu bằng EQ hoặc UQ, tổng đúng 48 ký tự)
+    TON_ADDRESS_REGEX = re.compile(r'^(EQ|UQ)[A-Za-z0-9\-_]{46}$')
+    if not TON_ADDRESS_REGEX.match(wallet_addr):
+        bot.send_message(
+            uid,
+            "❌ <b>Địa chỉ ví không hợp lệ!</b>\n"
+            "Ví USDT mạng TON phải bắt đầu bằng <b>EQ</b> hoặc <b>UQ</b> và có đúng <b>48 ký tự</b>.\n"
+            "Vui lòng kiểm tra lại ví của bạn (ví dụ từ Tonkeeper, Telegram Wallet...) và gửi lại:",
+            parse_mode="HTML"
+        )
+        return
+        
+    # Hợp lệ -> Xóa trạng thái chờ
+    USER_WITHDRAW_STATE.pop(uid, None)
+    
+    settings = load_settings()
+    user_info = get_user(uid)
+    min_w = settings.get("min_withdraw", 5.0)
+    
+    users_db = load_json_db(USERS_FILE)
+    uid_str = str(uid)
+    if uid_str in users_db:
+        with_amount = users_db[uid_str]["balance"]
+        if with_amount < min_w:
+            bot.send_message(uid, f"❌ Số dư của bạn (${with_amount:.4f}) không đủ hạn mức rút tối thiểu (${min_w:.1f})!")
+            return
+            
+        # Trừ tiền trong ví
+        users_db[uid_str]["balance"] = 0.0
+        save_json_db(USERS_FILE, users_db)
+        
+        # Gửi thông báo đến Admin
+        admin_text = (
+            "💸 <b>YÊU CẦU RÚT TIỀN MỚI (USDT - MẠNG TON)</b>\n"
+            "-----------------------------------\n"
+            f"👤 <b>Họ tên:</b> {user_info.get('name')}\n"
+            f"🆔 <b>Telegram ID:</b> <code>{uid}</code>\n"
+            f"🔗 <b>Username:</b> @{user_info.get('username', 'Không có')}\n"
+            f"💵 <b>Số tiền rút:</b> <code>${with_amount:.4f}</code>\n"
+            f"📤 <b>Địa chỉ ví (TON):</b> <code>{wallet_addr}</code>\n"
+            f"⏰ <b>Thời gian:</b> {datetime.datetime.now().strftime('%H:%M:%S - %d/%m/%Y')}"
+        )
+        
+        try:
+            bot.send_message(ADMIN_ID, admin_text, parse_mode="HTML")
+        except Exception:
+            pass
+            
+        bot.send_message(
+            uid,
+            "✅ <b>Gửi yêu cầu rút tiền thành công!</b>\n"
+            "-----------------------------------\n"
+            f"💵 Số tiền: <b>${with_amount:.4f}</b>\n"
+            f"📤 Ví nhận (Mạng TON): <code>{wallet_addr}</code>\n\n"
+            "⏳ Yêu cầu của bạn đã được gửi đến Admin. Tiền sẽ được thanh toán qua mạng TON sau khi được kiểm duyệt!",
+            parse_mode="HTML"
+        )
+
+# ==========================================
+# 🚀 13. KHỞI ĐỘNG HỆ THỐNG SONG SONG 24/7
 # ==========================================
 if __name__ == "__main__":
     t_scanner = threading.Thread(target=background_sms_scanner, daemon=True)
@@ -939,5 +880,5 @@ if __name__ == "__main__":
     t_web = threading.Thread(target=run_web, daemon=True)
     t_web.start()
     
-    print("🤖 Bot Telegram IVASMS (Auto Thu Hồi 5p + Full 195+ Quốc Gia + 0.009$ Reward + Min 5$ + Refer 0.01$) đang chạy...")
+    print("🤖 Bot Telegram IVASMS (Auto Thu Hồi 5p + Ví TON chuẩn + Full 195+ Quốc Gia) đang chạy...")
     bot.infinity_polling(skip_pending=True)
