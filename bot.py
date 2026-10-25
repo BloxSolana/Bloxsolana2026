@@ -13,7 +13,7 @@ from firebase_admin import credentials, firestore
 # ==========================================
 # Configuration (Đã cập nhật ID của bạn)
 # ==========================================
-BOT_TOKEN = "ĐIỀN_TOKEN_BOT_CỦA_BẠN_VÀO_ĐÂY"  # Lấy từ BotFather
+BOT_TOKEN = "8622066775:AAG08FcNdjAapQcc1e5lCJBEsUMH-kzhYHM"  # Lấy từ BotFather
 ADMIN_ID = 6726769296                         # Telegram ID của bạn
 BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/"
 BOT_USERNAME = ""
