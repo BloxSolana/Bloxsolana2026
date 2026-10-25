@@ -59,6 +59,7 @@ USERS_FILE = "users_log.json"
 STATS_FILE = "otp_stats.json"
 SPAM_TRACKER_FILE = "spam_tracker.json"
 SETTINGS_FILE = "settings.json"
+WITHDRAW_HISTORY_FILE = "withdraw_history.json"
 USER_LAST_ACTION = {}        # Check thời gian thao tác chống spam
 
 DEFAULT_SETTINGS = {
@@ -222,7 +223,7 @@ GLOBAL_COUNTRY_PREFIXES = {
     "94": ("🇱🇰 Sri Lanka (+94)", "LK"), "977": ("🇳🇵 Nepal (+977)", "NP"), "93": ("🇦🇫 Afghanistan (+93)", "AF"),
     "98": ("🇮🇷 Iran (+98)", "IR"), "964": ("🇮🇶 Iraq (+964)", "IQ"), "90": ("🇹🇷 Thổ Nhĩ Kỳ (+90)", "TR"),
     "972": ("🇮🇱 Israel (+972)", "IL"), "962": ("🇯🇴 Jordan (+962)", "JO"), "961": ("🇱🇧 Lebanon (+961)", "LB"),
-    "963": ("🇸🇾 Syria (+963)", "SY"), "965": ("🇰🇼 Kuwait (+965)", "KW"), "966": ("🇸🇦 Ả Rập Xê Úت (+966)", "SA"),
+    "963": ("🇸🇾 Syria (+963)", "SY"), "965": ("🇰🇼 Kuwait (+965)", "KW"), "966": ("🇸🇦 Ả Rập Xê Út (+966)", "SA"),
     "971": ("🇦🇪 UAE (+971)", "AE"), "974": ("🇶🇦 Qatar (+974)", "QA"), "973": ("🇧🇭 Bahrain (+973)", "BH"),
     "968": ("🇴🇲 Oman (+968)", "OM"), "967": ("🇾🇪 Yemen (+967)", "YE"), "886": ("🇹🇼 Đài Loan (+886)", "TW"),
     "852": ("🇭🇰 Hồng Kong (+852)", "HK"), "853": ("🇲🇦 Ma Cao (+853)", "MO"), "976": ("🇲🇳 Mông Cổ (+976)", "MN"),
@@ -652,6 +653,7 @@ def handle_callbacks(call):
         markup = InlineKeyboardMarkup(row_width=1)
         markup.add(
             InlineKeyboardButton("💸 Yêu cầu Rút tiền (USDT - Mạng TON)", callback_data="request_withdraw"),
+            InlineKeyboardButton("📜 Lịch sử & Trạng thái rút", callback_data="withdraw_history"),
             InlineKeyboardButton("🔙 Quay lại Menu Chính", callback_data="back_home")
         )
         try:
@@ -677,13 +679,42 @@ def handle_callbacks(call):
                     "-----------------------------------\n"
                     "💎 <b>Loại tài sản:</b> USDT (Mạng TON)\n"
                     "💸 <b>Phí rút tiền:</b> <code>0% (Miễn phí hoàn toàn)</code>\n\n"
-                    "👇 Vui lòng gửi địa chỉ ví <b>USDT mạng TON</b> của bạn vào khung chat bên dưới:\n"
+                    "👇 <b>HÀNH ĐỘNG CẦN LÀM:</b>\n"
+                    "Vui lòng nhập trực tiếp địa chỉ ví <b>USDT mạng TON</b> của bạn vào ô chat bên dưới:\n"
                     "<i>(Ví chuẩn TON phải bắt đầu bằng <b>EQ</b> hoặc <b>UQ</b> và có đúng <b>48 ký tự</b>).</i>\n\n"
-                    "⚠️ <i>Lưu ý: Hệ thống sẽ tự động quét đúng định dạng mạng TON để bảo vệ tài sản của bạn!</i>",
+                    "⚠️ <i>Lưu ý: Sau khi gửi ví lên khung chat, hệ thống sẽ tự động kiểm tra định dạng và tạo lệnh rút!</i>",
                     call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup
                 )
             except Exception:
                 pass
+
+    elif data == "withdraw_history":
+        history_db = load_json_db(WITHDRAW_HISTORY_FILE)
+        uid_str = str(uid)
+        user_histories = history_db.get(uid_str, [])
+        
+        text = (
+            "📜 <b>LỊCH SỬ & TRẠNG THÁI RÚT TIỀN</b>\n"
+            "-----------------------------------\n"
+        )
+        if not user_histories:
+            text += "<i>Bạn chưa có lịch sử yêu cầu rút tiền nào.</i>"
+        else:
+            for idx, item in enumerate(user_histories[::-1], 1):
+                text += (
+                    f"<b>#{idx}. Số tiền:</b> <code>${item.get('amount'):.4f} USDT</code>\n"
+                    f"📤 <b>Ví TON:</b> <code>{item.get('wallet')}</code>\n"
+                    f"📌 <b>Trạng thái:</b> <b>{item.get('status')}</b>\n"
+                    f"⏰ <b>Thời gian:</b> <i>{item.get('time')}</i>\n"
+                    "-----------------------------------\n"
+                )
+                
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🔙 Quay lại Ví", callback_data="my_wallet"))
+        try:
+            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+        except Exception:
+            pass
 
     elif data == "refer_earn":
         bot_info = bot.get_me()
@@ -803,7 +834,7 @@ def handle_callbacks(call):
             bot.answer_callback_query(call.id, "Không tìm thấy user này trong danh sách phạt!", show_alert=True)
 
 # ==========================================
-# 💸 12. XỬ LÝ QUÉT & KIỂM TRA ĐỊNH DẠNG VÍ TON (0% PHÍ)
+# 💸 12. XỬ LÝ QUÉT VÍ TON & LƯU LỊCH SỬ RÚT
 # ==========================================
 @bot.message_handler(func=lambda message: USER_WITHDRAW_STATE.get(message.from_user.id, False))
 def handle_withdraw_address(message):
@@ -814,6 +845,7 @@ def handle_withdraw_address(message):
         USER_WITHDRAW_STATE.pop(uid, None)
         return
         
+    # Regex kiểm tra chính xác ví TON chuẩn (Bắt đầu EQ hoặc UQ, tổng đúng 48 ký tự)
     TON_ADDRESS_REGEX = re.compile(r'^(EQ|UQ)[A-Za-z0-9\-_]{46}$')
     if not TON_ADDRESS_REGEX.match(wallet_addr):
         bot.send_message(
@@ -841,19 +873,35 @@ def handle_withdraw_address(message):
             bot.send_message(uid, f"❌ Số dư hiện tại (${with_amount:.4f}) không đủ hạn mức rút tối thiểu (${min_w:.1f})!")
             return
             
+        # Trừ tiền trong ví user
         users_db[uid_str]["balance"] = 0.0
         save_json_db(USERS_FILE, users_db)
         
+        # Lưu lịch sử rút tiền với thời gian thực
+        current_time_str = datetime.datetime.now().strftime('%H:%M:%S - %d/%m/%Y')
+        history_db = load_json_db(WITHDRAW_HISTORY_FILE)
+        if uid_str not in history_db:
+            history_db[uid_str] = []
+            
+        history_db[uid_str].append({
+            "amount": with_amount,
+            "wallet": wallet_addr,
+            "status": "⏳ Đang chờ duyệt",
+            "time": current_time_str
+        })
+        save_json_db(WITHDRAW_HISTORY_FILE, history_db)
+        
+        # Gửi thông báo đến Admin
         admin_text = (
-            "💸 <b>YÊU CẦU RÚT TIỀN THÀNH CÔNG (0% PHÍ)</b>\n"
+            "💸 <b>YÊU CẦU RÚT TIỀN MỚI (0% PHÍ)</b>\n"
             "-----------------------------------\n"
             f"👤 <b>Họ tên:</b> {user_info.get('name')}\n"
             f"🆔 <b>Telegram ID:</b> <code>{uid}</code>\n"
             f"🔗 <b>Username:</b> @{user_info.get('username', 'Không có')}\n"
             f"💵 <b>Số tiền rút:</b> <code>${with_amount:.4f} USDT</code>\n"
-            f"💎 <b>Mạng lưới:</b> TON Network (Phí 0%)\n"
-            f"📤 <b>Địa chỉ ví đích:</b> <code>{wallet_addr}</code>\n"
-            f"⏰ <b>Thời gian:</b> {datetime.datetime.now().strftime('%H:%M:%S - %d/%m/%Y')}"
+            f"💎 <b>Mạng lưới:</b> TON Network\n"
+            f"📤 <b>Địa chỉ ví:</b> <code>{wallet_addr}</code>\n"
+            f"⏰ <b>Thời gian:</b> {current_time_str}"
         )
         
         try:
@@ -861,15 +909,22 @@ def handle_withdraw_address(message):
         except Exception:
             pass
             
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("📜 Xem Lịch sử & Trạng thái rút", callback_data="withdraw_history"))
+        markup.add(InlineKeyboardButton("🔙 Về Menu Chính", callback_data="back_home"))
+        
         bot.send_message(
             uid,
             "✅ <b>GỬI YÊU CẦU RÚT TIỀN THÀNH CÔNG!</b>\n"
             "-----------------------------------\n"
             f"💵 Số tiền: <b>${with_amount:.4f} USDT</b>\n"
             f"⚡ Phí giao dịch: <b>0% (Miễn phí)</b>\n"
-            f"📤 Ví nhận (Mạng TON): <code>{wallet_addr}</code>\n\n"
-            "⏳ Địa chỉ ví của bạn đã vượt qua bộ lọc chuẩn mạng TON. Yêu cầu đã được gửi đến Admin để thanh toán!",
-            parse_mode="HTML"
+            f"📤 Ví nhận (TON): <code>{wallet_addr}</code>\n"
+            f"📌 Trạng thái: <b>⏳ Đang chờ duyệt</b>\n"
+            f"⏰ Thời điểm: <i>{current_time_str}</i>\n\n"
+            "⏳ Yêu cầu của bạn đã được ghi vào hệ thống và gửi đến Admin. Bạn có thể bấm nút bên dưới để theo dõi lịch sử:",
+            parse_mode="HTML",
+            reply_markup=markup
         )
 
 # ==========================================
@@ -882,7 +937,7 @@ if __name__ == "__main__":
     t_web = threading.Thread(target=run_web, daemon=True)
     t_web.start()
     
-    print("🤖 Bot Telegram IVASMS (Auto Thu Hồi 5p + Quét Ví TON 0% Phí + Full 195+ Quốc Gia) đang chạy...")
+    print("🤖 Bot Telegram IVASMS (Auto Thu Hồi 5p + Lịch Sử Rút TON + Full 195+ Quốc Gia) đang chạy...")
     
     while True:
         try:
