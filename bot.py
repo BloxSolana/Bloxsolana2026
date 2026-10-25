@@ -975,14 +975,8 @@ def get_force_join_keyboard():
     return kb
 
 def get_force_join_alert_keyboard():
-    kb = {"inline_keyboard": []}
-    for ch in force_join_channels:
-        name = ch.get("title", ch.get("username", "Our Channel"))
-        url = ch.get("invite_link", "")
-        if not url and ch.get("username"): url = f"https://t.me/{ch['username'].replace('@', '')}"
-        kb["inline_keyboard"].append([{"text": f"JOIN {name}", "url": url, "icon_custom_emoji_id": "5420517437885943844", "style": "danger"}])
-    kb["inline_keyboard"].append([{"text": "VERIFY", "callback_data": "check_fj_joined", "icon_custom_emoji_id": "5352694861990501856", "style": "success"}])
-    return kb
+    # Tắt ép join, trả về bàn phím trống hoặc cho qua luôn
+    return {"inline_keyboard": []}
 
 def get_voltx_keys_keyboard():
     kb = {"inline_keyboard": []}
