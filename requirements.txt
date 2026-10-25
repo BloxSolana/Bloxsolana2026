@@ -1,7 +1,8 @@
 requests
 firebase-admin
-Flask
+flask
 gunicorn
 pyTelegramBotAPI
 beautifulsoup4
 pyotp
+websocket-client
