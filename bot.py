@@ -245,19 +245,26 @@ GLOBAL_COUNTRY_PREFIXES = {
     "213": ("🇩🇿 Algeria (+213)", "DZ"), "216": ("🇹🇳 Tunisia (+216)", "TN"), "218": ("🇱🇾 Libya (+218)", "LY"),
     "233": ("🇬🇭 Ghana (+233)", "GH"), "225": ("🇨🇮 Bờ Biển Ngà (+225)", "CI"), "237": ("🇨🇲 Cameroon (+237)", "CM"),
     "255": ("🇹ℤ Tanzania (+255)", "TZ"), "256": ("🇺🇬 Uganda (+256)", "UG"), "250": ("🇷🇼 Rwanda (+250)", "RW"),
-    "260": ("🇿🇲 Zambia (+260)", "ZM"), "263": ("🇿🇼 Zimbabwe (+263)", "ZW"), "258": ("🇲ℤ Mozambique (+258)", "MZ"),
-    "244": ("🇦🇴 Angola (+244)", "AO"), "261": ("🇲🇬 Madagascar (+261)", "MG"), "249": ("🇸🇩 Sudan (+249)", "SD"),
-    "221": ("🇸🇳 Senegal (+221)", "SN"), "223": ("🇲🇱 Mali (+223)", "ML"), "226": ("🇧🇫 Burkina Faso (+226)", "BF"),
-    "227": ("🇳🇪 Niger (+227)", "NE"), "228": ("🇹🇬 Togo (+228)", "TG"), "229": ("🇧🇯 Benin (+229)", "BJ"),
-    "235": ("🇹🇩 Chad (+235)", "TD"), "241": ("🇬🇦 Gabon (+241)", "GA"), "242": ("🇨🇬 Congo (+242)", "CG"),
-    "243": ("🇨🇩 CHDC Congo (+243)", "CD"), "257": ("🇧🇮 Burundi (+257)", "BI"), "253": ("🇩🇯 Djibouti (+253)", "DJ"),
-    "252": ("🇸🇴 Somalia (+252)", "SO"), "291": ("🇪🇷 Eritrea (+291)", "ER"), "232": ("🇸🇱 Sierra Leone (+232)", "SL"),
-    "231": ("🇱🇷 Liberia (+231)", "LR"), "224": ("🇬🇳 Guinea (+224)", "GN"), "245": ("🇬🇼 Guinea-Bissau (+245)", "GW"),
-    "220": ("🇬🇲 Gambia (+220)", "GM"), "230": ("🇲🇺 Mauritius (+230)", "MU"), "248": ("🇸🇨 Seychelles (+248)", "SC"),
-    "269": ("🇰🇲 Comoros (+269)", "KM"), "268": ("🇸🇿 Eswatini (+268)", "SZ"), "266": ("🇱🇸 Lesotho (+266)", "LS"),
-    "267": ("🇧🇼 Botswana (+267)", "BW"), "264": ("🇳🇦 Namibia (+264)", "NA"), "265": ("🇲🇼 Malawi (+265)", "MW"),
-    "239": ("🇸🇹 São Tomé & Príncipe (+239)", "ST"), "240": ("🇬🇶 Guinea Xích Đạo (+240)", "GQ"), "236": ("🇨🇫 CH Trung Phi (+236)", "CF"),
-    "222": ("🇲🇷 Mauritania (+222)", "MR"), "211": ("🇸🇸 Nam Sudan (+211)", "SS"), "290": ("🇸🇭 Saint Helena (+290)", "SH"),
+    "260": ("🇿🇲 Zambia (+260)", "ZM"), "263": ("🇿🇼 Zimbabwe (+263)", "ZW"),
+    "258": ("🇲ℤ Mozambique (+258)", "MZ"), "244": ("🇦🇴 Angola (+244)", "AO"),
+    "261": ("🇲🇬 Madagascar (+261)", "MG"), "249": ("🇸🇩 Sudan (+249)", "SD"),
+    "221": ("🇸🇳 Senegal (+221)", "SN"), "223": ("🇲🇱 Mali (+223)", "ML"),
+    "226": ("🇧🇫 Burkina Faso (+226)", "BF"), "227": ("🇳🇪 Niger (+227)", "NE"),
+    "228": ("🇹🇬 Togo (+228)", "TG"), "229": ("🇧🇯 Benin (+229)", "BJ"),
+    "235": ("🇹🇩 Chad (+235)", "TD"), "241": ("🇬🇦 Gabon (+241)", "GA"),
+    "242": ("🇨🇬 Congo (+242)", "CG"), "243": ("🇨🇩 CHDC Congo (+243)", "CD"),
+    "257": ("🇧🇮 Burundi (+257)", "BI"), "253": ("🇩🇯 Djibouti (+253)", "DJ"),
+    "252": ("🇸🇴 Somalia (+252)", "SO"), "291": ("🇪🇷 Eritrea (+291)", "ER"),
+    "232": ("🇸🇱 Sierra Leone (+232)", "SL"), "231": ("🇱🇷 Liberia (+231)", "LR"),
+    "224": ("🇬🇳 Guinea (+224)", "GN"), "245": ("🇬🇼 Guinea-Bissau (+245)", "GW"),
+    "220": ("🇬🇲 Gambia (+220)", "GM"), "230": ("🇲🇺 Mauritius (+230)", "MU"),
+    "248": ("🇸🇨 Seychelles (+248)", "SC"), "269": ("🇰🇲 Comoros (+269)", "KM"),
+    "268": ("🇸🇿 Eswatini (+268)", "SZ"), "266": ("🇱🇸 Lesotho (+266)", "LS"),
+    "267": ("🇧🇼 Botswana (+267)", "BW"), "264": ("🇳🇦 Namibia (+264)", "NA"),
+    "265": ("🇲🇼 Malawi (+265)", "MW"), "239": ("🇸🇹 São Tomé & Príncipe (+239)", "ST"),
+    "240": ("🇬🇶 Guinea Xích Đạo (+240)", "GQ"), "236": ("🇨🇫 CH Trung Phi (+236)", "CF"),
+    "222": ("🇲🇷 Mauritania (+222)", "MR"), "211": ("🇸🇸 Nam Sudan (+211)", "SS"),
+    "290": ("🇸🇭 Saint Helena (+290)", "SH"),
 }
 
 def get_country_info(phone):
@@ -881,11 +888,34 @@ def handle_callbacks(call):
         )
         markup = InlineKeyboardMarkup(row_width=1)
         markup.add(
+            InlineKeyboardButton("👥 Danh sách User Đăng Ký", callback_data="admin_view_users"),
             InlineKeyboardButton("💸 Duyệt Lệnh Rút Tiền", callback_data="admin_view_withdraws"),
             InlineKeyboardButton("🔄 Nạp Batch Số Mới", callback_data="admin_reload"),
             InlineKeyboardButton("🛡 Quản lý & Mở khóa Spam", callback_data="admin_users"),
             InlineKeyboardButton("🔙 Quay lại Menu Chính", callback_data="back_home")
         )
+        try:
+            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+        except Exception:
+            pass
+
+    elif data == "admin_view_users" and uid == ADMIN_ID:
+        users_db = load_json_db(USERS_FILE)
+        text = "👥 <b>DANH SÁCH NGƯỜI DÙNG ĐĂNG KÝ:</b>\n\n"
+        if not users_db:
+            text += "<i>Chưa có người dùng nào đăng ký.</i>"
+        else:
+            for u_id, u_info in list(users_db.items())[-10:]: # Hiển thị 10 user mới nhất
+                text += (
+                    f"👤 <b>Tên:</b> {u_info.get('name')}\n"
+                    f"🆔 <b>ID:</b> <code>{u_info.get('id')}</code>\n"
+                    f"🔗 <b>Username:</b> @{u_info.get('username')}\n"
+                    f"💵 <b>Số dư:</b> <code>${u_info.get('balance', 0.0):.4f}</code>\n"
+                    f"📅 <b>Đăng ký lúc:</b> {u_info.get('joined_at')}\n"
+                    "-----------------------------------\n"
+                )
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🔙 Quay lại Admin Panel", callback_data="admin_panel"))
         try:
             bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
         except Exception:
@@ -905,7 +935,7 @@ def handle_callbacks(call):
 
         text = "💸 <b>DANH SÁCH LỆNH RÚT ĐANG CHỜ DUYỆT:</b>\n\n"
         markup = InlineKeyboardMarkup(row_width=1)
-        for u_id, idx, it in pending_items[:5]: # Hiển thị 5 lệnh chờ gần nhất
+        for u_id, idx, it in pending_items[:5]:
             text += f"• ID: <code>{u_id}</code> | <b>${it.get('amount'):.4f}</b> | <code>{it.get('wallet')[:10]}...</code>\n"
             markup.add(InlineKeyboardButton(f"✅ Duyệt thanh toán ID {u_id} (${it.get('amount')})", callback_data=f"done_w_{u_id}_{idx}"))
 
@@ -925,7 +955,6 @@ def handle_callbacks(call):
             history_db[target_uid][item_idx]["status"] = "✅ Đã thanh toán thành công"
             save_json_db(WITHDRAW_HISTORY_FILE, history_db)
             
-            # Gửi tin nhắn thông báo cho user đó
             try:
                 bot.send_message(
                     int(target_uid),
@@ -1030,23 +1059,25 @@ def handle_withdraw_address(message):
         })
         save_json_db(WITHDRAW_HISTORY_FILE, history_db)
         
-        # Gửi thông báo đến Admin
         admin_text = (
             "💸 <b>YÊU CẦU RÚT TIỀN MỚI (0% PHÍ)</b>\n"
             "-----------------------------------\n"
-            f"👤 <b>Họ tên:</b> {user_info.get('name')}\n"
+            f"👤 <b>Họ tên người rút:</b> {user_info.get('name')}\n"
             f"🆔 <b>Telegram ID:</b> <code>{uid}</code>\n"
             f"🔗 <b>Username:</b> @{user_info.get('username', 'Không có')}\n"
             f"💵 <b>Số tiền rút:</b> <code>${with_amount:.4f} USDT</code>\n"
             f"💎 <b>Mạng lưới:</b> TON Network\n"
-            f"📤 <b>Địa chỉ ví:</b> <code>{wallet_addr}</code>\n"
-            f"⏰ <b>Thời gian:</b> {current_time_str}"
+            f"📤 <b>Địa chỉ ví TON:</b> <code>{wallet_addr}</code>\n"
+            f"⏰ <b>Thời gian thực:</b> {current_time_str}"
         )
         
+        markup_admin = InlineKeyboardMarkup()
+        markup_admin.add(InlineKeyboardButton("💸 Vào Menu Duyệt Lệnh", callback_data="admin_view_withdraws"))
+        
         try:
-            bot.send_message(ADMIN_ID, admin_text, parse_mode="HTML")
-        except Exception:
-            pass
+            bot.send_message(ADMIN_ID, admin_text, parse_mode="HTML", reply_markup=markup_admin)
+        except Exception as e:
+            print(f"Lỗi gửi thông báo cho Admin: {e}")
             
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("📜 Xem Lịch sử & Trạng thái rút", callback_data="withdraw_history"))
@@ -1061,7 +1092,7 @@ def handle_withdraw_address(message):
             f"📤 Ví nhận (TON): <code>{wallet_addr}</code>\n"
             f"📌 Trạng thái: <b>⏳ Đang chờ duyệt</b>\n"
             f"⏰ Thời điểm: <i>{current_time_str}</i>\n\n"
-            "⏳ Yêu cầu của bạn đã được gửi đến Admin để xử lý!",
+            "⏳ Yêu cầu của bạn đã được gửi trực tiếp đến Admin để xử lý!",
             parse_mode="HTML",
             reply_markup=markup
         )
@@ -1076,7 +1107,7 @@ if __name__ == "__main__":
     t_web = threading.Thread(target=run_web, daemon=True)
     t_web.start()
     
-    print("🤖 Bot Telegram IVASMS (Auto Thu Hồi 5p + Duyệt Rút Admin + Full 195+ Quốc Gia) đang chạy...")
+    print("🤖 Bot Telegram IVASMS (Auto Thu Hồi 5p + Danh Sách User Đăng Ký + Full 195+ Quốc Gia) đang chạy...")
     
     while True:
         try:
