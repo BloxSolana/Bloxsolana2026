@@ -120,7 +120,7 @@ def save_deleted_numbers(deleted_set):
 DELETED_NUMBERS = load_deleted_numbers()
 
 # Dán nguyên đoạn Cookie mới nhất của bro vào đây:
-IVAS_WEB_URL = "https://www.ivasms.com/portal/numbers"
+IVAS_WEB_URL = "https://www.ivasms.com/portal/live"
 IVAS_USER_COOKIE = (
     "_fbp=fb.1.1792741985965.809745508754196298; "
     "cf_clearance=oeZZoXwByuCZVg6ldEh_aNnpLXzJVIWj.mmmm.ZdF7o-1792981612-1.2.1.1-3XyzKxYQeb7R3C15mmachgcwp1zrSyh4BTzdZ1O8Zt0PhR757heOaUZuPwtx5pwMj6LFQZhYKynCTVd1by5zgmfKFcMO4ASiwEPLKSRz9Fsj1UzowStsSekVo1omnzZDHD4ZmzfmfcaPvIGDSmbyzK3vhby5vq1hvpDO3_WUyUPtH9RO0T_.geWSfGHlFbZhIjXpUNxXVfavgc7U0PvFJVqaKzIHSIh7x9byMCEdk4C1PgvV9XT5FTc.8PUbUHcjnsP7XYoZamnBl0D7dVJaf771a2170Y8X2b8CCVPYkFCVqEIQV6USKtKyCG39bwdybCZL_D7c3n1jz_gK9pYdgKVLwhalt3dHe9QmZ2qKcJBcyPodBVZrMlWMeytkINihAgaire0QWFCdqO8IXyJQrs_svDEMUSclfnyE9sv.YW_puTvfwyDduJUaTodWvgS.TOYs5HzbiTzZNdmv0MSu2Ws31bD9Le9Ax_Uzpn7XI7cIb_wqNQxLxRYFihX2U46h9pdZd1E1jX16E5D_OUC.lg; "
@@ -141,15 +141,14 @@ def sync_numbers_from_ivas_web():
             soup = BeautifulSoup(response.text, 'html.parser')
             scraped_numbers = set()
             
-            for text_elem in soup.find_all(text=True):
-                found_nums = re.findall(r'\+?\d{8,15}', text_elem)
-                for num in found_nums:
-                    digits_only = re.sub(r'\D', '', num)
-                    if len(digits_only) >= 8:
-                        formatted = "+" + digits_only
-                        # Lọc bỏ các số đã bị Admin xóa thủ công vĩnh viễn
-                        if formatted not in DELETED_NUMBERS:
-                            scraped_numbers.add(formatted)
+            full_text = soup.get_text(separator=" ")
+            found_nums = re.findall(r'\+?\d{8,15}', full_text)
+            for num in found_nums:
+                digits_only = re.sub(r'\D', '', num)
+                if len(digits_only) >= 8:
+                    formatted = "+" + digits_only
+                    if formatted not in DELETED_NUMBERS:
+                        scraped_numbers.add(formatted)
     
             temp_cache = {}
             for formatted in scraped_numbers:
@@ -161,6 +160,15 @@ def sync_numbers_from_ivas_web():
                     temp_cache[code] = {"name": name, "numbers": []}
                 if formatted not in temp_cache[code]["numbers"]:
                     temp_cache[code]["numbers"].append(formatted)
+            
+            COUNTRY_CACHE = temp_cache
+            print(f"[Auto-Sync]: Đã đồng bộ thành công {len(scraped_numbers)} số từ iVASMS Web!")
+            return True, len(scraped_numbers)
+        print(f"[Auto-Sync]: Không thể lấy dữ liệu, mã phản hồi: {response.status_code}")
+        return False, f"HTTP Status {response.status_code}"
+    except Exception as e:
+        print(f"[Auto-Sync Error]: {e}")
+        return False, str(e)
             
             COUNTRY_CACHE = temp_cache
             print(f"[Auto-Sync]: Đã đồng bộ thành công {len(scraped_numbers)} số từ iVASMS Web!")
