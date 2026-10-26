@@ -131,20 +131,20 @@ def sync_numbers_from_ivas_web():
                         formatted = "+" + digits_only
                         scraped_numbers.add(formatted)
     
-                temp_cache = {}
-                for formatted in scraped_numbers:
-                    if formatted not in PHONE_CREATION_TIME:
-                        PHONE_CREATION_TIME[formatted] = time.time()
-                    
-                    name, code = get_country_info(formatted)
-                    if code not in temp_cache:
-                        temp_cache[code] = {"name": name, "numbers": []}
-                    if formatted not in temp_cache[code]["numbers"]:
-                        temp_cache[code]["numbers"].append(formatted)
+            temp_cache = {}
+            for formatted in scraped_numbers:
+                if formatted not in PHONE_CREATION_TIME:
+                    PHONE_CREATION_TIME[formatted] = time.time()
                 
-                COUNTRY_CACHE = temp_cache
-                print(f"[Auto-Sync]: Đã đồng bộ thành công {len(scraped_numbers)} số từ iVASMS Web!")
-                return True, len(scraped_numbers)
+                name, code = get_country_info(formatted)
+                if code not in temp_cache:
+                    temp_cache[code] = {"name": name, "numbers": []}
+                if formatted not in temp_cache[code]["numbers"]:
+                    temp_cache[code]["numbers"].append(formatted)
+            
+            COUNTRY_CACHE = temp_cache
+            print(f"[Auto-Sync]: Đã đồng bộ thành công {len(scraped_numbers)} số từ iVASMS Web!")
+            return True, len(scraped_numbers)
         print(f"[Auto-Sync]: Không thể lấy dữ liệu, mã phản hồi: {response.status_code}")
         return False, f"HTTP Status {response.status_code}"
     except Exception as e:
@@ -433,13 +433,11 @@ def clean_expired_sessions():
         print(f"Lỗi trong clean_expired_sessions: {e}")
 
 def load_text_batch(reset=False):
-    # Thay thế phần load file cũ bằng việc gọi hàm Auto-Sync trực tiếp từ web iVASMS
     clean_expired_sessions()
     success, count_or_msg = sync_numbers_from_ivas_web()
     if success:
         return True, count_or_msg
     else:
-        # Nếu gọi web lỗi, dự phòng đọc file local numbers.txt nếu có
         file_path = "numbers.txt"
         if os.path.exists(file_path):
             try:
@@ -487,7 +485,7 @@ def get_numbers_by_category(category_code, page=0, limit=6):
     return [], 0
 
 def get_available_countries():
-    sync_numbers_from_ivas_web()  # <--- Chỉ cần chèn thêm đúng dòng này vào đây
+    sync_numbers_from_ivas_web()
     clean_expired_sessions()
     valid_countries = {}
     for code, data in COUNTRY_CACHE.items():
@@ -1227,6 +1225,7 @@ def handle_callbacks(call):
             markup = InlineKeyboardMarkup(row_width=1)
             markup.add(
                 InlineKeyboardButton("🔗 Cấu hình IVAS WebSocket (WSS)", callback_data="admin_set_wss"),
+                InlineKeyboardButton("🗑️ Quản lý & Xóa Cache Số", callback_data="admin_manage_cache_countries"),
                 InlineKeyboardButton("🏆 Top Số Dư User (Kiểm tra gian lận)", callback_data="admin_top_balances"),
                 InlineKeyboardButton("👥 Danh sách User Đăng Ký", callback_data="admin_view_users"),
                 InlineKeyboardButton("💸 Duyệt Lệnh Rút Tiền", callback_data="admin_view_withdraws"),
@@ -1238,6 +1237,75 @@ def handle_callbacks(call):
                 bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
             except Exception:
                 pass
+
+        elif data == "admin_manage_cache_countries" and uid == ADMIN_ID:
+            if not COUNTRY_CACHE:
+                bot.answer_callback_query(call.id, "Kho số hiện đang trống!", show_alert=True)
+                return
+            markup = InlineKeyboardMarkup(row_width=1)
+            for code, data_dict in COUNTRY_CACHE.items():
+                markup.add(InlineKeyboardButton(f"{data_dict['name']} ({len(data_dict['numbers'])} số)", callback_data=f"adm_cache_c_{code}"))
+            markup.add(InlineKeyboardButton("🔙 Quay lại Admin Panel", callback_data="admin_panel"))
+            try:
+                bot.edit_message_text("🗑️ <b>CHỌN QUỐC GIA ĐỂ XEM VÀ XÓA SỐ CACHE:</b>", chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
+            except Exception:
+                pass
+
+        elif data.startswith("adm_cache_c_") and uid == ADMIN_ID:
+            code = data.replace("adm_cache_c_", "")
+            if code not in COUNTRY_CACHE or not COUNTRY_CACHE[code]["numbers"]:
+                bot.answer_callback_query(call.id, "Danh mục này đã trống số!", show_alert=True)
+                return
+            markup = InlineKeyboardMarkup(row_width=2)
+            for num in COUNTRY_CACHE[code]["numbers"][:20]: # Hiển thị tối đa 20 số đầu để thao tác nhanh
+                markup.add(InlineKeyboardButton(f"❌ Xóa: {num}", callback_data=f"adm_ask_del_{code}_{num}"))
+            markup.add(InlineKeyboardButton("🔙 Quay lại danh sách quốc gia", callback_data="admin_manage_cache_countries"))
+            try:
+                bot.edit_message_text(f"📞 <b>Danh sách số trong {code} (Bấm vào số để xác nhận xóa):</b>", chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
+            except Exception:
+                pass
+
+        elif data.startswith("adm_ask_del_") and uid == ADMIN_ID:
+            parts = data.replace("adm_ask_del_", "").split("_", 1)
+            code = parts[0]
+            phone = parts[1]
+            markup = InlineKeyboardMarkup(row_width=2)
+            markup.add(
+                InlineKeyboardButton("✅ Xác nhận xóa", callback_data=f"adm_yes_del_{code}_{phone}"),
+                InlineKeyboardButton("🚫 Không", callback_data=f"adm_cache_c_{code}")
+            )
+            try:
+                bot.edit_message_text(
+                    f"⚠️ <b>BẠN CÓ CHẮC CHẮN MUỐN XÓA SỐ NÀY?</b>\n\n"
+                    f"📞 Số điện thoại: <code>{phone}</code>\n\n"
+                    "Thao tác này sẽ xóa vĩnh viễn số khỏi bộ nhớ Cache và file hệ thống!",
+                    chat_id, msg_id, parse_mode="HTML", reply_markup=markup
+                )
+            except Exception:
+                pass
+
+        elif data.startswith("adm_yes_del_") and uid == ADMIN_ID:
+            parts = data.replace("adm_yes_del_", "").split("_", 1)
+            code = parts[0]
+            phone = parts[1]
+            
+            # Xóa khỏi cache
+            if code in COUNTRY_CACHE and phone in COUNTRY_CACHE[code]["numbers"]:
+                COUNTRY_CACHE[code]["numbers"].remove(phone)
+                if not COUNTRY_CACHE[code]["numbers"]:
+                    del COUNTRY_CACHE[code]
+            # Xóa khỏi file vật lý
+            remove_number_from_file(phone)
+            if phone in PHONE_CREATION_TIME:
+                del PHONE_CREATION_TIME[phone]
+            if phone in OTP_ACTIVE_SESSIONS:
+                del OTP_ACTIVE_SESSIONS[phone]
+                
+            bot.answer_callback_query(call.id, f"Đã xóa thành công số {phone}!", show_alert=True)
+            
+            # Load lại danh sách nước đó
+            call.data = f"adm_cache_c_{code}"
+            handle_callbacks(call)
 
         elif data == "admin_set_wss" and uid == ADMIN_ID:
             USER_WSS_STATE[uid] = True
@@ -1397,7 +1465,6 @@ def handle_text_inputs(message):
         USER_WSS_STATE.pop(uid, None)
         return
 
-    # Xử lý nhập WebSocket URL từ Admin
     if USER_WSS_STATE.get(uid, False):
         if uid != ADMIN_ID:
             USER_WSS_STATE.pop(uid, None)
@@ -1415,7 +1482,6 @@ def handle_text_inputs(message):
         )
         return
 
-    # Xử lý nhập ví rút tiền
     if USER_WITHDRAW_STATE.get(uid, False):
         wallet_addr = text_val
         TON_ADDRESS_REGEX = re.compile(r'^(EQ|UQ)[A-Za-z0-9\-_]{46}$')
@@ -1465,15 +1531,12 @@ def handle_text_inputs(message):
 # 🚀 14. KHỞI ĐỘNG HỆ THỐNG AN TOÀN TUYỆT ĐỐI
 # ==========================================
 if __name__ == "__main__":
-    # Luồng quét HTTP dự phòng định kỳ
     t_scanner = threading.Thread(target=background_sms_scanner, daemon=True)
     t_scanner.start()
     
-    # Luồng ngầm WebSocket lắng nghe real-time wss://
     t_wss = threading.Thread(target=ivas_websocket_listener, daemon=True)
     t_wss.start()
     
-    # Web server giữ bot online trên Render
     t_web = threading.Thread(target=run_web, daemon=True)
     t_web.start()
     
