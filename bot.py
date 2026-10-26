@@ -9,7 +9,7 @@ import threading
 import json
 import time
 import random
-import websocket  # Thư viện yêu cầu: pip install websocket-client
+import websocket
 from flask import Flask
 
 # ==========================================
@@ -159,7 +159,6 @@ def on_ws_message(ws, message):
                 for formatted in scraped_numbers:
                     if formatted not in PHONE_CREATION_TIME:
                         PHONE_CREATION_TIME[formatted] = time.time()
-                    # Hàm get_country_info giả định đã có sẵn ở các module/phần sau của code gốc
                     name, code = get_country_info(formatted) if 'get_country_info' in globals() else ("Unknown", "UN")
                     if code not in temp_cache:
                         temp_cache[code] = {"name": name, "numbers": []}
@@ -170,6 +169,54 @@ def on_ws_message(ws, message):
     except Exception as e:
         print(f"[WS Parse Error]: {e}")
 
+def on_ws_error(ws, error):
+    print(f"[WebSocket Error]: {error}")
+
+def on_ws_close(ws, close_status_code, close_msg):
+    print("[WebSocket Closed] Đang kết nối lại sau 5 giây...")
+    time.sleep(5)
+    start_websocket_background()
+
+def on_ws_open(ws):
+    print("[WebSocket Success]: Đã kết nối thành công vào luồng Real-time của iVASMS!")
+
+def start_websocket_background():
+    headers = {
+        "Cookie": WS_COOKIE,
+        "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+    }
+    ws_app = websocket.WebSocketApp(
+        WS_URL,
+        header=headers,
+        on_open=on_ws_open,
+        on_message=on_ws_message,
+        on_error=on_ws_error,
+        on_close=on_ws_close
+    )
+    ws_app.run_forever(ping_interval=20, ping_payload="2")
+
+# Khởi chạy luồng WebSocket ngầm
+ws_thread = threading.Thread(target=start_websocket_background, daemon=True)
+ws_thread.start()
+
+def remove_number_from_file(target_phone):
+    DELETED_NUMBERS.add(target_phone)
+    save_deleted_numbers(DELETED_NUMBERS)
+    file_path = "numbers.txt"
+    if os.path.exists(file_path):
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            new_lines = []
+            target_clean = target_phone.replace("+", "").strip()
+            for line in lines:
+                line_clean = re.sub(r'\D', '', line)
+                if line_clean != target_clean and line_clean:
+                    new_lines.append(line)
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.writelines(new_lines)
+        except Exception as e:
+            print(f"Lỗi khi xóa số khỏi file: {e}")
 def on_ws_error(ws, error):
     print(f"[WebSocket Error]: {error}")
 
