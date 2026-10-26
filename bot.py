@@ -126,10 +126,11 @@ IVAS_USER_COOKIE = "_fbp=fb.1.1792741985965.809745508754196298; cf_clearance=rGX
 def sync_numbers_from_ivas_web():
     """Tự động cào danh sách số điện thoại từ trang portal/live iVASMS"""
     global COUNTRY_CACHE
-    headers_sync = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        headers_sync = {
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
         'Cookie': IVAS_USER_COOKIE
     }
+
     try:
         response = requests.get(IVAS_WEB_URL, headers=headers_sync, timeout=15)
         if response.status_code == 200:
