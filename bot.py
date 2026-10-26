@@ -121,12 +121,7 @@ DELETED_NUMBERS = load_deleted_numbers()
 
 # Dán nguyên đoạn Cookie mới nhất của bro vào đây:
 IVAS_WEB_URL = "https://www.ivasms.com/portal/live"
-IVAS_USER_COOKIE = (
-    "_fbp=fb.1.1792741985965.809745508754196298; "
-    "cf_clearance=oeZZoXwByuCZVg6ldEh_aNnpLXzJVIWj.mmmm.ZdF7o-1792981612-1.2.1.1-3XyzKxYQeb7R3C15mmachgcwp1zrSyh4BTzdZ1O8Zt0PhR757heOaUZuPwtx5pwMj6LFQZhYKynCTVd1by5zgmfKFcMO4ASiwEPLKSRz9Fsj1UzowStsSekVo1omnzZDHD4ZmzfmfcaPvIGDSmbyzK3vhby5vq1hvpDO3_WUyUPtH9RO0T_.geWSfGHlFbZhIjXpUNxXVfavgc7U0PvFJVqaKzIHSIh7x9byMCEdk4C1PgvV9XT5FTc.8PUbUHcjnsP7XYoZamnBl0D7dVJaf771a2170Y8X2b8CCVPYkFCVqEIQV6USKtKyCG39bwdybCZL_D7c3n1jz_gK9pYdgKVLwhalt3dHe9QmZ2qKcJBcyPodBVZrMlWMeytkINihAgaire0QWFCdqO8IXyJQrs_svDEMUSclfnyE9sv.YW_puTvfwyDduJUaTodWvgS.TOYs5HzbiTzZNdmv0MSu2Ws31bD9Le9Ax_Uzpn7XI7cIb_wqNQxLxRYFihX2U46h9pdZd1E1jX16E5D_OUC.lg; "
-    "XSRF-TOKEN=eyJpdiI6IkE1RWJGWEI3RngwTHFBRFBqSnkwYXc9PSIsInZhbHVlIjoiOEVTd0pMcDY5VmxKc1RkSllhSmZNYU5VVnJpd05LMExtcUN5YU5aeGVqRHB4REk1MHprelBDeHd0cWMxNzNEeXlRNDdpeXFNNUl2UExKMDA3WkdGR1FFNDZmNFdXRXE2T1E3a0h4ZEJVWWlwdGhrcVFBcno4NmJ3K3Q0eUh4ZFYiLCJtYWMiOiI0YmQwNzJmMDVmYzdjNzkwMjNjYzBkYmI1YWU1NzI0YzQxNTI2MjE5OTdiYWY0ZjVmN2QzOGQyNmEyNzRkNTYzIiwidGFnIjoiIn0=; "
-    "ivas_sms_session=eyJpdiI6InF3cFNvZ0FVbG5wVDhSeHg4NXhUb3c9PSIsInZhbHVlIjoilklVWkozZGhaM3FLOFVqQy9Kdm1EQlhTVWhvZHJJN09iM2JiZUtIUEJxVkpmOWF3RkRKY0pGbUFqUHc4dFF6ZzJ1Y25HbmdwVWFZL1RGblBsanhrTlZ1QjdqQVBCdXpscDNOeUI2d2V3N3kySWwxYWpjTk56dTMzSHhCbmpTNFkiLCJtYWMiOiJmMDNjMGJjMjE5NDdmYTBlZjdiMGQ5N2YwODMyNzk4ZGMzNWU2MTFmOGVhOTM3OWYyN2MzMDViZWIxNGNhMjk0IiwidGFnIjoiIn0="
-)
+IVAS_USER_COOKIE = "_fbp=fb.1.1792741985965.809745508754196298; cf_clearance=rGX72gxSOT2PvWd_ieGhF1SjeYoFC5GccZXmSVYrGNQ-1792989021-1.2.1.1-QqAZyQfLSWnYiOCHD5vmkFGBRAeeDyBSq7EIXaRNy4usdnnkqW_0iOBizKBw6Egf6_CP1fUF1atCVAODjnzp6.VbkwOUJhSAZxj.nT4cyuDcPxapB5FtCtrMOiht6t8FlFNowT.LfXxjSA1DbOrsjGS2JlKNnOzcxTzk7BuZmiNB50MNYa6sLPdyHWPA3OLO6nfb6GBBOOQ.q97Gai5Q5tSZ4a3IxaHy.DNNTDzh1hOJXy7MuuBPJGS2MZZJY.VWGsIXJlRaZYEOmP6sYS1HZ.i64CZBZI0JlM97VPM6pcbstqN6MIw1mkDzmRcYjT0E.86g9sxf3a3ac3_yFG0CluDNimCjAYs9EQAirgsb.RB.VjSI6fhRo7aLJxdoIqtbisWDmPX_VUfpVV7F61nT.M3Jt01fmOQ95NLVJnw_MwIoEvsYPH3HgqnVuO3bNKMjPjrvOyc9a0lj3H2cJDRuhYR5R30lZWp63c.Mj1MDl0ydi3B3lB92d6C4vuLj8GpWs4Ia2ygPXotWCltUA39oZQ; XSRF-TOKEN=eyJpdiI6ImhJODI5and4ampCK2tmeEJvYm5WZVE9PSIsInZhbHVlIjoiMG5uSXY0bmZGN21tOTREY0tZd0VyRkloZWFwb205Ykx2enVQQy8rbnlUZVhTU1N5Kzkyc0lpMGpxSkExeUpUQkRneE80V2pRUDFHYkxiNDQ3cGtUREtOemFvWVA4NVUvOmlKdlQxYzJ3RUhWaFRwZE9wUmtaUT09IiwibWFjIjoiZ2IzZmFjYWJiODJmNzAxMDNhNjFiMjY1MDUwNTYyNWYyY2ZlNDU3NjZiMzJhOGEwZDRhNjY1MzA5OTdjZDVkNWQ5YTZkZWJiODgxIiwidGFnIjoiIn0%3D; ivas_sms_session=eyJpdiI6IlFPWldUMlQrUlpsQnAwd1dtUHhPUnc9PSIsInZhbHVlIjoiSE9EVyt0U3p6Rk0wdWREeWlmamFJOVhhWTFxM1d6OFpZNW8vV2hvbW9SdE93MXRESG5xR1RXVTNsclIxNlVNb24wdzhDYmNoM1pobmlqMnF2WXlXT2xhSGcraDN2NGs2L3QxaHVsWXVnb0svMlplR2ZYWDNFQ044OVhabjFEUGMiLCJtYWMiOiJmNTk1ZmMxNTc5YjM3ZmFiNWI5YzhmY2IyNzFhNmYzNmU0ZTI0M2ZjNjU2MmQ4YzhlMzlmYjgyNjg5MTZhMDhiIiwidGFnIjoiIn0%3D"
 
 def sync_numbers_from_ivas_web():
     """Tự động cào danh sách số điện thoại từ trang portal/live iVASMS"""
@@ -135,11 +130,12 @@ def sync_numbers_from_ivas_web():
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Cookie': IVAS_USER_COOKIE
     }
-    try:
+        try:
         response = requests.get(IVAS_WEB_URL, headers=headers_sync, timeout=15)
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
             scraped_numbers = set()
+
             
             full_text = soup.get_text(separator=" ")
             found_nums = re.findall(r'\+?\d{8,15}', full_text)
