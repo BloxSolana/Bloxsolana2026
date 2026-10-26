@@ -16,7 +16,7 @@ from flask import Flask
 # 👑 1. CẤU HÌNH ADMIN TỐI CAO & TELEGRAM BOT
 # ==========================================
 ADMIN_ID = 6726769296
-TOKEN = "8622066775:AAHqYaYWwBw886L9Nb4C3LFtTLxokjfOqKQ"
+TOKEN = "8622066775:AAG08FcNdjAapQcc1e5lCJBEsUMH-kzhYHM"
 GROUP_CHAT_ID = "-1004341368656"
 GROUP_OTP_LINK = "https://t.me/LIVEOTPIVAS"
 
@@ -45,7 +45,7 @@ except Exception as e:
 # ==========================================
 session = requests.Session()
 headers = {
-    'User-Agent': 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/Mobile Safari/537.36',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'X-Requested-With': 'XMLHttpRequest'
 }
 
@@ -101,27 +101,79 @@ def save_json_db(filename, data):
         json.dump(data, f, ensure_ascii=False, indent=4)
 
 # ==========================================
-# 🗑️ HÀM XÓA HẲN SỐ KHỎI FILE NUMBERS.TXT
+# 🔄 3.1. HÀM TỰ ĐỘNG SYNC SỐ TỪ IVASMS WEB API
+# ==========================================
+IVAS_WEB_URL = "https://www.ivasms.com/portal/numbers/test"
+IVAS_USER_COOKIE = (
+    "_fbp=fb.1.1792741985965.809745508754196298; "
+    "cf_clearance=oeZZoXwByuCZVg6ldEh_aNnpLXzJVIWj.mmmm.ZdF7o-1792981612-1.2.1.1-3XyzKxYQeb7R3C15mmachgcwp1zrSyh4BTzdZ1O8Zt0PhR757heOaUZuPwtx5pwMj6LFQZhYKynCTVd1by5zgmfKFcMO4ASiwEPLKSRz9Fsj1UzowStsSekVo1omnzZDHD4ZmzfmfcaPvIGDSmbyzK3vhby5vq1hvpDO3_WUyUPtH9RO0T_.geWSfGHlFbZhIjXpUNxXVfavgc7U0PvFJVqaKzIHSIh7x9byMCEdk4C1PgvV9XT5FTc.8PUbUHcjnsP7XYoZamnBl0D7dVJaf771a2170Y8X2b8CCVPYkFCVqEIQV6USKtKyCG39bwdybCZL_D7c3n1jz_gK9pYdgKVLwhalt3dHe9QmZ2qKcJBcyPodBVZrMlWMeytkINihAgaire0QWFCdqO8IXyJQrs_svDEMUSclfnyE9sv.YW_puTvfwyDduJUaTodWvgS.TOYs5HzbiTzZNdmv0MSu2Ws31bD9Le9Ax_Uzpn7XI7cIb_wqNQxLxRYFihX2U46h9pdZd1E1jX16E5D_OUC.lg; "
+    "XSRF-TOKEN=eyJpdiI6IjE1SE1rZ0ovNTZzY0RjaWM3cjMxbEE9PSIsInZhbHVlIjoiWVZ2UWVmTXR5YlptMHd3TVo4ZVBYYVdCZ2NDMEJKeFhJQnp1cXlQQ09YczVabzQvM0NSSG93UlRMcjZoWFZvMHAvamlHOWZLbWFjRGpiNkhhWkpPWFAvZkFuMzF6UUFia00rYzVZV0p0cjVlS2h6dkM4OUFnbkcyMitad1djbE8iLCJtYWMiOiJhOGFlODY0ZGJkNWQ2OWM4MzkwN2QzYzM2ODk0MTQ5Nzk1NjA3ZTk4OWY4ZjY2YTFmMWZlYmU5MjFmNTNlZTU0IiwidGFnIjoiIn0=; "
+    "ivas_sms_session=eyJpdiI6IlIvWmxNbTZreWFndlNRbzZudzF4ZFE9PSIsInZhbHVlIjoic2w4N0Q5cmNvQkRKYmloa2N0bjkxTGpkZmpMU1Z4dVBsRzlIaUx0TFJ3V29FMXRxcTlqRmpiVjlVZzhHcTZ3WmNhTmZqUUVYSVN0SUNiLzZ5Y0c1TlZvZ0I1STVSeUtSL2p1bXZvOUVKOXZjamhXNS9YVERVa1pjUEZ3ZHFiREoiLCJtYWMiOiI4NThiM2E2YmU2Y2JiYWZjYmRiMzk3NjNjM2I4YWM1ZGRjNjZiOTZiNmEyZjJjMzU5NTcwMGE2NTQwOGM5ZTQzIiwidGFnIjoiIn0="
+)
+
+def sync_numbers_from_ivas_web():
+    """Tự động cào danh sách số điện thoại từ trang portal iVASMS thay cho numbers.txt thủ công"""
+    global COUNTRY_CACHE
+    headers_sync = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Cookie': IVAS_USER_COOKIE
+    }
+    try:
+        response = requests.get(IVAS_WEB_URL, headers=headers_sync, timeout=15)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            scraped_numbers = set()
+            
+            # Quét toàn bộ các đoạn text hoặc bảng có chứa số điện thoại dạng định dạng quốc tế
+            for text_elem in soup.find_all(text=True):
+                found_nums = re.findall(r'\+?\d{8,15}', text_elem)
+                for num in found_nums:
+                    digits_only = re.sub(r'\D', '', num)
+                    if len(digits_only) >= 8:
+                        formatted = "+" + digits_only
+                        scraped_numbers.add(formatted)
+            
+            if scraped_numbers:
+                temp_cache = {}
+                for formatted in scraped_numbers:
+                    if formatted not in PHONE_CREATION_TIME:
+                        PHONE_CREATION_TIME[formatted] = time.time()
+                    
+                    name, code = get_country_info(formatted)
+                    if code not in temp_cache:
+                        temp_cache[code] = {"name": name, "numbers": []}
+                    if formatted not in temp_cache[code]["numbers"]:
+                        temp_cache[code]["numbers"].append(formatted)
+                
+                COUNTRY_CACHE = temp_cache
+                print(f"[Auto-Sync]: Đã đồng bộ thành công {len(scraped_numbers)} số từ iVASMS Web!")
+                return True, len(scraped_numbers)
+        print(f"[Auto-Sync]: Không thể lấy dữ liệu, mã phản hồi: {response.status_code}")
+        return False, f"HTTP Status {response.status_code}"
+    except Exception as e:
+        print(f"[Auto-Sync Error]: {e}")
+        return False, str(e)
+
+# ==========================================
+# 🗑️ HÀM XÓA HẲN SỐ KHI DÙNG XONG
 # ==========================================
 def remove_number_from_file(target_phone):
+    # Đồng thời hỗ trợ xóa khỏi file numbers.txt (nếu có tồn tại)
     file_path = "numbers.txt"
-    if not os.path.exists(file_path):
-        return
-    try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-        
-        new_lines = []
-        target_clean = target_phone.replace("+", "").strip()
-        for line in lines:
-            line_clean = re.sub(r'\D', '', line)
-            if line_clean != target_clean and line_clean:
-                new_lines.append(line)
-                
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.writelines(new_lines)
-    except Exception as e:
-        print(f"Lỗi khi xóa số khỏi file: {e}")
+    if os.path.exists(file_path):
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            new_lines = []
+            target_clean = target_phone.replace("+", "").strip()
+            for line in lines:
+                line_clean = re.sub(r'\D', '', line)
+                if line_clean != target_clean and line_clean:
+                    new_lines.append(line)
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.writelines(new_lines)
+        except Exception as e:
+            print(f"Lỗi khi xóa số khỏi file: {e}")
 
 # ==========================================
 # 💰 4. QUẢN LÝ TÀI KHOẢN, SỐ DƯ & VÍ USER
@@ -153,7 +205,6 @@ def update_balance(uid, amount):
     else:
         get_user(uid)
         return update_balance(uid, amount)
-    return 0.0
 
 def mask_phone_number(phone):
     p = phone.strip()
@@ -327,7 +378,7 @@ def broadcast_stock_updated(added_count, total_stock):
         pass
 
 # ==========================================
-# 🧹 8. TỰ ĐỘNG XÓA HẲN SỐ & AN TOÀN TUYỆT ĐỐI (TRÁNH LỖI SẬP LƯỚI)
+# 🧹 8. TỰ ĐỘNG XÓA HẲN SỐ & AN TOÀN TUYỆT ĐỐI
 # ==========================================
 def clean_expired_sessions():
     try:
@@ -385,62 +436,41 @@ def clean_expired_sessions():
         print(f"Lỗi trong clean_expired_sessions: {e}")
 
 def load_text_batch(reset=False):
-    global COUNTRY_CACHE, CURRENT_FILE_POSITION
-    if reset:
-        CURRENT_FILE_POSITION = 0
-        
-    file_path = "numbers.txt"
-    if not os.path.exists(file_path):
-        COUNTRY_CACHE = {}
-        return False, "Không tìm thấy file numbers.txt!"
-    
+    # Thay thế phần load file cũ bằng việc gọi hàm Auto-Sync trực tiếp từ web iVASMS
     clean_expired_sessions()
-    try:
-        batch_numbers = []
-        with open(file_path, "r", encoding="utf-8") as f:
-            f.seek(CURRENT_FILE_POSITION)
-            while len(batch_numbers) < 100:
-                line = f.readline()
-                if not line:
-                    CURRENT_FILE_POSITION = 0
-                    f.seek(0)
-                    line = f.readline()
-                    if not line:
-                        break
-                num_str = line.strip()
-                if num_str:
-                    digits_only = re.sub(r'\D', '', num_str)
-                    if len(digits_only) >= 7:
-                        formatted = "+" + digits_only
-                        if formatted not in PHONE_CREATION_TIME:
-                            PHONE_CREATION_TIME[formatted] = time.time()
+    success, count_or_msg = sync_numbers_from_ivas_web()
+    if success:
+        return True, count_or_msg
+    else:
+        # Nếu gọi web lỗi, dự phòng đọc file local numbers.txt nếu có
+        file_path = "numbers.txt"
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    lines = f.readlines()
+                batch_numbers = [line.strip() for line in lines if line.strip()]
+                if batch_numbers:
+                    temp_cache = {}
+                    for num_str in batch_numbers:
+                        digits_only = re.sub(r'\D', '', num_str)
+                        if len(digits_only) >= 7:
+                            formatted = "+" + digits_only
+                            if formatted not in PHONE_CREATION_TIME:
+                                PHONE_CREATION_TIME[formatted] = time.time()
+                            name, code = get_country_info(formatted)
+                            if code not in temp_cache:
+                                temp_cache[code] = {"name": name, "numbers": []}
+                            if formatted not in temp_cache[code]["numbers"]:
+                                temp_cache[code]["numbers"].append(formatted)
+                    global COUNTRY_CACHE
+                    COUNTRY_CACHE = temp_cache
+                    return True, len(batch_numbers)
+            except Exception:
+                pass
+        return False, str(count_or_msg)
 
-                        is_busy = formatted in OTP_ACTIVE_SESSIONS or any(info.get("phone") == formatted for info in USER_ACTIVE_PHONES.values())
-                        if formatted not in batch_numbers and not is_busy:
-                            batch_numbers.append(formatted)
-            CURRENT_FILE_POSITION = f.tell()
-
-        if not batch_numbers:
-            COUNTRY_CACHE = {}
-            return False, "File numbers.txt trống!"
-
-        temp_cache = {}
-        for formatted in batch_numbers:
-            name, code = get_country_info(formatted)
-            if code not in temp_cache:
-                temp_cache[code] = {"name": name, "numbers": []}
-            if formatted not in temp_cache[code]["numbers"]:
-                temp_cache[code]["numbers"].append(formatted)
-        COUNTRY_CACHE = temp_cache
-        
-        count = len(batch_numbers)
-        threading.Thread(target=broadcast_stock_updated, args=(count, count), daemon=True).start()
-        return True, count
-    except Exception as e:
-        return False, str(e)
-
-if os.path.exists("numbers.txt"):
-    load_text_batch()
+# Khởi chạy nạp stock lần đầu
+load_text_batch()
 
 def is_phone_busy(phone):
     if phone in OTP_ACTIVE_SESSIONS:
@@ -517,7 +547,6 @@ def send_auto_otp(chat_id, number, otp_code, full_msg="", user_id=None, user_nam
     except Exception as e:
         print(f"Lỗi gửi OTP tới {chat_id}: {e}")
 
-# Hàm xử lý nội dung SMS nhận được chung cho cả HTTP và WebSocket
 def process_incoming_sms_content(text_content):
     try:
         for code, data in COUNTRY_CACHE.items():
@@ -587,7 +616,6 @@ def background_sms_scanner():
 # 🔗 9.1. LUỒNG NGẦM WEBSOCKET (WSS LISTENER)
 # ==========================================
 def ivas_websocket_listener():
-    """Luồng ngầm (Background Thread) giữ kết nối wss:// nhận dữ liệu OTP real-time từ iVASMS"""
     while True:
         try:
             settings = load_settings()
@@ -1204,7 +1232,7 @@ def handle_callbacks(call):
                 InlineKeyboardButton("🏆 Top Số Dư User (Kiểm tra gian lận)", callback_data="admin_top_balances"),
                 InlineKeyboardButton("👥 Danh sách User Đăng Ký", callback_data="admin_view_users"),
                 InlineKeyboardButton("💸 Duyệt Lệnh Rút Tiền", callback_data="admin_view_withdraws"),
-                InlineKeyboardButton("🔄 Nạp Batch Số Mới", callback_data="admin_reload"),
+                InlineKeyboardButton("🔄 Sync Batch Số Mới (Web iVASMS)", callback_data="admin_reload"),
                 InlineKeyboardButton("🛡 Quản lý & Mở khóa Spam", callback_data="admin_users"),
                 InlineKeyboardButton("🔙 Quay lại Menu Chính", callback_data="back_home")
             )
@@ -1323,11 +1351,11 @@ def handle_callbacks(call):
                 bot.answer_callback_query(call.id, "Không tìm thấy dữ liệu lệnh rút này!", show_alert=True)
 
         elif data == "admin_reload" and uid == ADMIN_ID:
-            success, res = load_text_batch(reset=False)
+            success, res = load_text_batch(reset=True)
             if success:
-                bot.answer_callback_query(call.id, f"Đã nạp thành công: {res} số!", show_alert=True)
+                bot.answer_callback_query(call.id, f"Đã đồng bộ thành công: {res} số từ iVASMS!", show_alert=True)
             else:
-                bot.answer_callback_query(call.id, f"Lỗi: {res}", show_alert=True)
+                bot.answer_callback_query(call.id, f"Lỗi đồng bộ: {res}", show_alert=True)
 
         elif data == "admin_users" and uid == ADMIN_ID:
             spam_data = load_json_db(SPAM_TRACKER_FILE)
@@ -1451,7 +1479,7 @@ if __name__ == "__main__":
     t_web = threading.Thread(target=run_web, daemon=True)
     t_web.start()
     
-    print("🤖 Bot Telegram IVASMS + WebSocket Real-time đang chạy mượt mà...")
+    print("🤖 Bot Telegram IVASMS + WebSocket Real-time + Auto-Sync Web đang chạy mượt mà...")
     
     while True:
         try:
