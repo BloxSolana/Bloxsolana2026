@@ -155,7 +155,6 @@ def sync_numbers_from_ivas_web():
 # 🗑️ HÀM XÓA HẲN SỐ KHI DÙNG XONG
 # ==========================================
 def remove_number_from_file(target_phone):
-    # Đồng thời hỗ trợ xóa khỏi file numbers.txt (nếu có tồn tại)
     file_path = "numbers.txt"
     if os.path.exists(file_path):
         try:
@@ -1256,12 +1255,16 @@ def handle_callbacks(call):
             if code not in COUNTRY_CACHE or not COUNTRY_CACHE[code]["numbers"]:
                 bot.answer_callback_query(call.id, "Danh mục này đã trống số!", show_alert=True)
                 return
-            markup = InlineKeyboardMarkup(row_width=2)
+            markup = InlineKeyboardMarkup(row_width=1)
             for num in COUNTRY_CACHE[code]["numbers"][:20]: # Hiển thị tối đa 20 số đầu để thao tác nhanh
                 markup.add(InlineKeyboardButton(f"❌ Xóa: {num}", callback_data=f"adm_ask_del_{code}_{num}"))
+            
+            # Thêm nút Xóa tất cả cho quốc gia này
+            markup.add(InlineKeyboardButton(f"🗑️ Xóa tất cả số của {code}", callback_data=f"adm_ask_del_all_{code}"))
             markup.add(InlineKeyboardButton("🔙 Quay lại danh sách quốc gia", callback_data="admin_manage_cache_countries"))
+            
             try:
-                bot.edit_message_text(f"📞 <b>Danh sách số trong {code} (Bấm vào số để xác nhận xóa):</b>", chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
+                bot.edit_message_text(f"📞 <b>Danh sách số trong {code} (Bấm vào số để xóa từng cái hoặc bấm Xóa tất cả bên dưới):</b>", chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
             except Exception:
                 pass
 
@@ -1289,12 +1292,10 @@ def handle_callbacks(call):
             code = parts[0]
             phone = parts[1]
             
-            # Xóa khỏi cache
             if code in COUNTRY_CACHE and phone in COUNTRY_CACHE[code]["numbers"]:
                 COUNTRY_CACHE[code]["numbers"].remove(phone)
                 if not COUNTRY_CACHE[code]["numbers"]:
                     del COUNTRY_CACHE[code]
-            # Xóa khỏi file vật lý
             remove_number_from_file(phone)
             if phone in PHONE_CREATION_TIME:
                 del PHONE_CREATION_TIME[phone]
@@ -1303,8 +1304,43 @@ def handle_callbacks(call):
                 
             bot.answer_callback_query(call.id, f"Đã xóa thành công số {phone}!", show_alert=True)
             
-            # Load lại danh sách nước đó
             call.data = f"adm_cache_c_{code}"
+            handle_callbacks(call)
+
+        elif data.startswith("adm_ask_del_all_") and uid == ADMIN_ID:
+            code = data.replace("adm_ask_del_all_", "")
+            if code not in COUNTRY_CACHE or not COUNTRY_CACHE[code]["numbers"]:
+                bot.answer_callback_query(call.id, "Danh mục này đã trống số!", show_alert=True)
+                return
+            markup = InlineKeyboardMarkup(row_width=2)
+            markup.add(
+                InlineKeyboardButton("✅ Xác nhận xóa tất cả", callback_data=f"adm_yes_del_all_{code}"),
+                InlineKeyboardButton("🚫 Không", callback_data=f"adm_cache_c_{code}")
+            )
+            try:
+                bot.edit_message_text(
+                    f"⚠️ <b>BẠN CÓ CHẮC CHẮN MUỐN XÓA TOÀN BỘ SỐ CỦA QUỐC GIA {code}?</b>\n\n"
+                    f"📊 Tổng số lượng: <b>{len(COUNTRY_CACHE[code]['numbers'])} số</b>\n\n"
+                    "Thao tác này sẽ xóa sạch tất cả số của quốc gia này khỏi hệ thống ngay lập tức!",
+                    chat_id, msg_id, parse_mode="HTML", reply_markup=markup
+                )
+            except Exception:
+                pass
+
+        elif data.startswith("adm_yes_del_all_") and uid == ADMIN_ID:
+            code = data.replace("adm_yes_del_all_", "")
+            if code in COUNTRY_CACHE:
+                nums_to_delete = list(COUNTRY_CACHE[code]["numbers"])
+                for phone in nums_to_delete:
+                    remove_number_from_file(phone)
+                    if phone in PHONE_CREATION_TIME:
+                        del PHONE_CREATION_TIME[phone]
+                    if phone in OTP_ACTIVE_SESSIONS:
+                        del OTP_ACTIVE_SESSIONS[phone]
+                del COUNTRY_CACHE[code]
+                bot.answer_callback_query(call.id, f"Đã xóa toàn bộ số của {code} thành công!", show_alert=True)
+            
+            call.data = "admin_manage_cache_countries"
             handle_callbacks(call)
 
         elif data == "admin_set_wss" and uid == ADMIN_ID:
