@@ -69,7 +69,7 @@ USER_LAST_ACTION = {}
 DEFAULT_SETTINGS = {
     "min_withdraw": 5.0,        
     "max_withdraw": 100.0,
-    "otp_reward": 0.008,        
+    "otp_reward": 0.009,        
     "refer_bonus": 0.01,
     "ivas_ws_url": "",        
 }
