@@ -16,7 +16,7 @@ from flask import Flask
 # 👑 1. CẤU HÌNH ADMIN TỐI CAO & TELEGRAM BOT
 # ==========================================
 ADMIN_ID = 6726769296
-TOKEN = "8622066775:AAG08FcNdjAapQcc1e5lCJBEsUMH-kzhYHM"
+TOKEN = "8622066775:AAFncl413hILhGl-J6DQD9oDbK4PEEHsERc"
 GROUP_CHAT_ID = "-1004341368656"
 GROUP_OTP_LINK = "https://t.me/LIVEOTPIVAS"
 
