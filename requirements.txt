@@ -6,3 +6,4 @@ pyTelegramBotAPI
 beautifulsoup4
 pyotp
 websocket-client
+cloudscraper
