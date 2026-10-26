@@ -130,8 +130,10 @@ def sync_numbers_from_ivas_web():
         'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
         'Cookie': IVAS_USER_COOKIE
     }
-    try:
-        response = requests.get(IVAS_WEB_URL, headers=headers_sync, timeout=15)
+        try:
+        import cloudscraper
+        scraper = cloudscraper.create_scraper()
+        response = scraper.get(IVAS_WEB_URL, headers=headers_sync, timeout=15)
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
             scraped_numbers = set()
