@@ -100,15 +100,12 @@ def save_json_db(filename, data):
     with open(filename, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
 
-# ==========================================
-# 🔄 3.1. HÀM TỰ ĐỘNG SYNC SỐ TỪ IVASMS WEB API
-# ==========================================
-IVAS_WEB_URL = "https://www.ivasms.com/portal/numbers/test"
+# Dán nguyên đoạn Cookie mới nhất của bro vào đây:
 IVAS_USER_COOKIE = (
     "_fbp=fb.1.1792741985965.809745508754196298; "
     "cf_clearance=oeZZoXwByuCZVg6ldEh_aNnpLXzJVIWj.mmmm.ZdF7o-1792981612-1.2.1.1-3XyzKxYQeb7R3C15mmachgcwp1zrSyh4BTzdZ1O8Zt0PhR757heOaUZuPwtx5pwMj6LFQZhYKynCTVd1by5zgmfKFcMO4ASiwEPLKSRz9Fsj1UzowStsSekVo1omnzZDHD4ZmzfmfcaPvIGDSmbyzK3vhby5vq1hvpDO3_WUyUPtH9RO0T_.geWSfGHlFbZhIjXpUNxXVfavgc7U0PvFJVqaKzIHSIh7x9byMCEdk4C1PgvV9XT5FTc.8PUbUHcjnsP7XYoZamnBl0D7dVJaf771a2170Y8X2b8CCVPYkFCVqEIQV6USKtKyCG39bwdybCZL_D7c3n1jz_gK9pYdgKVLwhalt3dHe9QmZ2qKcJBcyPodBVZrMlWMeytkINihAgaire0QWFCdqO8IXyJQrs_svDEMUSclfnyE9sv.YW_puTvfwyDduJUaTodWvgS.TOYs5HzbiTzZNdmv0MSu2Ws31bD9Le9Ax_Uzpn7XI7cIb_wqNQxLxRYFihX2U46h9pdZd1E1jX16E5D_OUC.lg; "
-    "XSRF-TOKEN=eyJpdiI6IjE1SE1rZ0ovNTZzY0RjaWM3cjMxbEE9PSIsInZhbHVlIjoiWVZ2UWVmTXR5YlptMHd3TVo4ZVBYYVdCZ2NDMEJKeFhJQnp1cXlQQ09YczVabzQvM0NSSG93UlRMcjZoWFZvMHAvamlHOWZLbWFjRGpiNkhhWkpPWFAvZkFuMzF6UUFia00rYzVZV0p0cjVlS2h6dkM4OUFnbkcyMitad1djbE8iLCJtYWMiOiJhOGFlODY0ZGJkNWQ2OWM4MzkwN2QzYzM2ODk0MTQ5Nzk1NjA3ZTk4OWY4ZjY2YTFmMWZlYmU5MjFmNTNlZTU0IiwidGFnIjoiIn0=; "
-    "ivas_sms_session=eyJpdiI6IlIvWmxNbTZreWFndlNRbzZudzF4ZFE9PSIsInZhbHVlIjoic2w4N0Q5cmNvQkRKYmloa2N0bjkxTGpkZmpMU1Z4dVBsRzlIaUx0TFJ3V29FMXRxcTlqRmpiVjlVZzhHcTZ3WmNhTmZqUUVYSVN0SUNiLzZ5Y0c1TlZvZ0I1STVSeUtSL2p1bXZvOUVKOXZjamhXNS9YVERVa1pjUEZ3ZHFiREoiLCJtYWMiOiI4NThiM2E2YmU2Y2JiYWZjYmRiMzk3NjNjM2I4YWM1ZGRjNjZiOTZiNmEyZjJjMzU5NTcwMGE2NTQwOGM5ZTQzIiwidGFnIjoiIn0="
+    "XSRF-TOKEN=eyJpdiI6IkE1RWJGWEI3RngwTHFBRFBqSnkwYXc9PSIsInZhbHVlIjoiOEVTd0pMcDY5VmxKc1RkSllhSmZNYU5VVnJpd05LMExtcUN5YU5aeGVqRHB4REk1MHprelBDeHd0cWMxNzNEeXlRNDdpeXFNNUl2UExKMDA3WkdGR1FFNDZmNFdXRXE2T1E3a0h4ZEJVWWlwdGhrcVFBcno4NmJ3K3Q0eUh4ZFYiLCJtYWMiOiI0YmQwNzJmMDVmYzdjNzkwMjNjYzBkYmI1YWU1NzI0YzQxNTI2MjE5OTdiYWY0ZjVmN2QzOGQyNmEyNzRkNTYzIiwidGFnIjoiIn0=; "
+    "ivas_sms_session=eyJpdiI6InF3cFNvZ0FVbG5wVDhSeHg4NXhUb3c9PSIsInZhbHVlIjoilklVWkozZGhaM3FLOFVqQy9Kdm1EQlhTVWhvZHJJN09iM2JiZUtIUEJxVkpmOWF3RkRKY0pGbUFqUHc4dFF6ZzJ1Y25HbmdwVWFZL1RGblBsanhrTlZ1QjdqQVBCdXpscDNOeUI2d2V3N3kySWwxYWpjTk56dTMzSHhCbmpTNFkiLCJtYWMiOiJmMDNjMGJjMjE5NDdmYTBlZjdiMGQ5N2YwODMyNzk4ZGMzNWU2MTFmOGVhOTM3OWYyN2MzMDViZWIxNGNhMjk0IiwidGFnIjoiIn0="
 )
 
 def sync_numbers_from_ivas_web():
