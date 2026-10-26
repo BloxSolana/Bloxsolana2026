@@ -29,7 +29,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Bot IVASMS OTP Global & Ultimate Security đang chạy 24/7 trên Render!"
+    return "Bot IVASMS OTP Global & WebSocket Real-time đang chạy 24/7 trên Render!"
 
 def run_web():
     port = int(os.environ.get("PORT", 5000))
@@ -41,11 +41,11 @@ except Exception as e:
     print(f"Xử lý Webhook: {e}")
 
 # ==========================================
-# ⚙️ 3. QUẢN LÝ DỮ LIỆU & CẤU HÌNH TÀI CHÍNH
+# ⚙️ 3. QUẢN LÝ DỮ LIỆU & WEBSOCKET REAL-TIME
 # ==========================================
 session = requests.Session()
 headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
     'X-Requested-With': 'XMLHttpRequest'
 }
 
@@ -119,55 +119,87 @@ def save_deleted_numbers(deleted_set):
 
 DELETED_NUMBERS = load_deleted_numbers()
 
-# Dán nguyên đoạn Cookie mới nhất của bro vào đây:
-IVAS_WEB_URL = "https://www.ivasms.com/portal/live"
-IVAS_USER_COOKIE = "_fbp=fb.1.1792741985965.809745508754196298; cf_clearance=rGX72gxSOT2PvWd_ieGhF1SjeYoFC5GccZXmSVYrGNQ-1792989021-1.2.1.1-QqAZyQfLSWnYiOCHD5vmkFGBRAeeDyBSq7EIXaRNy4usdnnkqW_0iOBizKBw6Egf6_CP1fUF1atCVAODjnzp6.VbkwOUJhSAZxj.nT4cyuDcPxapB5FtCtrMOiht6t8FlFNowT.LfXxjSA1DbOrsjGS2JlKNnOzcxTzk7BuZmiNB50MNYa6sLPdyHWPA3OLO6nfb6GBBOOQ.q97Gai5Q5tSZ4a3IxaHy.DNNTDzh1hOJXy7MuuBPJGS2MZZJY.VWGsIXJlRaZYEOmP6sYS1HZ.i64CZBZI0JlM97VPM6pcbstqN6MIw1mkDzmRcYjT0E.86g9sxf3a3ac3_yFG0CluDNimCjAYs9EQAirgsb.RB.VjSI6fhRo7aLJxdoIqtbisWDmPX_VUfpVV7F61nT.M3Jt01fmOQ95NLVJnw_MwIoEvsYPH3HgqnVuO3bNKMjPjrvOyc9a0lj3H2cJDRuhYR5R30lZWp63c.Mj1MDl0ydi3B3lB92d6C4vuLj8GpWs4Ia2ygPXotWCltUA39oZQ; XSRF-TOKEN=eyJpdiI6ImhJODI5and4ampCK2tmeEJvYm5WZVE9PSIsInZhbHVlIjoiMG5uSXY0bmZGN21tOTREY0tZd0VyRkloZWFwb205Ykx2enVQQy8rbnlUZVhTU1N5Kzkyc0lpMGpxSkExeUpUQkRneE80V2pRUDFHYkxiNDQ3cGtUREtOemFvWVA4NVUvOmlKdlQxYzJ3RUhWaFRwZE9wUmtaUT09IiwibWFjIjoiZ2IzZmFjYWJiODJmNzAxMDNhNjFiMjY1MDUwNTYyNWYyY2ZlNDU3NjZiMzJhOGEwZDRhNjY1MzA5OTdjZDVkNWQ5YTZkZWJiODgxIiwidGFnIjoiIn0%3D; ivas_sms_session=eyJpdiI6IlFPWldUMlQrUlpsQnAwd1dtUHhPUnc9PSIsInZhbHVlIjoiSE9EVyt0U3p6Rk0wdWREeWlmamFJOVhhWTFxM1d6OFpZNW8vV2hvbW9SdE93MXRESG5xR1RXVTNsclIxNlVNb24wdzhDYmNoM1pobmlqMnF2WXlXT2xhSGcraDN2NGs2L3QxaHVsWXVnb0svMlplR2ZYWDNFQ044OVhabjFEUGMiLCJtYWMiOiJmNTk1ZmMxNTc5YjM3ZmFiNWI5YzhmY2IyNzFhNmYzNmU0ZTI0M2ZjNjU2MmQ4YzhlMzlmYjgyNjg5MTZhMDhiIiwidGFnIjoiIn0%3D"
+# ==========================================
+# 🔌 WEBSOCKET REAL-TIME CONFIGURATION
+# ==========================================
+WS_URL = "wss://www.ivasms.com/live/socket.io/?token=eyJpdiI6IjgxMm9Vc3pqeW53aGhkVWxTUHVWMEE9PSIsInZhbHVlIjoiRzZmdE9TbjVGdGI0RXhxblFsT3h1bUJaUFhvUEphVzVWNThTc2s5S0Q5STV2YkJTOVBWbGFoK0dva1JJYlpveStCSkVvNU1pVSttdTI5OW5FT01mYUYreDVxMG5vSjRhL3doVTFBZll2bWEvWXgwVTNBeGRzbXRId2lSS1NKWVpOdFlsaW51NTdFYUUreUZsaU04OE44NERZY3VVT1pJOHlkVXpncC9qREUxVVBuZTVBTTVBSnRtNFFUUEdOK3RHczBNeXAvTWJzOG9jbkc0LzJkaEpQSnBxcnI4U2hWTnRxRkZGQXZZYVBQNEo0YXB1c0ZCeENRQ1BvZG1nK2wrbSIsIm1hYyI6ImExOGVkNDJmZTI3Zjg1NTcyNDY0Y2I1YzJlYjgxNGE5MDIxNDdhZDc4NzViOTBkOGUwNjU4OTIwMmIwYWMwZGIiLCJ0YWciOiIifQ%3D%3D&user=7f92a59de907c2a8fd06861aaee10264&EIO=4&transport=websocket"
+
+WS_COOKIE = "_fbp=fb.1.1792735593444.939033684972879674; cf_chl_rc_ni=35; cf_clearance=34rE2Kt4W441HdwTASHuYyR5MIveWB55RLCu_Ac0Sgk-1793021387-1.2.1.1-Hd..mVXDEB339Tta1CAAr9jyKWsXEswSv7BvFcBGgtbvG8W48QVVNmLLv5Jo_NMw9TmcQU2Vnw.cltemAC5y.IKuojp4nx6ssclEsEbMHHCrREA7hTnVTRswV.xxmpCx34EcqKDgddHpYUQoGTNP1JPFvzKnxT04.D94mCS6QX7FkYA3c7zZ0jWV9G5R4joZ_lDNZaE_eS6ujVE3cDHco61mwZldmlTAkKbe4oYkRGFs11B_49rBv_0fhwLBYPkbr3gMH2B1ILs1krmLBH2KCUIO8NQJI4kQF5bk4tF8KaKSrIc5quQ7PENsWmZ4Z1y9OHoeNPCmrA0d4.gkiqCsrWGkLZ.iPM8NV9MVv910wRsk8.9UPRuxX0W_eNFLU4rNjdBDN_vep7v2luRsPhWVxKHTAufqxpCx5HNGuU4FjB5LuXWNAycO.JGhgFQDEXNA6KItH_AEJJp3ZVjeTapqV_TV_..tTRP6_DTDlR1DNY2XLGAsWuOTz0rTWPLF5e5HLSgc3BpxiOiegAq5L0OVlA; XSRF-TOKEN=eyJpdiI6IlR2TkxJWUoxSXd0VVdwNVFNeThmNUE9PSIsInZhbHVlIjoieG9HVlhHSUs0SkhwanVUYVJaSWVHUUpxQVVXOU9kZjM5NnVYQ0xSVHNzaE00ZmVxSzI3WmxnRnhCcllYZnFlSm1KZGRuT3duZ0h3T0R1UDhLMjdqdGdzdWd4V1FzOWJJWjBqZWYyZnR6UkpMK3o3eHBrMDVlaVhZWmd4SXRybEQiLCJtYWMiOiIyNWUzMWIzMDhhNmY0YTYyODMyMDIxMjlkMmU0NjdkMTQyYzE3MjBkMWEwZGFjZmY2Yjg0YjRhOWNkZTc0ODg0IiwidGFnIjoiIn0%3D; ivas_sms_session=eyJpdiI6IjNiVWRqNlF3U3BYL3VITmZiSnFUbmc9PSIsInZhbHVlIjoib0pra3RZUUkxbzlySjErL21Ya2ZsdlpkY0dEaDBJVHZqeThaR3ZsL1dDcFZMc1ZhaDR0WWU5VmhzcXNyZ29yVXAvODMyUms0RTd0d1RGV2pUbjRkZ21zbTNCVit3RTB1N1NoeEE2Zm1jZ2VjRHF5TitLc2kwRlFwSVo3bGdoQjUiLCJtYWMiOiI1MmQwYmI4NDI1Y2RlNTI2ZTRlNDcwNDY1Njk3OGZiZDc3NzcwZDRhMDlmZjJmN2UyYjM3ODAzN2I2MTQ2YjJhIiwidGFnIjoiIn0%3D"
 
 def sync_numbers_from_ivas_web():
-    """Tự động cào danh sách số điện thoại từ trang portal/live iVASMS"""
+    """Hàm tương thích thay thế, trả về cache hiện tại"""
     global COUNTRY_CACHE
-    headers_sync = {
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-        'Cookie': IVAS_USER_COOKIE
-    }
+    return True, len(COUNTRY_CACHE) if COUNTRY_CACHE else 0
+
+def on_ws_message(ws, message):
+    """Xử lý gói tin realtime từ WebSocket đẩy về"""
+    global COUNTRY_CACHE
     try:
-        import cloudscraper
-        scraper = cloudscraper.create_scraper()
-        response = scraper.get(IVAS_WEB_URL, headers=headers_sync, timeout=15)
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, 'html.parser')
-            scraped_numbers = set()
-
-
+        if message == "2":
+            ws.send("3")
+            return
             
-            full_text = soup.get_text(separator=" ")
-            found_nums = re.findall(r'\+?\d{8,15}', full_text)
+        if message.startswith("42"):
+            json_data_str = message[2:]
+            data = json.loads(json_data_str)
+            
+            text_payload = json.dumps(data)
+            found_nums = re.findall(r'\+?\d{8,15}', text_payload)
+            
+            scraped_numbers = set()
             for num in found_nums:
                 digits_only = re.sub(r'\D', '', num)
                 if len(digits_only) >= 8:
                     formatted = "+" + digits_only
                     if formatted not in DELETED_NUMBERS:
                         scraped_numbers.add(formatted)
-    
-            temp_cache = {}
-            for formatted in scraped_numbers:
-                if formatted not in PHONE_CREATION_TIME:
-                    PHONE_CREATION_TIME[formatted] = time.time()
-                
-                name, code = get_country_info(formatted)
-                if code not in temp_cache:
-                    temp_cache[code] = {"name": name, "numbers": []}
-                if formatted not in temp_cache[code]["numbers"]:
-                    temp_cache[code]["numbers"].append(formatted)
             
-            COUNTRY_CACHE = temp_cache
-            print(f"[Auto-Sync]: Đã đồng bộ thành công {len(scraped_numbers)} số từ iVASMS Web!")
-            return True, len(scraped_numbers)
-        print(f"[Auto-Sync]: Không thể lấy dữ liệu, mã phản hồi: {response.status_code}")
-        return False, f"HTTP Status {response.status_code}"
+            if scraped_numbers:
+                temp_cache = COUNTRY_CACHE.copy() if COUNTRY_CACHE else {}
+                for formatted in scraped_numbers:
+                    if formatted not in PHONE_CREATION_TIME:
+                        PHONE_CREATION_TIME[formatted] = time.time()
+                    # Hàm get_country_info giả định đã có sẵn ở các module/phần sau của code gốc
+                    name, code = get_country_info(formatted) if 'get_country_info' in globals() else ("Unknown", "UN")
+                    if code not in temp_cache:
+                        temp_cache[code] = {"name": name, "numbers": []}
+                    if formatted not in temp_cache[code]["numbers"]:
+                        temp_cache[code]["numbers"].append(formatted)
+                COUNTRY_CACHE = temp_cache
+                print(f"[WebSocket Realtime]: Đã cập nhật {len(scraped_numbers)} số mới từ luồng WSS!")
     except Exception as e:
-        print(f"[Auto-Sync Error]: {e}")
-        return False, str(e)
+        print(f"[WS Parse Error]: {e}")
+
+def on_ws_error(ws, error):
+    print(f"[WebSocket Error]: {error}")
+
+def on_ws_close(ws, close_status_code, close_msg):
+    print("[WebSocket Closed] Đang kết nối lại sau 5 giây...")
+    time.sleep(5)
+    start_websocket_background()
+
+def on_ws_open(ws):
+    print("[WebSocket Success]: Đã kết nối thành công vào luồng Real-time của iVASMS!")
+
+def start_websocket_background():
+    headers = {
+        "Cookie": WS_COOKIE,
+        "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+    }
+    ws_app = websocket.WebSocketApp(
+        WS_URL,
+        header=headers,
+        on_open=on_ws_open,
+        on_message=on_ws_message,
+        on_error=on_ws_error,
+        on_close=on_ws_close
+    )
+    ws_app.run_forever(ping_interval=20, ping_payload="2")
+
+# Khởi chạy luồng WebSocket ngầm
+ws_thread = threading.Thread(target=start_websocket_background, daemon=True)
+ws_thread.start()
+
 def remove_number_from_file(target_phone):
     DELETED_NUMBERS.add(target_phone)
     save_deleted_numbers(DELETED_NUMBERS)
@@ -186,7 +218,6 @@ def remove_number_from_file(target_phone):
                 f.writelines(new_lines)
         except Exception as e:
             print(f"Lỗi khi xóa số khỏi file: {e}")
-
 # ==========================================
 # 💰 4. QUẢN LÝ TÀI KHOẢN, SỐ DƯ & VÍ USER
 # ==========================================
