@@ -69,7 +69,7 @@ USER_LAST_ACTION = {}
 DEFAULT_SETTINGS = {
     "min_withdraw": 5.0,        
     "max_withdraw": 100.0,
-    "otp_reward": 0.009,        
+    "otp_reward": 0.008,        
     "refer_bonus": 0.01,
     "ivas_ws_url": "",        
 }
@@ -488,6 +488,7 @@ def get_numbers_by_category(category_code, page=0, limit=6):
     return [], 0
 
 def get_available_countries():
+    sync_numbers_from_ivas_web()  # <--- Chỉ cần chèn thêm đúng dòng này vào đây
     clean_expired_sessions()
     valid_countries = {}
     for code, data in COUNTRY_CACHE.items():
