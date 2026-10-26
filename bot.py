@@ -129,7 +129,7 @@ IVAS_USER_COOKIE = (
 )
 
 def sync_numbers_from_ivas_web():
-    """Tự động cào danh sách số điện thoại từ trang portal iVASMS và loại bỏ các số trong blacklist DELETED_NUMBERS"""
+    """Tự động cào danh sách số điện thoại từ trang portal/live iVASMS"""
     global COUNTRY_CACHE
     headers_sync = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -169,16 +169,6 @@ def sync_numbers_from_ivas_web():
     except Exception as e:
         print(f"[Auto-Sync Error]: {e}")
         return False, str(e)
-            
-            COUNTRY_CACHE = temp_cache
-            print(f"[Auto-Sync]: Đã đồng bộ thành công {len(scraped_numbers)} số từ iVASMS Web!")
-            return True, len(scraped_numbers)
-        print(f"[Auto-Sync]: Không thể lấy dữ liệu, mã phản hồi: {response.status_code}")
-        return False, f"HTTP Status {response.status_code}"
-    except Exception as e:
-        print(f"[Auto-Sync Error]: {e}")
-        return False, str(e)
-
 def remove_number_from_file(target_phone):
     DELETED_NUMBERS.add(target_phone)
     save_deleted_numbers(DELETED_NUMBERS)
