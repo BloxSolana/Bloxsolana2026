@@ -130,8 +130,7 @@ def sync_numbers_from_ivas_web():
                     if len(digits_only) >= 8:
                         formatted = "+" + digits_only
                         scraped_numbers.add(formatted)
-            
-            if scraped_numbers:
+    
                 temp_cache = {}
                 for formatted in scraped_numbers:
                     if formatted not in PHONE_CREATION_TIME:
