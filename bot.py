@@ -130,12 +130,11 @@ def sync_numbers_from_ivas_web():
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Cookie': IVAS_USER_COOKIE
     }
-        try:
+    try:
         response = requests.get(IVAS_WEB_URL, headers=headers_sync, timeout=15)
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
             scraped_numbers = set()
-
             
             full_text = soup.get_text(separator=" ")
             found_nums = re.findall(r'\+?\d{8,15}', full_text)
