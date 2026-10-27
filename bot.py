@@ -10,7 +10,7 @@ import json
 import time
 import random
 import websocket
-import html  # Thư viện chống lỗi ký tự đặc biệt như <#> gây sập bot
+import html
 from flask import Flask, request
 
 # ==========================================
@@ -34,7 +34,7 @@ def home():
     return "Bot IVASMS OTP Global & WebSocket Real-time đang chạy 24/7 trên Render!"
 
 # ==========================================
-# 🚀 3. ENDPOINT NHẬN SMS TỪ BRIDGE.PY (ĐÃ FIX LỖI HTTP 500 VÀ BẢO TOÀN TÍNH NĂNG)
+# 🚀 3. ENDPOINT NHẬN SMS: CHỈ GỬI KHI CÓ OTP, CHE SỐ & CÓ NÚT COPY
 # ==========================================
 @app.route('/api/push-sms', methods=['POST'])
 def api_push_sms_handler():
@@ -48,25 +48,64 @@ def api_push_sms_handler():
 
         raw_text = data.get("raw_text", "")
         
-        # Nếu là dữ liệu trống hoặc trang báo No SMS thì bỏ qua không quăng rác lên group
-        if not raw_text or ("No SMS found" in raw_text and len(raw_text) < 50):
-            return {"status": "ignored", "message": "Empty text"}, 200
+        # 🛡️ BỘ LỌC CHẶN RÁC TUYỆT ĐỐI: Chặn mọi thông báo trống, menu hoặc không có nội dung thực tế
+        useless_phrases = [
+            "No SMS found", "Range Count", "Client System", "Client Active SMS", 
+            "My Numbers", "My SMS Statistics", "Test System", "Invoices system", 
+            "Dashboard", "Sender Message Time Revenue", "TRUSTED PREMIUM SMS"
+        ]
+        if not raw_text or any(phrase in raw_text for phrase in useless_phrases) and len(raw_text) < 150:
+            return {"status": "ignored", "message": "Ignored useless text"}, 200
 
-        print(f"✨ [Render Webhook] Đã nhận dữ liệu SMS thực tế từ bridge! Đang đẩy lên group...")
+        # 🔍 TRÍCH XUẤT MÃ OTP (4-6 chữ số)
+        otps = re.findall(r'\b\d{4,6}\b', raw_text)
+        valid_otps = [o for o in otps if not o.startswith('2026') and len(o) >= 4]
+        
+        # Kiểm tra từ khóa xác thực để đảm bảo chắc chắn đây là tin nhắn OTP thật
+        auth_keywords = ["otp", "code", "ma", "xac thuc", "verify", "whatsapp", "telegram", "google", "facebook", "twitter", "confirm", "код", "кодом"]
+        has_keyword = any(kw in raw_text.lower() for kw in auth_keywords)
+        
+        # Nếu không tìm thấy mã OTP hoặc không có từ khóa xác thực -> BỎ QUA KHÔNG GỬI RÁC
+        if not valid_otps and not has_keyword:
+            return {"status": "ignored", "message": "No valid OTP found, skipped"}, 200
 
-        # 🛡️ Làm sạch ký tự HTML (tránh lỗi thẻ <#> làm Telegram từ chối nhận)
+        otp_display = valid_otps[0] if valid_otps else "Xem chi tiết bên dưới"
+
+        # 📞 TRÍCH XUẤT VÀ CHE SỐ ĐIỆN THOẠI (VD: 8493****14 hoặc +8493****14)
+        phones = re.findall(r'\+?\d{8,15}', raw_text)
+        masked_phone = "Không rõ"
+        if phones:
+            p = phones[0]
+            clean_p = re.sub(r'\D', '', p)
+            if len(clean_p) >= 8:
+                # Giữ 2 số đầu và 2 số cuối, che giữa bằng ****
+                prefix_sign = "+" if p.startswith("+") else ""
+                masked_phone = prefix_sign + clean_p[:4] + "****" + clean_p[-2:]
+            else:
+                masked_phone = p
+
+        print(f"✨ [Render Webhook] Bắt được OTP chuẩn xác! Đang đẩy lên group...")
+
+        # Làm sạch ký tự HTML để tránh lỗi định dạng
         safe_raw_text = html.escape(raw_text)
 
-        # Format tin nhắn gửi vào group Telegram cực kỳ rõ ràng, bắt mắt
+        # 📝 TRÌNH BÀY TIN NHẮN CHUYÊN NGHIỆP, GỌN GÀNG
         group_msg = (
             "⚡️ <b>BẮT ĐƯỢC MÃ XÁC THỰC (REAL-TIME)</b> ⚡️\n"
             "-----------------------------------\n"
-            f"💬 <b>Nội dung chi tiết:</b>\n<i>{safe_raw_text[:1500]}</i>"
+            f"📞 <b>Số điện thoại:</b> <code>{masked_phone}</code>\n"
+            f"🔑 <b>Mã OTP:</b> <code>{otp_display}</code>\n\n"
+            f"💬 <b>Nội dung chi tiết:</b>\n<i>{safe_raw_text[:800]}</i>"
         )
         
+        # Tạo nút bấm Copy OTP tiện lợi cho người dùng trong group
+        markup = InlineKeyboardMarkup()
+        if valid_otps:
+            markup.add(InlineKeyboardButton(f"📋 COPY MÃ OTP • {otp_display}", callback_data=f"copy_{otp_display}"))
+        
         # Gửi thẳng lên group Telegram
-        bot.send_message(GROUP_CHAT_ID, group_msg, parse_mode="HTML")
-        print("✅ [Webhook Success] Đã bắn tin nhắn lên Group thành công!")
+        bot.send_message(GROUP_CHAT_ID, group_msg, parse_mode="HTML", reply_markup=markup)
+        print("✅ [Webhook Success] Đã bắn tin nhắn OTP sạch đẹp lên Group thành công!")
         
         return {"status": "success", "message": "SMS handled successfully"}, 200
     except Exception as e:
@@ -166,7 +205,7 @@ DELETED_NUMBERS = load_deleted_numbers()
 # ==========================================
 WS_URL = "wss://www.ivasms.com/live/socket.io/?token=eyJpdiI6IjgxMm9Vc3pqeW53aGhkVWxTUHVWMEE9PSIsInZhbHVlIjoiRzZmdE9TbjVGdGI0RXhxblFsT3h1bUJaUFhvUEphVzVWNThTc2s5S0Q5STV2YkJTOVBWbGFoK0dva1JJYlpveStCSkVvNU1pVSttdTI5OW5FT01mYUYreDVxMG5vSjRhL3doVTFBZll2bWEvWXgwVTNBeGRzbXRId2lSS1NKWVpOdFlsaW51NTdFYUUreUZsaU04OE44NERZY3VVT1pJOHlkVXpncC9qREUxVVBuZTVBTTVBSnRtNFFUUEdOK3RHczBNeXAvTWJzOG9jbkc0LzJkaEpQSnBxcnI4U2hWTnRxRkZGQXZZYVBQNEo0YXB1c0ZCeENRQ1BvZG1nK2wrbSIsIm1hYyI6ImExOGVkNDJmZTI3Zjg1NTcyNDY0Y2I1YzJlYjgxNGE5MDIxNDdhZDc4NzViOTBkOGUwNjU4OTIwMmIwYWMwZGIiLCJ0YWciOiIifQ%3D%3D&user=7f92a59de907c2a8fd06861aaee10264&EIO=4&transport=websocket"
 
-WS_COOKIE = "_fbp=fb.1.1792735593444.939033684972879674; cf_chl_rc_ni=35; cf_clearance=34rE2Kt4W441HdwTASHuYyR5MIveWB55RLCu_Ac0Sgk-1793021387-1.2.1.1-Hd..mVXDEB339Tta1CAAr9jyKWsXEswSv7BvFcBGgtbvG8W48QVVNmLLv5Jo_NMw9TmcQU2Vnw.cltemAC5y.IKuojp4nx6ssclEsEbMHHCrREA7hTnVTRswV.xxmpCx34EcqKDgddHpYUQoGTNP1JPFvzKnxT04.D94mCS6QX7FkYA3c7zZ0jWV9G5R4joZ_lDNZaE_eS6ujVE3cDHco61mwZldmlTAkKbe4oYkRGFs11B_49rBv_0fhwLBYPkbr3gMH2B1ILs1krmLBH2KCUIO8NQJI4kQF5bk4tF8KaKSrIc5quQ7PENsWmZ4Z1y9OHoeNPCmrA0d4.gkiqCsrWGkLZ.iPM8NV9MVv910wRsk8.9UPRuxX0W_eNFLU4rNjdBDN_vep7v2luRsPhWVxKHTAufqxpCx5HNGuU4FjB5LuXWNAycO.JGhgFQDEXNA6KItH_AEJJp3ZVjeTapqV_TV_..tTRP6_DTDlR1DNY2XLGAsWuOTz0rTWPLF5e5HLSgc3BpxiOiegAq5L0OVlA; XSRF-TOKEN=eyJpdiI6IlR2TkxJWUoxSXd0VVdwNVFNeThmNUE9PSIsInZhbHVlIjoieG9HVlhHSUs0SkhwanVUYVJaSWVHUUpxQVVXOU9kZjM5NnVYQ0xSVHNzaE00ZmVxSzI3WmxnRnhCcllYZnFlSm1KZGRuT3duZ0h3T0R1UDhLMjdqdGdzdWd4V1FzOWJJWjBqZWYyZnR6UkpMK3o3eHBrMDVlaVhZWmd4SXRybEQiLCJtYWMiOiIyNWUzMWIzMDhhNmY0YTYyODMyMDIxMjlkMmU0NjdkMTQyYzE3MjBkMWEwZGFjZmY2Yjg0YjRhOWNkZTc0ODg0IiwidGFnIjoiIn0%3D; ivas_sms_session=eyJpdiI6IjNiVWRqNlF3U3BYL3VITmZiSnFUbmc9PSIsInZhbHVlIjoib0pra3RZUUkxbzlySjErL21Ya2ZsdlpkY0dEaDBJVHZqeThaR3ZsL1dDcFZMc1ZhaDR0WWU5VmhzcXNyZ29yVXAvODMyUms0RTd0d1RGV2pUbjRkZ21zbTNCVit3RTB1N1NoeEE2Zm1jZ2VjRHF5TitLc2kwRlFwSVo3bGdoQjUiLCJtYWMiOiI1MmQwYmI4NDI1Y2RlNTI2ZTRlNDcwNDY1Njk3OGZiZDc3NzcwZDRhMDlmZjJmN2UyYjM3ODAzN2I2MTQ2YjJhIiwidGFnIjoiIn0%3D"
+WS_COOKIE = "_fbp=fb.1.1792735593444.939033684972879674; cf_chl_rc_ni=35; cf_clearance=34rE2Kt4W441HdwTASHuYyR5MIveWB55RLCu_Ac0Sgk-1793021387-1.2.1.1-Hd..mVXDEB339Tta1CAAr9jyKWsXEswSv7BvFcBGgtbvG8W48QVVNmLLv5Jo_NMw9TmcQU2Vnw.cltemAC5y.IKuojp4nx6ssclEsEbMHHCrREA7hTnVTRswV.xxmpCx34EcqKDgddHpYUQoGTNP1JPFvzKnxT04.D94mCS6QX7FkYA3c7zZ0jWV9G5R4joZ_lDNZaE_eS6ujVE3cDHco61mwZldmlTAkKbe4oYkRGFs11B_49rBv_0fhwLBYPkbr3gMH2B1ILs1krmLBH2KCUIO8NQJI4kQF5bk4tF8KaKSrIc5quQ7PENsWmZ4Z1y9OHoeNPCmrA0d4.gkiqCsrWGkLZ.iPM8NV9MVv910wRsk8.9UPRuxX0W_eNFLU4rNjdBDN_vep7v2luRsPhWVxKHTAufqxpCx5HNGuU4FjB5LuXWNAycO.JGhgFQDEXNA6KItH_AEJJp3ZVjeTapqV_TV_..tTRP6_DTDlR1DNY2XLGAsWuOTz0rTWPLF5e5HLSgc3BpxiOiegAq5L0OVlA; XSRF-TOKEN=eyJpdiI6IlR2TkxJWUoxSXd0VVdwNVFNeThmNUE9PSIsInZhbHVlIjoieG9HVlhHSUs0SkhwanVUYVJaSWVHUUpxQVVXOU9kZjM5NnVYQ0xSVHNzaE00ZmVxSzI3WmxnRnhCcllYZnFlSm1KZGRuT3duZ0h3T0R1UDhLMjdqdGdzdWd4V1FzOWJJWjBqZWYyZnR6UkpMK3o3eHBrMDVlaVhZWmd4SXRybEQiLCJtYwcJOiIyNWUzMWIzMDhhNmY0YTYyODMyMDIxMjlkMmU0NjdkMTQyYzE3MjBkMWEwZGFjZmY2Yjg0YjRhOWNkZTc0ODg0IiwidGFnIjoiIn0%3D; ivas_sms_session=eyJpdiI6IjNiVWRqNlF3U3BYL3VITmZiSnFUbmc9PSIsInZhbHVlIjoib0pra3RZUUkxbzlySjErL21Ya2ZsdlpkY0dEaDBJVHZqeThaR3ZsL1dDcFZMc1ZhaDR0WWU5VmhzcXNyZ29yVXAvODMyUms0RTd0d1RGV2pUbjRkZ21zbTNCVit3RTB1N1NoeEE2Zm1jZ2VjRHF5TitLc2kwRlFwSVo3bGdoQjUiLCJtYWMiOiI1MmQwYmI4NDI1Y2RlNTI2ZTRlNDcwNDY1Njk3OGZiZDc3NzcwZDRhMDlmZjJmN2UyYjM3ODAzN2I2MTQ2YjJhIiwidGFnIjoiIn0%3D"
 
 def sync_numbers_from_ivas_web():
     global COUNTRY_CACHE
