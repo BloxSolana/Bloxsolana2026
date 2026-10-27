@@ -19,6 +19,7 @@ ADMIN_ID = 6726769296
 TOKEN = "8622066775:AAFncl413hILhGl-J6DQD9oDbK4PEEHsERc"
 GROUP_CHAT_ID = "-1004341368656"
 GROUP_OTP_LINK = "https://t.me/LIVEOTPIVAS"
+BRIDGE_API_KEY = "khoibro_secret_bridge_key_123"
 
 bot = telebot.TeleBot(TOKEN)
 
@@ -32,30 +33,50 @@ def home():
     return "Bot IVASMS OTP Global & WebSocket Real-time đang chạy 24/7 trên Render!"
 
 # ==========================================
-# 🧪 ĐOẠN CODE TEST BẮN THÔNG BÁO LÊN GROUP
+# 🚀 3. ENDPOINT NHẬN SMS TỪ BRIDGE.PY (ĐÃ TỐI ƯU BÓC TÁCH OTP SẠCH SẼ)
 # ==========================================
 @app.route('/api/push-sms', methods=['POST'])
-def api_push_sms_test():
+def api_push_sms_handler():
     try:
         data = request.json if request.is_json else {}
+        
+        # Kiểm tra bảo mật API Key từ bridge.py gửi lên
+        client_key = data.get("key", "")
+        if client_key and client_key != BRIDGE_API_KEY:
+            return {"status": "error", "message": "Unauthorized API Key"}, 403
+
         raw_text = data.get("raw_text", "")
         numbers = data.get("numbers", [])
         
-        # Nếu có nội dung tin nhắn SMS quét được từ bridge.py, bắn thẳng lên Group Telegram để test!
-        if raw_text and len(raw_text.strip()) > 10:
-            test_msg = (
-                "🧪 <b>[TEST REAL-TIME BRIDGE]</b>\n"
-                "-----------------------------------\n"
-                f"💬 <b>Nội dung SMS quét được:</b>\n<i>{raw_text[:1000]}</i>\n"
-                "-----------------------------------\n"
-                "✅ <i>Trạm cầu nối bridge.py đã đẩy dữ liệu sang Render và Bot đã quăng thành công lên Group!</i>"
-            )
-            bot.send_message(GROUP_CHAT_ID, test_msg, parse_mode="HTML")
-            print("✅ [Test Success] Đã bắn tin nhắn test lên group Telegram thành công!")
+        # Nếu có nội dung tin nhắn quét được từ bridge.py
+        if raw_text and len(raw_text.strip()) > 20:
+            # Bỏ qua các chuỗi rác menu hệ thống
+            menu_keywords = ["Client System", "Client Active SMS", "My Numbers", "My SMS Statistics", "Test System", "Invoices system", "Dashboard"]
+            if any(kw in raw_text for kw in menu_keywords) and "OTP" not in raw_text and "WhatsApp" not in raw_text and "Telegram" not in raw_text:
+                return {"status": "ignored", "message": "Ignored menu layout text"}, 200
+
+            print(f"✨ [Bridge Webhook] Nhận được dữ liệu SMS mới từ bridge.py! Đang xử lý...")
             
-        return {"status": "success", "message": "Test handled successfully"}, 200
+            # 1. Gọi hàm bóc tách OTP thông minh của hệ thống
+            process_incoming_sms_content(raw_text)
+            
+            # 2. Trích xuất mã OTP (4-6 chữ số) để gửi thông báo đẹp mắt lên Group
+            otps = re.findall(r'\b\d{4,6}\b', raw_text)
+            valid_otps = [o for o in otps if not o.startswith('2026') and len(o) >= 4]
+            otp_display = valid_otps[0] if valid_otps else "Xem chi tiết bên dưới"
+
+            group_msg = (
+                "⚡️ <b>BẮT ĐƯỢC MÃ XÁC THỰC (REAL-TIME)</b> ⚡️\n"
+                "-----------------------------------\n"
+                f"🔑 <b>Mã OTP:</b> <code>{otp_display}</code>\n\n"
+                f"💬 <b>Nội dung chi tiết:</b>\n<i>{raw_text[:1500]}</i>"
+            )
+            bot.send_message(GROUP_CHAT_ID, group_msg, parse_mode="HTML")
+            print("✅ [Webhook Success] Đã bóc tách và quăng OTP lên Group Telegram thành công!")
+            
+        return {"status": "success", "message": "SMS handled successfully"}, 200
     except Exception as e:
-        print(f"❌ [Test Error]: {e}")
+        print(f"❌ [Webhook Error]: {e}")
         return {"status": "error", "message": str(e)}, 500
 
 def run_web():
@@ -68,7 +89,7 @@ except Exception as e:
     print(f"Xử lý Webhook: {e}")
 
 # ==========================================
-# ⚙️ 3. QUẢN LÝ DỮ LIỆU & WEBSOCKET REAL-TIME
+# ⚙️ 4. QUẢN LÝ DỮ LIỆU & WEBSOCKET REAL-TIME
 # ==========================================
 session = requests.Session()
 headers = {
@@ -151,15 +172,13 @@ DELETED_NUMBERS = load_deleted_numbers()
 # ==========================================
 WS_URL = "wss://www.ivasms.com/live/socket.io/?token=eyJpdiI6IjgxMm9Vc3pqeW53aGhkVWxTUHVWMEE9PSIsInZhbHVlIjoiRzZmdE9TbjVGdGI0RXhxblFsT3h1bUJaUFhvUEphVzVWNThTc2s5S0Q5STV2YkJTOVBWbGFoK0dva1JJYlpveStCSkVvNU1pVSttdTI5OW5FT01mYUYreDVxMG5vSjRhL3doVTFBZll2bWEvWXgwVTNBeGRzbXRId2lSS1NKWVpOdFlsaW51NTdFYUUreUZsaU04OE44NERZY3VVT1pJOHlkVXpncC9qREUxVVBuZTVBTTVBSnRtNFFUUEdOK3RHczBNeXAvTWJzOG9jbkc0LzJkaEpQSnBxcnI4U2hWTnRxRkZGQXZZYVBQNEo0YXB1c0ZCeENRQ1BvZG1nK2wrbSIsIm1hYyI6ImExOGVkNDJmZTI3Zjg1NTcyNDY0Y2I1YzJlYjgxNGE5MDIxNDdhZDc4NzViOTBkOGUwNjU4OTIwMmIwYWMwZGIiLCJ0YWciOiIifQ%3D%3D&user=7f92a59de907c2a8fd06861aaee10264&EIO=4&transport=websocket"
 
-WS_COOKIE = "_fbp=fb.1.1792735593444.939033684972879674; cf_chl_rc_ni=35; cf_clearance=34rE2Kt4W441HdwTASHuYyR5MIveWB55RLCu_Ac0Sgk-1793021387-1.2.1.1-Hd..mVXDEB339Tta1CAAr9jyKWsXEswSv7BvFcBGgtbvG8W48QVVNmLLv5Jo_NMw9TmcQU2Vnw.cltemAC5y.IKuojp4nx6ssclEsEbMHHCrREA7hTnVTRswV.xxmpCx34EcqKDgddHpYUQoGTNP1JPFvzKnxT04.D94mCS6QX7FkYA3c7zZ0jWV9G5R4joZ_lDNZaE_eS6ujVE3cDHco61mwZldmlTAkKbe4oYkRGFs11B_49rBv_0fhwLBYPkbr3gMH2B1ILs1krmLBH2KCUIO8NQJI4kQF5bk4tF8KaKSrIc5quQ7PENsWmZ4Z1y9OHoeNPCmrA0d4.gkiqCsrWGkLZ.iPM8NV9MVv910wRsk8.9UPRuxX0W_eNFLU4rNjdBDN_vep7v2luRsPhWVxKHTAufqxpCx5HNGuU4FjB5LuXWNAycO.JGhgFQDEXNA6KItH_AEJJp3ZVjeTapqV_TV_..tTRP6_DTDlR1DNY2XLGAsWuOTz0rTWPLF5e5HLSgc3BpxiOiegAq5L0OVlA; XSRF-TOKEN=eyJpdiI6IlR2TkxJWUoxSXd0VVdwNVFNeThmNUE9PSIsInZhbHVlIjoieG9HVlhHSUs0SkhwanVUYVJaSWVHUUpxQVVXOU9kZjM5NnVYQ0xSVHNzaE00ZmVxSzI3WmxnRnhCcllYZnFlSm1KZGRuT3duZ0h3T0R1UDhLMjdqdGdzdWd4V1FzOWJJWjBqZWYyZnR6UkpMK3o3eHBrMDVlaVhZWmd4SXRybEQiLCJtYwciOiIyNWUzMWIzMDhhNmY0YTYyODMyMDIxMjlkMmU0NjdkMTQyYzE3MjBkMWEwZGFjZmY2Yjg0YjRhOWNkZTc0ODg0IiwidGFnIjoiIn0%3D; ivas_sms_session=eyJpdiI6IjNiVWRqNlF3U3BYL3VITmZiSnFUbmc9PSIsInZhbHVlIjoib0pra3RZUUkxbzlySjErL21Ya2ZsdlpkY0dEaDBJVHZqeThaR3ZsL1dDcFZMc1ZhaDR0WWU5VmhzcXNyZ29yVXAvODMyUms0RTd0d1RGV2pUbjRkZ21zbTNCVit3RTB1N1NoeEE2Zm1jZ2VjRHF5TitLc2kwRlFwSVo3bGdoQjUiLCJtYWMiOiI1MmQwYmI4NDI1Y2RlNTI2ZTRlNDcwNDY1Njk3OGZiZDc3NzcwZDRhMDlmZjJmN2UyYjM3ODAzN2I2MTQ2YjJhIiwidGFnIjoiIn0%3D"
+WS_COOKIE = "_fbp=fb.1.1792735593444.939033684972879674; cf_chl_rc_ni=35; cf_clearance=34rE2Kt4W441HdwTASHuYyR5MIveWB55RLCu_Ac0Sgk-1793021387-1.2.1.1-Hd..mVXDEB339Tta1CAAr9jyKWsXEswSv7BvFcBGgtbvG8W48QVVNmLLv5Jo_NMw9TmcQU2Vnw.cltemAC5y.IKuojp4nx6ssclEsEbMHHCrREA7hTnVTRswV.xxmpCx34EcqKDgddHpYUQoGTNP1JPFvzKnxT04.D94mCS6QX7FkYA3c7zZ0jWV9G5R4joZ_lDNZaE_eS6ujVE3cDHco61mwZldmlTAkKbe4oYkRGFs11B_49rBv_0fhwLBYPkbr3gMH2B1ILs1krmLBH2KCUIO8NQJI4kQF5bk4tF8KaKSrIc5quQ7PENsWmZ4Z1y9OHoeNPCmrA0d4.gkiqCsrWGkLZ.iPM8NV9MVv910wRsk8.9UPRuxX0W_eNFLU4rNjdBDN_vep7v2luRsPhWVxKHTAufqxpCx5HNGuU4FjB5LuXWNAycO.JGhgFQDEXNA6KItH_AEJJp3ZVjeTapqV_TV_..tTRP6_DTDlR1DNY2XLGAsWuOTz0rTWPLF5e5HLSgc3BpxiOiegAq5L0OVlA; XSRF-TOKEN=eyJpdiI6IlR2TkxJWUoxSXd0VVdwNVFNeThmNUE9PSIsInZhbHVlIjoieG9HVlhHSUs0SkhwanVUYVJaSWVHUUpxQVVXOU9kZjM5NnVYQ0xSVHNzaE00ZmVxSzI3WmxnRnhCcllYZnFlSm1KZGRuT3duZ0h3T0R1UDhLMjdqdGdzdWd4V1FzOWJJWjBqZWYyZnR6UkpMK3o3eHBrMDVlaVhZWmd4SXRybEQiLCJtYWMiOiIyNWUzMWIzMDhhNmY0YTYyODMyMDIxMjlkMmU0NjdkMTQyYzE3MjBkMWEwZGFjZmY2Yjg0YjRhOWNkZTc0ODg0IiwidGFnIjoiIn0%3D; ivas_sms_session=eyJpdiI6IjNiVWRqNlF3U3BYL3VITmZiSnFUbmc9PSIsInZhbHVlIjoib0pra3RZUUkxbzlySjErL21Ya2ZsdlpkY0dEaDBJVHZqeThaR3ZsL1dDcFZMc1ZhaDR0WWU5VmhzcXNyZ29yVXAvODMyUms0RTd0d1RGV2pUbjRkZ21zbTNCVit3RTB1N1NoeEE2Zm1jZ2VjRHF5TitLc2kwRlFwSVo3bGdoQjUiLCJtYWMiOiI1MmQwYmI4NDI1Y2RlNTI2ZTRlNDcwNDY1Njk3OGZiZDc3NzcwZDRhMDlmZjJmN2UyYjM3ODAzN2I2MTQ2YjJhIiwidGFnIjoiIn0%3D"
 
 def sync_numbers_from_ivas_web():
-    """Hàm tương thích thay thế, trả về cache hiện tại"""
     global COUNTRY_CACHE
     return True, len(COUNTRY_CACHE) if COUNTRY_CACHE else 0
 
 def on_ws_message(ws, message):
-    """Xử lý gói tin realtime từ WebSocket đẩy về"""
     global COUNTRY_CACHE
     try:
         if message == "2":
@@ -192,7 +211,6 @@ def on_ws_message(ws, message):
                     if formatted not in temp_cache[code]["numbers"]:
                         temp_cache[code]["numbers"].append(formatted)
                 COUNTRY_CACHE = temp_cache
-                print(f"[WebSocket Realtime]: Đã cập nhật {len(scraped_numbers)} số mới từ luồng WSS!")
     except Exception as e:
         print(f"[WS Parse Error]: {e}")
 
@@ -200,7 +218,6 @@ def on_ws_error(ws, error):
     print(f"[WebSocket Error]: {error}")
 
 def on_ws_close(ws, close_status_code, close_msg):
-    print("[WebSocket Closed] Đang kết nối lại sau 5 giây...")
     time.sleep(5)
     start_websocket_background()
 
@@ -222,7 +239,6 @@ def start_websocket_background():
     )
     ws_app.run_forever(ping_interval=20, ping_payload="2")
 
-# Khởi chạy luồng WebSocket ngầm
 ws_thread = threading.Thread(target=start_websocket_background, daemon=True)
 ws_thread.start()
 
@@ -246,7 +262,7 @@ def remove_number_from_file(target_phone):
             print(f"Lỗi khi xóa số khỏi file: {e}")
 
 # ==========================================
-# 💰 4. QUẢN LÝ TÀI KHOẢN, SỐ DƯ & VÍ USER
+# 💰 5. QUẢN LÝ TÀI KHOẢN, SỐ DƯ & VÍ USER
 # ==========================================
 def get_user(uid, name="", username=""):
     users = load_json_db(USERS_FILE)
@@ -283,7 +299,7 @@ def mask_phone_number(phone):
     return p
 
 # ==========================================
-# 🛡️ 5. HỆ THỐNG CHỐNG SPAM & UNBAN
+# 🛡️ 6. HỆ THỐNG CHỐNG SPAM & UNBAN
 # ==========================================
 def check_user_status(user_id, name=""):
     if user_id == ADMIN_ID:
@@ -338,7 +354,7 @@ def unban_user_manual(user_id):
     return False
 
 # ==========================================
-# 🌍 6. BỘ TỪ ĐIỂN MỞ RỘNG FULL 195+ QUỐC GIA
+# 🌍 7. BỘ TỪ ĐIỂN MỞ RỘNG FULL 195+ QUỐC GIA
 # ==========================================
 GLOBAL_COUNTRY_PREFIXES = {
     "1": ("🇺🇸 Mỹ / Canada (+1)", "US"), "52": ("🇲🇽 Mexico (+52)", "MX"), "53": ("🇨🇺 Cuba (+53)", "CU"),
@@ -901,11 +917,17 @@ def handle_callbacks(call):
             if chat_id in USER_ACTIVE_PHONES:
                 del USER_ACTIVE_PHONES[chat_id]
 
-            # Bắt đầu tính trọn vẹn 15 phút (900 giây) từ thời điểm user click chọn số này
-            PHONE_CREATION_TIME[phone] = time.time()
-            remaining_time = 900
-            expire_time = time.time() + 900
+            if phone not in PHONE_CREATION_TIME:
+                PHONE_CREATION_TIME[phone] = time.time()
 
+            elapsed = time.time() - PHONE_CREATION_TIME[phone]
+            remaining_time = 900 - elapsed
+            if remaining_time <= 0:
+                remove_number_from_file(phone)
+                bot.answer_callback_query(call.id, "⚠️ Số này đã hết thời hạn 15 phút tồn tại!", show_alert=True)
+                return
+
+            expire_time = time.time() + remaining_time
             USER_ACTIVE_PHONES[chat_id] = {
                 "phone": phone,
                 "expire": expire_time,
@@ -952,11 +974,17 @@ def handle_callbacks(call):
 
             new_phone = random.choice(available_nums)
 
-            # Đổi sang số mới cũng được cấp trọn vẹn 15 phút mới từ thời điểm click
-            PHONE_CREATION_TIME[new_phone] = time.time()
-            remaining_time = 900
-            expire_time = time.time() + 900
+            if new_phone not in PHONE_CREATION_TIME:
+                PHONE_CREATION_TIME[new_phone] = time.time()
 
+            elapsed = time.time() - PHONE_CREATION_TIME[new_phone]
+            remaining_time = 900 - elapsed
+            if remaining_time <= 0:
+                remove_number_from_file(new_phone)
+                bot.answer_callback_query(call.id, "⚠️ Số này đã hết hạn!", show_alert=True)
+                return
+
+            expire_time = time.time() + remaining_time
             USER_ACTIVE_PHONES[chat_id] = {
                 "phone": new_phone,
                 "expire": expire_time,
