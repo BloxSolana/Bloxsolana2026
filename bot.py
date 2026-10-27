@@ -10,7 +10,7 @@ import json
 import time
 import random
 import websocket
-from flask import Flask
+from flask import Flask, request
 
 # ==========================================
 # 👑 1. CẤU HÌNH ADMIN TỐI CAO & TELEGRAM BOT
@@ -23,7 +23,7 @@ GROUP_OTP_LINK = "https://t.me/LIVEOTPIVAS"
 bot = telebot.TeleBot(TOKEN)
 
 # ==========================================
-# 🌐 2. FLASK WEB SERVER (GIỮ BOT ONLINE 24/7 & NHẬN API TỪ BRIDGE)
+# 🌐 2. FLASK WEB SERVER (GIỮ BOT ONLINE 24/7)
 # ==========================================
 app = Flask(__name__)
 
@@ -31,30 +31,37 @@ app = Flask(__name__)
 def home():
     return "Bot IVASMS OTP Global & WebSocket Real-time đang chạy 24/7 trên Render!"
 
-# 🚀 TRẠM NHẬN DỮ LIỆU TỪ FILE BRIDGE.PY TRÊN MÁY TÍNH (KHẮC PHỤC TRIỆT ĐỂ LỖI 404)
+# ==========================================
+# 🧪 ĐOẠN CODE TEST BẮN THÔNG BÁO LÊN GROUP
+# ==========================================
 @app.route('/api/push-sms', methods=['POST'])
-def api_push_sms():
+def api_push_sms_test():
     try:
-        from flask import request
-        data = request.json
-        if not data or data.get("key") != "khoibro_secret_bridge_key_123":
-            return {"status": "unauthorized"}, 401
-            
-        incoming_numbers = data.get("numbers", [])
+        data = request.json if request.is_json else {}
         raw_text = data.get("raw_text", "")
+        numbers = data.get("numbers", [])
         
-        # Xử lý nội dung SMS nhận được để tự động khớp số và gửi OTP đúng người dùng
-        if raw_text:
-            process_incoming_sms_content(raw_text)
+        # Nếu có nội dung tin nhắn SMS quét được từ bridge.py, bắn thẳng lên Group Telegram để test!
+        if raw_text and len(raw_text.strip()) > 10:
+            test_msg = (
+                "🧪 <b>[TEST REAL-TIME BRIDGE]</b>\n"
+                "-----------------------------------\n"
+                f"💬 <b>Nội dung SMS quét được:</b>\n<i>{raw_text[:1000]}</i>\n"
+                "-----------------------------------\n"
+                "✅ <i>Trạm cầu nối bridge.py đã đẩy dữ liệu sang Render và Bot đã quăng thành công lên Group!</i>"
+            )
+            bot.send_message(GROUP_CHAT_ID, test_msg, parse_mode="HTML")
+            print("✅ [Test Success] Đã bắn tin nhắn test lên group Telegram thành công!")
             
-        return {"status": "success", "received_numbers": len(incoming_numbers)}, 200
+        return {"status": "success", "message": "Test handled successfully"}, 200
     except Exception as e:
-        print(f"Lỗi API push-sms: {e}")
+        print(f"❌ [Test Error]: {e}")
         return {"status": "error", "message": str(e)}, 500
 
 def run_web():
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
+
 try:
     bot.remove_webhook()
 except Exception as e:
@@ -147,10 +154,12 @@ WS_URL = "wss://www.ivasms.com/live/socket.io/?token=eyJpdiI6IjgxMm9Vc3pqeW53aGh
 WS_COOKIE = "_fbp=fb.1.1792735593444.939033684972879674; cf_chl_rc_ni=35; cf_clearance=34rE2Kt4W441HdwTASHuYyR5MIveWB55RLCu_Ac0Sgk-1793021387-1.2.1.1-Hd..mVXDEB339Tta1CAAr9jyKWsXEswSv7BvFcBGgtbvG8W48QVVNmLLv5Jo_NMw9TmcQU2Vnw.cltemAC5y.IKuojp4nx6ssclEsEbMHHCrREA7hTnVTRswV.xxmpCx34EcqKDgddHpYUQoGTNP1JPFvzKnxT04.D94mCS6QX7FkYA3c7zZ0jWV9G5R4joZ_lDNZaE_eS6ujVE3cDHco61mwZldmlTAkKbe4oYkRGFs11B_49rBv_0fhwLBYPkbr3gMH2B1ILs1krmLBH2KCUIO8NQJI4kQF5bk4tF8KaKSrIc5quQ7PENsWmZ4Z1y9OHoeNPCmrA0d4.gkiqCsrWGkLZ.iPM8NV9MVv910wRsk8.9UPRuxX0W_eNFLU4rNjdBDN_vep7v2luRsPhWVxKHTAufqxpCx5HNGuU4FjB5LuXWNAycO.JGhgFQDEXNA6KItH_AEJJp3ZVjeTapqV_TV_..tTRP6_DTDlR1DNY2XLGAsWuOTz0rTWPLF5e5HLSgc3BpxiOiegAq5L0OVlA; XSRF-TOKEN=eyJpdiI6IlR2TkxJWUoxSXd0VVdwNVFNeThmNUE9PSIsInZhbHVlIjoieG9HVlhHSUs0SkhwanVUYVJaSWVHUUpxQVVXOU9kZjM5NnVYQ0xSVHNzaE00ZmVxSzI3WmxnRnhCcllYZnFlSm1KZGRuT3duZ0h3T0R1UDhLMjdqdGdzdWd4V1FzOWJJWjBqZWYyZnR6UkpMK3o3eHBrMDVlaVhZWmd4SXRybEQiLCJtYWMiOiIyNWUzMWIzMDhhNmY0YTYyODMyMDIxMjlkMmU0NjdkMTQyYzE3MjBkMWEwZGFjZmY2Yjg0YjRhOWNkZTc0ODg0IiwidGFnIjoiIn0%3D; ivas_sms_session=eyJpdiI6IjNiVWRqNlF3U3BYL3VITmZiSnFUbmc9PSIsInZhbHVlIjoib0pra3RZUUkxbzlySjErL21Ya2ZsdlpkY0dEaDBJVHZqeThaR3ZsL1dDcFZMc1ZhaDR0WWU5VmhzcXNyZ29yVXAvODMyUms0RTd0d1RGV2pUbjRkZ21zbTNCVit3RTB1N1NoeEE2Zm1jZ2VjRHF5TitLc2kwRlFwSVo3bGdoQjUiLCJtYWMiOiI1MmQwYmI4NDI1Y2RlNTI2ZTRlNDcwNDY1Njk3OGZiZDc3NzcwZDRhMDlmZjJmN2UyYjM3ODAzN2I2MTQ2YjJhIiwidGFnIjoiIn0%3D"
 
 def sync_numbers_from_ivas_web():
+    """Hàm tương thích thay thế, trả về cache hiện tại"""
     global COUNTRY_CACHE
     return True, len(COUNTRY_CACHE) if COUNTRY_CACHE else 0
 
 def on_ws_message(ws, message):
+    """Xử lý gói tin realtime từ WebSocket đẩy về"""
     global COUNTRY_CACHE
     try:
         if message == "2":
@@ -213,6 +222,7 @@ def start_websocket_background():
     )
     ws_app.run_forever(ping_interval=20, ping_payload="2")
 
+# Khởi chạy luồng WebSocket ngầm
 ws_thread = threading.Thread(target=start_websocket_background, daemon=True)
 ws_thread.start()
 
@@ -267,13 +277,6 @@ def update_balance(uid, amount):
         return update_balance(uid, amount)
 
 def mask_phone_number(phone):
-    p = phone.strip()
-    if len(p) > 6:
-        return p[:4] + "***" + p[-2:]
-    return p
-
-def mask_phone_group(phone):
-    """Che dãy số ở giữa, chỉ giữ lại 2 số đầu và 2 số cuối (VD: +998***42)"""
     p = phone.strip()
     if len(p) > 6:
         return p[:4] + "***" + p[-2:]
@@ -425,6 +428,22 @@ def get_country_info(phone):
     fallback_code = p[:2] if len(p) >= 2 else p[:1]
     return f"🌐 Quốc tế Khác (+{fallback_code})", f"OTHER_{fallback_code}"
 
+def broadcast_stock_updated(added_count, total_stock):
+    text = (
+        "✅ <b>Stock Updated!</b>\n"
+        "__________________________________\n\n"
+        "🌐 <b>Country:</b> GLOBAL / ALL COUNTRY 🌍\n"
+        f"⏩ <b>Added:</b> {added_count}\n"
+        f"📊 <b>Total Stock:</b> {total_stock}\n"
+        "👤 <b>Uploaded by:</b> A D M I N\n"
+        "__________________________________\n\n"
+        "💡 <i>Vui lòng vào bot riêng để chọn quốc gia và lấy số nhận mã OTP tự động!</i>"
+    )
+    try:
+        bot.send_message(GROUP_CHAT_ID, text, parse_mode="HTML")
+    except Exception:
+        pass
+
 def clean_expired_sessions():
     try:
         now = time.time()
@@ -571,7 +590,6 @@ def send_auto_otp(chat_id, number, otp_code, full_msg="", user_id=None, user_nam
             except Exception:
                 pass
 
-        # 1. Gửi thông báo cho người dùng cá nhân (hiện số đầy đủ cho chủ nhân)
         text = (
             "⚡️ <b>HỆ THỐNG XÁC THỰC TỰ ĐỘNG</b> ⚡️\n"
             "-----------------------------------\n"
@@ -586,25 +604,6 @@ def send_auto_otp(chat_id, number, otp_code, full_msg="", user_id=None, user_nam
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton(f"📋 COPY OTP • {otp_code}", callback_data=f"copy_{otp_code}"))
         bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=markup)
-
-        # 2. Bắn thông báo sang Group công khai (Che số điện thoại: 2 số đầu và 2 số cuối)
-        masked_number = mask_phone_group(number)
-        group_text = (
-            "🚀 <b>GIAO DỊCH NHẬN OTP THÀNH CÔNG!</b> 🚀\n"
-            "-----------------------------------\n"
-            f"📞 <b>Số điện thoại:</b> <code>{masked_number}</code>\n"
-            f"🔑 <b>Mã OTP:</b> <code>{otp_code}</code>\n"
-            f"🌟 <b>Trạng thái:</b> <i>Uy tín - Nhanh chóng - Real-time 24/7</i>\n"
-            "-----------------------------------\n"
-            "👇 <i>Bấm vào nút bên dưới để lấy số nhận mã OTP miễn phí:</i>"
-        )
-        group_markup = InlineKeyboardMarkup()
-        group_markup.add(InlineKeyboardButton("🤖 Về Bot Lấy Số Ngay", url=f"https://t.me/{bot.get_me().username}"))
-        try:
-            bot.send_message(GROUP_CHAT_ID, group_text, parse_mode="HTML", reply_markup=group_markup)
-        except Exception as e:
-            print(f"Lỗi gửi thông báo sang Group: {e}")
-
     except Exception as e:
         print(f"Lỗi gửi OTP tới {chat_id}: {e}")
 
