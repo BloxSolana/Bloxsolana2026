@@ -23,7 +23,7 @@ GROUP_OTP_LINK = "https://t.me/LIVEOTPIVAS"
 bot = telebot.TeleBot(TOKEN)
 
 # ==========================================
-# 🌐 2. FLASK WEB SERVER (GIỮ BOT ONLINE 24/7)
+# 🌐 2. FLASK WEB SERVER (GIỮ BOT ONLINE 24/7 & NHẬN API TỪ BRIDGE)
 # ==========================================
 app = Flask(__name__)
 
@@ -31,10 +31,30 @@ app = Flask(__name__)
 def home():
     return "Bot IVASMS OTP Global & WebSocket Real-time đang chạy 24/7 trên Render!"
 
+# 🚀 TRẠM NHẬN DỮ LIỆU TỪ FILE BRIDGE.PY TRÊN MÁY TÍNH (KHẮC PHỤC TRIỆT ĐỂ LỖI 404)
+@app.route('/api/push-sms', methods=['POST'])
+def api_push_sms():
+    try:
+        from flask import request
+        data = request.json
+        if not data or data.get("key") != "khoibro_secret_bridge_key_123":
+            return {"status": "unauthorized"}, 401
+            
+        incoming_numbers = data.get("numbers", [])
+        raw_text = data.get("raw_text", "")
+        
+        # Xử lý nội dung SMS nhận được để tự động khớp số và gửi OTP đúng người dùng
+        if raw_text:
+            process_incoming_sms_content(raw_text)
+            
+        return {"status": "success", "received_numbers": len(incoming_numbers)}, 200
+    except Exception as e:
+        print(f"Lỗi API push-sms: {e}")
+        return {"status": "error", "message": str(e)}, 500
+
 def run_web():
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
-
 try:
     bot.remove_webhook()
 except Exception as e:
