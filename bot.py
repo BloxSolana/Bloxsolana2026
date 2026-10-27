@@ -10,6 +10,7 @@ import json
 import time
 import random
 import websocket
+import html  # Thư viện chống lỗi ký tự đặc biệt như <#> gây sập bot
 from flask import Flask, request
 
 # ==========================================
@@ -33,7 +34,7 @@ def home():
     return "Bot IVASMS OTP Global & WebSocket Real-time đang chạy 24/7 trên Render!"
 
 # ==========================================
-# 🚀 3. ENDPOINT NHẬN SMS TỪ BRIDGE.PY (ĐÃ FIX LỖI HTTP 500)
+# 🚀 3. ENDPOINT NHẬN SMS TỪ BRIDGE.PY (ĐÃ FIX LỖI HTTP 500 VÀ BẢO TOÀN TÍNH NĂNG)
 # ==========================================
 @app.route('/api/push-sms', methods=['POST'])
 def api_push_sms_handler():
@@ -53,11 +54,14 @@ def api_push_sms_handler():
 
         print(f"✨ [Render Webhook] Đã nhận dữ liệu SMS thực tế từ bridge! Đang đẩy lên group...")
 
+        # 🛡️ Làm sạch ký tự HTML (tránh lỗi thẻ <#> làm Telegram từ chối nhận)
+        safe_raw_text = html.escape(raw_text)
+
         # Format tin nhắn gửi vào group Telegram cực kỳ rõ ràng, bắt mắt
         group_msg = (
             "⚡️ <b>BẮT ĐƯỢC MÃ XÁC THỰC (REAL-TIME)</b> ⚡️\n"
             "-----------------------------------\n"
-            f"💬 <b>Nội dung chi tiết:</b>\n<i>{raw_text[:1500]}</i>"
+            f"💬 <b>Nội dung chi tiết:</b>\n<i>{safe_raw_text[:1500]}</i>"
         )
         
         # Gửi thẳng lên group Telegram
@@ -604,7 +608,8 @@ def send_auto_otp(chat_id, number, otp_code, full_msg="", user_id=None, user_nam
             f"💰 <b>Thưởng nhận OTP:</b> +<code>${reward:.3f}</code>\n"
         )
         if full_msg:
-            text += f"💬 <b>Nội dung:</b> <i>{full_msg[:100]}</i>\n"
+            safe_full_msg = html.escape(full_msg)
+            text += f"💬 <b>Nội dung:</b> <i>{safe_full_msg[:100]}</i>\n"
         text += "\n⏳ <b>Trạng thái:</b> <i>Đã nhận OTP thành công, cộng tiền vào ví và số này đã tự động xóa vĩnh viễn khỏi hệ thống!</i>"
 
         markup = InlineKeyboardMarkup()
