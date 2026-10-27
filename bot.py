@@ -33,7 +33,7 @@ def home():
     return "Bot IVASMS OTP Global Webhook Server đang chạy 24/7 trên Render!"
 
 # ==========================================
-# 🚀 3. ENDPOINT NHẬN SMS: BẮT TRỌN 100% MỌI OTP & ĐẨY LÊN GROUP
+# 🚀 3. ENDPOINT NHẬN SMS: CHUẨN FORM MẪU & BẮT TRỌN MỌI OTP
 # ==========================================
 @app.route('/api/push-sms', methods=['POST'])
 def api_push_sms_handler():
@@ -45,7 +45,9 @@ def api_push_sms_handler():
             return {"status": "error", "message": "Unauthorized API Key"}, 403
 
         raw_text = data.get("raw_text", "")
-        
+        service_name = data.get("service", "WhatsApp") # Nhận tên service từ bridge nếu có
+        country_name = data.get("country", "Global") # Nhận tên quốc gia từ bridge nếu có
+
         # Lọc bỏ các thông báo rác hệ thống web thuần túy
         useless_phrases = [
             "No SMS found", "Range Count", "Client System", "Client Active SMS", 
@@ -53,23 +55,22 @@ def api_push_sms_handler():
             "Dashboard", "Sender Message Time Revenue", "TRUSTED PREMIUM SMS",
             "Account Login Email address Password Remember me Forgot"
         ]
-        if not raw_text or (any(phrase in raw_text for phrase in useless_phrases) and len(raw_text) < 120):
+        if not raw_text or (any(phrase in raw_text for phrase in useless_phrases) and len(raw_text) < 50):
             return {"status": "ignored", "message": "Ignored useless text"}, 200
 
         # Trích xuất mã OTP (4-6 chữ số)
         otps = re.findall(r'\b\d{4,6}\b', raw_text)
         valid_otps = [o for o in otps if not o.startswith('2026') and len(o) >= 4]
         
-        # Bộ từ khóa nhận diện OTP đa ngôn ngữ (Anh, Việt, Nga,...)
         auth_keywords = ["otp", "code", "ma", "xac thuc", "verify", "whatsapp", "telegram", "google", "facebook", "twitter", "confirm", "код", "кодом", "<#>"]
         has_keyword = any(kw in raw_text.lower() for kw in auth_keywords)
         
-        if not valid_otps and not has_keyword:
+        if not valid_otps and not has_keyword and len(raw_text) < 10:
             return {"status": "ignored", "message": "No valid OTP found, skipped"}, 200
 
-        otp_display = valid_otps[0] if valid_otps else "Xem chi tiết bên dưới"
+        otp_display = valid_otps[0] if valid_otps else "Xem chi tiết"
 
-        # Trích xuất và che số điện thoại (Chuẩn: +8433****08)
+        # Trích xuất và che số điện thoại
         phones = re.findall(r'\+?\d{8,15}', raw_text)
         masked_phone = "Không rõ"
         if phones:
@@ -85,20 +86,23 @@ def api_push_sms_handler():
 
         safe_raw_text = html.escape(raw_text)
 
+        # Trình bày tin nhắn chuẩn form y hệt ảnh mẫu số 2 của ní[cite: 7]
         group_msg = (
-            "⚡️ <b>BẮT ĐƯỢC MÃ XÁC THỰC (REAL-TIME)</b> ⚡️\n"
-            "-----------------------------------\n"
+            "👍 <b>Stock Updated!</b>\n\n"
+            f"🌐 <b>Country:</b> {country_name}\n"
+            f"📱 <b>Service:</b> {service_name}\n\n"
             f"📞 <b>Số điện thoại:</b> <code>{masked_phone}</code>\n"
             f"🔑 <b>Mã OTP:</b> <code>{otp_display}</code>\n\n"
-            f"💬 <b>Nội dung SMS:</b>\n<i>{safe_raw_text[:600]}</i>"
+            f"💬 <b>Nội dung SMS:</b>\n<i>{safe_raw_text[:500]}</i>"
         )
         
         markup = InlineKeyboardMarkup()
         if valid_otps:
             markup.add(InlineKeyboardButton(f"📋 COPY MÃ OTP • {otp_display}", callback_data=f"copy_{otp_display}"))
+        markup.add(InlineKeyboardButton(f"🚀 {country_name} {service_name} ↗", url=GROUP_OTP_LINK))
         
         bot.send_message(GROUP_CHAT_ID, group_msg, parse_mode="HTML", reply_markup=markup)
-        print("✅ [Webhook Success] Đã bắn tin nhắn OTP sạch đẹp lên Group thành công!")
+        print("✅ [Webhook Success] Đã bắn tin nhắn OTP chuẩn mẫu lên Group thành công!")
         
         return {"status": "success", "message": "SMS handled successfully"}, 200
     except Exception as e:
@@ -368,10 +372,7 @@ GLOBAL_COUNTRY_PREFIXES = {
     "248": ("🇸🇨 Seychelles (+248)", "SC"), "269": ("🇰🇲 Comoros (+269)", "KM"),
     "268": ("🇸🇿 Eswatini (+268)", "SZ"), "266": ("🇱🇸 Lesotho (+266)", "LS"),
     "267": ("🇧🇼 Botswana (+267)", "BW"), "264": ("🇳🇦 Namibia (+264)", "NA"),
-    "265": ("🇲🇼 Malawi (+265)", "MW"), "239": ("🇸🇹 São Tomé & Príncipe (+239)", "ST"),
-    "240": ("🇬🇶 Guinea Xích Đạo (+240)", "GQ"), "236": ("🇨🇫 CH Trung Phi (+236)", "CF"),
-    "222": ("🇲🇷 Mauritania (+222)", "MR"), "211": ("🇸🇸 Nam Sudan (+211)", "SS"),
-    "290": ("🇸🇭 Saint Helena (+290)", "SH"),
+    "265": ("🇲🇼 Malawi (+265)", "MW"),
 }
 
 def get_country_info(phone):
@@ -463,7 +464,7 @@ def get_available_countries():
     return valid_countries
 
 # ==========================================
-# 🤖 7. BOT HANDLERS & GIAO DIỆN MÀU SẮC (EMOJI)
+# 🤖 7. BOT HANDLERS & GIAO DIỆN NÚT NGANG (Y HỆT ẢNH MẪU 2)[cite: 7]
 # ==========================================
 @bot.message_handler(commands=['start'])
 def cmd_start(message):
@@ -484,16 +485,18 @@ def cmd_start(message):
         "💰 Kiếm <b>0.009$</b> thưởng tự động khi nhận mã OTP thành công!"
     )
     
-    markup = InlineKeyboardMarkup(row_width=1)
+    # Sắp xếp thành 2 cột (ngang) hệt như mẫu ảnh 2[cite: 7]
+    markup = InlineKeyboardMarkup(row_width=2)
     markup.add(
-        InlineKeyboardButton("🟢 📲 BẮT ĐẦU LẤY SỐ", callback_data="open_countries"),
-        InlineKeyboardButton("🟢 💰 SỐ DƯ / VÍ CÁ NHÂN", callback_data="my_wallet"),
-        InlineKeyboardButton("🟡 👥 GIỚI THIỆU BẠN BÈ", callback_data="refer_earn"),
-        InlineKeyboardButton("🔵 📊 THỐNG KÊ HOẠT ĐỘNG", callback_data="my_stats"),
-        InlineKeyboardButton("🌐 💬 KÊNH HỖ TRỢ CHÍNH THỨC", url=GROUP_OTP_LINK)
+        InlineKeyboardButton("🟢 📲 Bắt đầu Lấy Số", callback_data="open_countries"),
+        InlineKeyboardButton("🟢 💰 Số dư / Ví", callback_data="my_wallet"),
+        InlineKeyboardButton("🟡 👥 Giới thiệu", callback_data="refer_earn"),
+        InlineKeyboardButton("🔵 📊 Thống kê", callback_data="my_stats"),
+        InlineKeyboardButton("🌐 💬 Hỗ trợ", url=GROUP_OTP_LINK),
+        InlineKeyboardButton("🔵 🏆 Top Users", callback_data="top_users_board")
     )
     if uid == ADMIN_ID:
-        markup.add(InlineKeyboardButton("🔴 👑 BẢNG ĐIỀU KHIỂN ADMIN TỐI CAO", callback_data="admin_panel"))
+        markup.add(InlineKeyboardButton("🔴 👑 Bảng Điều Khiển Admin Tối Cao", callback_data="admin_panel"))
         
     bot.send_message(uid, text, parse_mode="HTML", reply_markup=markup)
 
@@ -519,7 +522,7 @@ def handle_callbacks(call):
             markup = InlineKeyboardMarkup(row_width=1)
             for code, label in countries.items():
                 markup.add(InlineKeyboardButton(f"🌍 {label}", callback_data=f"country_{code}_0"))
-            markup.add(InlineKeyboardButton("🔙 QUAY LẠI MENU CHÍNH", callback_data="back_home"))
+            markup.add(InlineKeyboardButton("🔙 Quay lại Menu Chính", callback_data="back_home"))
             bot.edit_message_text("🌍 <b>CHỌN QUỐC GIA CẦN LẤY SỐ:</b>", chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
 
         elif data.startswith("country_"):
@@ -535,17 +538,17 @@ def handle_callbacks(call):
             markup = InlineKeyboardMarkup(row_width=1)
             for num in numbers:
                 masked = mask_phone_number(num)
-                markup.add(InlineKeyboardButton(f"📞 LẤY SỐ: {masked}", callback_data=f"getnum_{code}_{page}_{num}"))
+                markup.add(InlineKeyboardButton(f"📞 Lấy số: {masked}", callback_data=f"getnum_{code}_{page}_{num}"))
                 
             nav_buttons = []
             if page > 0:
-                nav_buttons.append(InlineKeyboardButton("⬅️ TRANG TRƯỚC", callback_data=f"country_{code}_{page-1}"))
+                nav_buttons.append(InlineKeyboardButton("⬅️ Trước", callback_data=f"country_{code}_{page-1}"))
             if (page + 1) * 6 < total:
-                nav_buttons.append(InlineKeyboardButton("TRANG SAU ➡️", callback_data=f"country_{code}_{page+1}"))
+                nav_buttons.append(InlineKeyboardButton("Sau ➡️", callback_data=f"country_{code}_{page+1}"))
             if nav_buttons:
                 markup.row(*nav_buttons)
                 
-            markup.add(InlineKeyboardButton("🔄 CHỌN QUỐC GIA KHÁC", callback_data="open_countries"))
+            markup.add(InlineKeyboardButton("🔄 Chọn Quốc Gia Khác", callback_data="open_countries"))
             bot.edit_message_text(f"📋 <b>Danh sách số sẵn sàng ({code}):</b>", chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
 
         elif data.startswith("getnum_"):
@@ -581,10 +584,10 @@ def handle_callbacks(call):
                 "💬 <b>Trạng thái:</b> Đang chờ mã OTP...\n"
                 f"⏳ <i>Số này còn lại khoảng {int(remaining_time/60)} phút.</i>"
             )
-            markup = InlineKeyboardMarkup(row_width=1)
+            markup = InlineKeyboardMarkup(row_width=2)
             markup.add(
-                InlineKeyboardButton("🔄 ĐỔI SỐ MỚI", callback_data=f"nextnum_{code}_{phone}"),
-                InlineKeyboardButton("❌ HỦY SỐ & VỀ MENU", callback_data=f"cancelnum_{phone}")
+                InlineKeyboardButton("🔄 Đổi số mới", callback_data=f"nextnum_{code}_{phone}"),
+                InlineKeyboardButton("❌ Hủy số", callback_data=f"cancelnum_{phone}")
             )
             bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
 
@@ -618,10 +621,10 @@ def handle_callbacks(call):
                 f"📞 <b>Số mới:</b> <code>{new_phone}</code>\n"
                 "💬 <b>Trạng thái:</b> Đang chờ mã OTP..."
             )
-            markup = InlineKeyboardMarkup(row_width=1)
+            markup = InlineKeyboardMarkup(row_width=2)
             markup.add(
-                InlineKeyboardButton("🔄 ĐỔI SỐ MỚI", callback_data=f"nextnum_{code}_{new_phone}"),
-                InlineKeyboardButton("❌ HỦY SỐ & VỀ MENU", callback_data=f"cancelnum_{new_phone}")
+                InlineKeyboardButton("🔄 Đổi số mới", callback_data=f"nextnum_{code}_{new_phone}"),
+                InlineKeyboardButton("❌ Hủy số", callback_data=f"cancelnum_{new_phone}")
             )
             bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
 
@@ -631,10 +634,10 @@ def handle_callbacks(call):
             bot.answer_callback_query(call.id, "Đã hủy số thành công.", show_alert=False)
             
             text = "👋 Bạn đã hủy số thành công. Chào mừng quay lại menu chính!"
-            markup = InlineKeyboardMarkup(row_width=1)
+            markup = InlineKeyboardMarkup(row_width=2)
             markup.add(
-                InlineKeyboardButton("🟢 📲 BẮT ĐẦU LẤY SỐ", callback_data="open_countries"),
-                InlineKeyboardButton("🟢 💰 SỐ DƯ / VÍ CÁ NHÂN", callback_data="my_wallet")
+                InlineKeyboardButton("🟢 📲 Bắt đầu Lấy Số", callback_data="open_countries"),
+                InlineKeyboardButton("🟢 💰 Số dư / Ví", callback_data="my_wallet")
             )
             bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
 
@@ -656,11 +659,11 @@ def handle_callbacks(call):
                 f"💵 <b>Số dư:</b> <code>${balance:.4f}</code>\n"
                 f"📉 <b>Rút tối thiểu:</b> <code>${min_w:.1f}</code>\n"
             )
-            markup = InlineKeyboardMarkup(row_width=1)
+            markup = InlineKeyboardMarkup(row_width=2)
             markup.add(
-                InlineKeyboardButton("🟢 💸 YÊU CẦU RÚT TIỀN (USDT TON)", callback_data="request_withdraw"),
-                InlineKeyboardButton("🔵 📜 XEM LỊCH SỬ RÚT", callback_data="withdraw_history"),
-                InlineKeyboardButton("🔙 QUAY LẠI MENU CHÍNH", callback_data="back_home")
+                InlineKeyboardButton("💸 Rút tiền (USDT TON)", callback_data="request_withdraw"),
+                InlineKeyboardButton("📜 Lịch sử rút", callback_data="withdraw_history"),
+                InlineKeyboardButton("🔙 Quay lại Menu", callback_data="back_home")
             )
             bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
 
@@ -675,7 +678,7 @@ def handle_callbacks(call):
             else:
                 USER_WITHDRAW_STATE[uid] = True
                 markup = InlineKeyboardMarkup()
-                markup.add(InlineKeyboardButton("❌ HỦY BỎ", callback_data="cancel_withdraw"))
+                markup.add(InlineKeyboardButton("❌ Hủy bỏ", callback_data="cancel_withdraw"))
                 bot.edit_message_text(
                     "📥 <b>RÚT TIỀN TỰ ĐỘNG (0% PHÍ)</b>\n\n"
                     "Vui lòng gửi địa chỉ ví <b>USDT mạng TON</b> của bạn vào ô chat:\n"
@@ -731,14 +734,14 @@ def handle_callbacks(call):
                     f"📤 Ví TON: <code>{wallet_addr}</code>"
                 )
                 markup_admin = InlineKeyboardMarkup()
-                markup_admin.add(InlineKeyboardButton("💸 DUYỆT LỆNH", callback_data="admin_view_withdraws"))
+                markup_admin.add(InlineKeyboardButton("💸 Duyệt lệnh", callback_data="admin_view_withdraws"))
                 try:
                     bot.send_message(ADMIN_ID, admin_text, parse_mode="HTML", reply_markup=markup_admin)
                 except Exception:
                     pass
                     
                 markup = InlineKeyboardMarkup()
-                markup.add(InlineKeyboardButton("📜 XEM LỊCH SỬ", callback_data="withdraw_history"))
+                markup.add(InlineKeyboardButton("📜 Xem lịch sử", callback_data="withdraw_history"))
                 bot.edit_message_text("✅ <b>Đã gửi yêu cầu rút tiền thành công cho Admin duyệt!</b>", chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
 
         elif data == "withdraw_history":
@@ -751,7 +754,7 @@ def handle_callbacks(call):
                 for idx, item in enumerate(user_histories[::-1], 1):
                     text += f"#{idx}. <b>${item.get('amount'):.4f}</b> — {item.get('status')}\n"
             markup = InlineKeyboardMarkup()
-            markup.add(InlineKeyboardButton("🔙 QUAY LẠI VÍ", callback_data="my_wallet"))
+            markup.add(InlineKeyboardButton("🔙 Quay lại Ví", callback_data="my_wallet"))
             bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
 
         elif data == "refer_earn":
@@ -764,7 +767,7 @@ def handle_callbacks(call):
                 f"📊 Đã mời: <b>{user_info.get('referrals', 0)}</b> người"
             )
             markup = InlineKeyboardMarkup()
-            markup.add(InlineKeyboardButton("🔙 QUAY LẠI", callback_data="back_home"))
+            markup.add(InlineKeyboardButton("🔙 Quay lại", callback_data="back_home"))
             bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
 
         elif data == "my_stats":
@@ -772,50 +775,64 @@ def handle_callbacks(call):
             my_count = stats.get(str(uid), {}).get("count", 0)
             text = f"📊 <b>Thống kê cá nhân:</b>\n🔑 Tổng OTP nhận thành công: <b>{my_count}</b> mã"
             markup = InlineKeyboardMarkup()
-            markup.add(InlineKeyboardButton("🔙 QUAY LẠI", callback_data="back_home"))
+            markup.add(InlineKeyboardButton("🔙 Quay lại", callback_data="back_home"))
+            bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
+
+        elif data == "top_users_board":
+            users_db = load_json_db(USERS_FILE)
+            text = "🏆 <b>BẢNG XẾP HẠNG TOP USERS (KIẾM OTP):</b>\n\n"
+            if not users_db:
+                text += "<i>Chưa có dữ liệu.</i>"
+            else:
+                sorted_users = sorted(users_db.values(), key=lambda x: x.get('balance', 0.0), reverse=True)
+                for idx, u_info in enumerate(sorted_users[:10], 1):
+                    text += f"<b>#{idx}</b> | 👤 {u_info.get('name')} — <code>${u_info.get('balance', 0.0):.4f}</code>\n"
+            markup = InlineKeyboardMarkup()
+            markup.add(InlineKeyboardButton("🔙 Quay lại", callback_data="back_home"))
             bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
 
         elif data == "back_home":
             USER_WITHDRAW_STATE.pop(uid, None)
             USER_PENDING_WALLET.pop(uid, None)
             text = "👋 Chào mừng bạn quay lại menu chính!"
-            markup = InlineKeyboardMarkup(row_width=1)
+            markup = InlineKeyboardMarkup(row_width=2)
             markup.add(
-                InlineKeyboardButton("🟢 📲 BẮT ĐẦU LẤY SỐ", callback_data="open_countries"),
-                InlineKeyboardButton("🟢 💰 SỐ DƯ / VÍ CÁ NHÂN", callback_data="my_wallet"),
-                InlineKeyboardButton("🟡 👥 GIỚI THIỆU BẠN BÈ", callback_data="refer_earn"),
-                InlineKeyboardButton("🔵 📊 THỐNG KÊ HOẠT ĐỘNG", callback_data="my_stats"),
-                InlineKeyboardButton("🌐 💬 KÊNH HỖ TRỢ CHÍNH THỨC", url=GROUP_OTP_LINK)
+                InlineKeyboardButton("🟢 📲 Bắt đầu Lấy Số", callback_data="open_countries"),
+                InlineKeyboardButton("🟢 💰 Số dư / Ví", callback_data="my_wallet"),
+                InlineKeyboardButton("🟡 👥 Giới thiệu", callback_data="refer_earn"),
+                InlineKeyboardButton("🔵 📊 Thống kê", callback_data="my_stats"),
+                InlineKeyboardButton("🌐 💬 Hỗ trợ", url=GROUP_OTP_LINK),
+                InlineKeyboardButton("🔵 🏆 Top Users", callback_data="top_users_board")
             )
             if uid == ADMIN_ID:
-                markup.add(InlineKeyboardButton("🔴 👑 BẢNG ĐIỀU KHIỂN ADMIN TỐI CAO", callback_data="admin_panel"))
+                markup.add(InlineKeyboardButton("🔴 👑 Bảng Điều Khiển Admin Tối Cao", callback_data="admin_panel"))
             bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
 
         # ==========================================
-        # 👑 ADMIN PANEL & CÁC TÍNH NĂNG QUẢN LÝ ĐẦY ĐỦ
+        # 👑 ADMIN PANEL QUẢN LÝ
         # ==========================================
         elif data == "admin_panel" and uid == ADMIN_ID:
             users = load_json_db(USERS_FILE)
             text = (
                 "👑 <b>BẢNG ĐIỀU KHIỂN ADMIN TỐI CAO</b>\n"
                 "-----------------------------------\n"
-                f"👥 Tổng số user đăng ký: <b>{len(users)}</b>\n"
-                f"📊 Tổng số stock hiện có: <b>{sum(len(d['numbers']) for d in COUNTRY_CACHE.values())}</b>"
+                f"👥 Tổng user đăng ký: <b>{len(users)}</b>\n"
+                f"📊 Tổng stock hiện có: <b>{sum(len(d['numbers']) for d in COUNTRY_CACHE.values())}</b>"
             )
             markup = InlineKeyboardMarkup(row_width=1)
             markup.add(
-                InlineKeyboardButton("💸 DUYỆT LỆNH RÚT TIỀN", callback_data="admin_view_withdraws"),
-                InlineKeyboardButton("👥 XEM DANH SÁCH USER ĐĂNG KÝ", callback_data="admin_view_users"),
-                InlineKeyboardButton("🏆 TOP SỐ DƯ USER (CHỐNG GIAN LẬN)", callback_data="admin_top_balances"),
-                InlineKeyboardButton("🔄 SYNC BATCH SỐ MỚI", callback_data="admin_reload"),
-                InlineKeyboardButton("🛡 QUẢN LÝ SPAM & BAN", callback_data="admin_users"),
-                InlineKeyboardButton("🔙 VỀ MENU CHÍNH", callback_data="back_home")
+                InlineKeyboardButton("💸 Duyệt lệnh rút tiền", callback_data="admin_view_withdraws"),
+                InlineKeyboardButton("👥 Xem danh sách user đăng ký", callback_data="admin_view_users"),
+                InlineKeyboardButton("🏆 Top số dư user (Chống gian lận)", callback_data="admin_top_balances"),
+                InlineKeyboardButton("🔄 Sync batch số mới", callback_data="admin_reload"),
+                InlineKeyboardButton("🛡 Quản lý Spam & Ban", callback_data="admin_users"),
+                InlineKeyboardButton("🔙 Về Menu chính", callback_data="back_home")
             )
             bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
 
         elif data == "admin_view_users" and uid == ADMIN_ID:
             users_db = load_json_db(USERS_FILE)
-            text = "👥 <b>DANH SÁCH NGƯỜI DÙNG ĐĂNG KÝ (10 User mới nhất):</b>\n\n"
+            text = "👥 <b>DANH SÁCH USER ĐĂNG KÝ (10 User mới nhất):</b>\n\n"
             if not users_db:
                 text += "<i>Chưa có người dùng nào.</i>"
             else:
@@ -828,7 +845,7 @@ def handle_callbacks(call):
                         "-----------------------------------\n"
                     )
             markup = InlineKeyboardMarkup()
-            markup.add(InlineKeyboardButton("🔙 QUAY LẠI ADMIN PANEL", callback_data="admin_panel"))
+            markup.add(InlineKeyboardButton("🔙 Quay lại Admin Panel", callback_data="admin_panel"))
             bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
 
         elif data == "admin_top_balances" and uid == ADMIN_ID:
@@ -845,7 +862,7 @@ def handle_callbacks(call):
                         "-----------------------------------\n"
                     )
             markup = InlineKeyboardMarkup()
-            markup.add(InlineKeyboardButton("🔙 QUAY LẠI ADMIN PANEL", callback_data="admin_panel"))
+            markup.add(InlineKeyboardButton("🔙 Quay lại Admin Panel", callback_data="admin_panel"))
             bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
 
         elif data == "admin_view_withdraws" and uid == ADMIN_ID:
