@@ -33,7 +33,7 @@ def home():
     return "Bot IVASMS OTP Global Webhook Server đang chạy 24/7 trên Render!"
 
 # ==========================================
-# 🚀 3. ENDPOINT NHẬN SMS: FIX TRIỆT ĐỂ LỖI ĐỌC NHẦM OTP & SỐ ĐIỆN THOẠI
+# 🚀 3. ENDPOINT NHẬN SMS: TỐI ƯU GỌN GÀNG, ẨN SẠCH RÁC
 # ==========================================
 @app.route('/api/push-sms', methods=['POST'])
 def api_push_sms_handler():
@@ -58,30 +58,25 @@ def api_push_sms_handler():
         if not raw_text or (any(phrase in raw_text for phrase in useless_phrases) and len(raw_text) < 50):
             return {"status": "ignored", "message": "Ignored useless text"}, 200
 
-        # Lọc thông minh: Chỉ tìm mã OTP nằm sau các từ khóa như "Код", "code", "ma", hoặc định dạng chuẩn <#>
+        # Lọc thông minh: Chỉ tìm mã OTP chuẩn xác, loại bỏ tiền tệ / năm / giờ
         otp_display = "Không tìm thấy"
-        
-        # Thử tìm theo định dạng đặc biệt kiểu Telegram/WhatsApp (<#> Код: 693-423 hoặc code: 123456)
         match_pattern = re.search(r'(?:код|code|ma|otp)[:\s\-]*([0-9]{4,6})', raw_text, re.IGNORECASE)
         if match_pattern:
             otp_display = match_pattern.group(1)
         else:
-            # Tìm tất cả các số có 4 đến 6 chữ số nhưng loại bỏ các số tiền/năm/giờ rác
             all_nums = re.findall(r'\b\d{4,6}\b', raw_text)
             valid_nums = []
             for n in all_nums:
-                # Bỏ qua nếu là năm 202x hoặc định dạng tiền tệ kiểu .0120
                 if n.startswith('2026') or n.startswith('2025'):
                     continue
-                # Kiểm tra xem số này có nằm sát dấu chấm của tiền tệ không
                 if f"${n}" in raw_text or f".{n}" in raw_text:
                     continue
                 valid_nums.append(n)
             
             if valid_nums:
-                otp_display = valid_nums[-1] # Thường mã OTP nằm ở cuối hoặc gần cuối tin nhắn
+                otp_display = valid_nums[-1]
 
-        # Trích xuất số điện thoại chính xác từ nội dung SMS hoặc data truyền vào
+        # Trích xuất số điện thoại chính xác
         phones = re.findall(r'\+?\d{8,15}', raw_text)
         masked_phone = data.get("phone", "")
         if not masked_phone and phones:
@@ -93,27 +88,24 @@ def api_push_sms_handler():
             else:
                 masked_phone = p
         if not masked_phone:
-            masked_phone = "+8433****08" # Fallback hiển thị mẫu nếu không bắt được
+            masked_phone = "+8433****08"
 
         print(f"✨ [Render Webhook] Bắt được OTP: {otp_display} | SĐT: {masked_phone}")
 
-        safe_raw_text = html.escape(raw_text)
-
-        # Định dạng chuẩn y hệt ảnh mẫu số 3 của ní
+        # Form tin nhắn siêu gọn gàng, ẩn sạch các dòng rác hệ thống thừa thãi
         group_msg = (
             "👍 <b>Stock Updated!</b>\n\n"
             f"🌐 <b>Country:</b> {country_name}\n"
             f"📱 <b>Service:</b> {service_name}\n\n"
             f"📞 <b>Số điện thoại:</b> <code>{masked_phone}</code>\n"
-            f"🔑 <b>Mã OTP:</b> <code>{otp_display}</code>\n\n"
-            f"💬 <b>Nội dung SMS:</b>\n<i>{safe_raw_text[:500]}</i>"
+            f"🔑 <b>Mã OTP:</b> <code>{otp_display}</code>"
         )
         
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton(f"🚀 {country_name} {service_name} ↗", url=GROUP_OTP_LINK))
         
         bot.send_message(GROUP_CHAT_ID, group_msg, parse_mode="HTML", reply_markup=markup)
-        print("✅ [Webhook Success] Đã bắn tin nhắn OTP chuẩn mẫu lên Group thành công!")
+        print("✅ [Webhook Success] Đã bắn tin nhắn OTP chuẩn mẫu gọn gàng lên Group thành công!")
         
         return {"status": "success", "message": "SMS handled successfully"}, 200
     except Exception as e:
@@ -496,7 +488,6 @@ def cmd_start(message):
         "💰 Kiếm <b>0.009$</b> thưởng tự động khi nhận mã OTP thành công!"
     )
     
-    # Sắp xếp đúng 2 cột ngang hệt như yêu cầu ở ảnh mẫu[cite: 8]
     markup = InlineKeyboardMarkup(row_width=2)
     markup.add(
         InlineKeyboardButton("🟢 📲 Get Number", callback_data="open_countries"),
