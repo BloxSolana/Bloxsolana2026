@@ -33,7 +33,7 @@ def home():
     return "Bot IVASMS OTP Global & WebSocket Real-time đang chạy 24/7 trên Render!"
 
 # ==========================================
-# 🚀 3. ENDPOINT NHẬN SMS TỪ BRIDGE.PY (ĐÃ TỐI ƯU BÓC TÁCH OTP SẠCH SẼ)
+# 🚀 3. ENDPOINT NHẬN SMS TỪ BRIDGE.PY (ĐÃ FIX LỖI HTTP 500)
 # ==========================================
 @app.route('/api/push-sms', methods=['POST'])
 def api_push_sms_handler():
@@ -46,37 +46,27 @@ def api_push_sms_handler():
             return {"status": "error", "message": "Unauthorized API Key"}, 403
 
         raw_text = data.get("raw_text", "")
-        numbers = data.get("numbers", [])
         
-        # Nếu có nội dung tin nhắn quét được từ bridge.py
-        if raw_text and len(raw_text.strip()) > 20:
-            # Bỏ qua các chuỗi rác menu hệ thống
-            menu_keywords = ["Client System", "Client Active SMS", "My Numbers", "My SMS Statistics", "Test System", "Invoices system", "Dashboard"]
-            if any(kw in raw_text for kw in menu_keywords) and "OTP" not in raw_text and "WhatsApp" not in raw_text and "Telegram" not in raw_text:
-                return {"status": "ignored", "message": "Ignored menu layout text"}, 200
+        # Nếu là dữ liệu trống hoặc trang báo No SMS thì bỏ qua không quăng rác lên group
+        if not raw_text or ("No SMS found" in raw_text and len(raw_text) < 50):
+            return {"status": "ignored", "message": "Empty text"}, 200
 
-            print(f"✨ [Bridge Webhook] Nhận được dữ liệu SMS mới từ bridge.py! Đang xử lý...")
-            
-            # 1. Gọi hàm bóc tách OTP thông minh của hệ thống
-            process_incoming_sms_content(raw_text)
-            
-            # 2. Trích xuất mã OTP (4-6 chữ số) để gửi thông báo đẹp mắt lên Group
-            otps = re.findall(r'\b\d{4,6}\b', raw_text)
-            valid_otps = [o for o in otps if not o.startswith('2026') and len(o) >= 4]
-            otp_display = valid_otps[0] if valid_otps else "Xem chi tiết bên dưới"
+        print(f"✨ [Render Webhook] Đã nhận dữ liệu SMS thực tế từ bridge! Đang đẩy lên group...")
 
-            group_msg = (
-                "⚡️ <b>BẮT ĐƯỢC MÃ XÁC THỰC (REAL-TIME)</b> ⚡️\n"
-                "-----------------------------------\n"
-                f"🔑 <b>Mã OTP:</b> <code>{otp_display}</code>\n\n"
-                f"💬 <b>Nội dung chi tiết:</b>\n<i>{raw_text[:1500]}</i>"
-            )
-            bot.send_message(GROUP_CHAT_ID, group_msg, parse_mode="HTML")
-            print("✅ [Webhook Success] Đã bóc tách và quăng OTP lên Group Telegram thành công!")
-            
+        # Format tin nhắn gửi vào group Telegram cực kỳ rõ ràng, bắt mắt
+        group_msg = (
+            "⚡️ <b>BẮT ĐƯỢC MÃ XÁC THỰC (REAL-TIME)</b> ⚡️\n"
+            "-----------------------------------\n"
+            f"💬 <b>Nội dung chi tiết:</b>\n<i>{raw_text[:1500]}</i>"
+        )
+        
+        # Gửi thẳng lên group Telegram
+        bot.send_message(GROUP_CHAT_ID, group_msg, parse_mode="HTML")
+        print("✅ [Webhook Success] Đã bắn tin nhắn lên Group thành công!")
+        
         return {"status": "success", "message": "SMS handled successfully"}, 200
     except Exception as e:
-        print(f"❌ [Webhook Error]: {e}")
+        print(f"❌ [Webhook Error Exception]: {e}")
         return {"status": "error", "message": str(e)}, 500
 
 def run_web():
@@ -652,78 +642,6 @@ def process_incoming_sms_content(text_content):
                                 send_auto_otp(target_cid, phone, otp, text_content, user_id=target_cid, user_name=user_info.get("name"), msg_id=target_msg_id)
     except Exception as e:
         print(f"Lỗi process_incoming_sms_content: {e}")
-
-def fetch_and_parse_otps():
-    clean_expired_sessions()
-    today_str = datetime.datetime.now().strftime('%Y-%m-%d')
-    yesterday_str = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
-    
-    urls = [
-        ("https://ivasms.com/portal/sms_received", {'start_date': yesterday_str, 'end_date': today_str}),
-        ("https://ivasms.com/portal/live", None)
-    ]
-    
-    for url, post_data in urls:
-        try:
-            if post_data:
-                resp = session.post(url, data=post_data, headers=headers, timeout=10)
-                if resp.status_code != 200 or len(resp.text) < 300:
-                    resp = session.get(url, headers=headers, timeout=10)
-            else:
-                resp = session.get(url, headers=headers, timeout=10)
-                
-            if resp.status_code == 200:
-                soup = BeautifulSoup(resp.text, 'html.parser')
-                for element in soup.find_all(['tr', 'div', 'td']):
-                    text_content = element.get_text(separator=" ", strip=True)
-                    process_incoming_sms_content(text_content)
-        except Exception as e:
-            print(f"Lỗi quét SMS từ {url}: {e}")
-
-def background_sms_scanner():
-    while True:
-        try:
-            fetch_and_parse_otps()
-        except Exception as e:
-            print(f"Lỗi background scanner: {e}")
-        time.sleep(3)
-
-def ivas_websocket_listener():
-    while True:
-        try:
-            settings = load_settings()
-            ws_url = settings.get("ivas_ws_url", "").strip()
-            if not ws_url:
-                time.sleep(5)
-                continue
-                
-            def on_message(ws, message):
-                try:
-                    print(f"[WSS Real-time Received]: {message}")
-                    process_incoming_sms_content(str(message))
-                except Exception as e:
-                    print(f"Lỗi xử lý message từ WebSocket: {e}")
-
-            def on_error(ws, error):
-                print(f"Lỗi kết nối WebSocket: {error}")
-
-            def on_close(ws, close_status_code, close_msg):
-                print("Kết nối WebSocket đã đóng, đang thử kết nối lại sau 5 giây...")
-
-            def on_open(ws):
-                print("✅ Đã kết nối thành công tới WebSocket iVASMS real-time!")
-
-            ws = websocket.WebSocketApp(
-                ws_url,
-                on_open=on_open,
-                on_message=on_message,
-                on_error=on_error,
-                on_close=on_close
-            )
-            ws.run_forever(ping_interval=30, ping_timeout=10)
-        except Exception as e:
-            print(f"Ngoại lệ luồng WebSocket: {e}")
-        time.sleep(5)
 
 @bot.message_handler(commands=['adminhelp'])
 def cmd_admin_help(message):
@@ -1632,16 +1550,10 @@ def handle_text_inputs(message):
         bot.send_message(uid, confirm_text, parse_mode="HTML", reply_markup=markup)
 
 if __name__ == "__main__":
-    t_scanner = threading.Thread(target=background_sms_scanner, daemon=True)
-    t_scanner.start()
-    
-    t_wss = threading.Thread(target=ivas_websocket_listener, daemon=True)
-    t_wss.start()
-    
     t_web = threading.Thread(target=run_web, daemon=True)
     t_web.start()
     
-    print("🤖 Bot Telegram IVASMS + WebSocket Real-time + Auto-Sync Web đang chạy mượt mà...")
+    print("🤖 Bot Telegram Render Webhook Server đang chạy mượt mà...")
     
     while True:
         try:
