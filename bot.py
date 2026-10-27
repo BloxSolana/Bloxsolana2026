@@ -151,7 +151,7 @@ DELETED_NUMBERS = load_deleted_numbers()
 # ==========================================
 WS_URL = "wss://www.ivasms.com/live/socket.io/?token=eyJpdiI6IjgxMm9Vc3pqeW53aGhkVWxTUHVWMEE9PSIsInZhbHVlIjoiRzZmdE9TbjVGdGI0RXhxblFsT3h1bUJaUFhvUEphVzVWNThTc2s5S0Q5STV2YkJTOVBWbGFoK0dva1JJYlpveStCSkVvNU1pVSttdTI5OW5FT01mYUYreDVxMG5vSjRhL3doVTFBZll2bWEvWXgwVTNBeGRzbXRId2lSS1NKWVpOdFlsaW51NTdFYUUreUZsaU04OE44NERZY3VVT1pJOHlkVXpncC9qREUxVVBuZTVBTTVBSnRtNFFUUEdOK3RHczBNeXAvTWJzOG9jbkc0LzJkaEpQSnBxcnI4U2hWTnRxRkZGQXZZYVBQNEo0YXB1c0ZCeENRQ1BvZG1nK2wrbSIsIm1hYyI6ImExOGVkNDJmZTI3Zjg1NTcyNDY0Y2I1YzJlYjgxNGE5MDIxNDdhZDc4NzViOTBkOGUwNjU4OTIwMmIwYWMwZGIiLCJ0YWciOiIifQ%3D%3D&user=7f92a59de907c2a8fd06861aaee10264&EIO=4&transport=websocket"
 
-WS_COOKIE = "_fbp=fb.1.1792735593444.939033684972879674; cf_chl_rc_ni=35; cf_clearance=34rE2Kt4W441HdwTASHuYyR5MIveWB55RLCu_Ac0Sgk-1793021387-1.2.1.1-Hd..mVXDEB339Tta1CAAr9jyKWsXEswSv7BvFcBGgtbvG8W48QVVNmLLv5Jo_NMw9TmcQU2Vnw.cltemAC5y.IKuojp4nx6ssclEsEbMHHCrREA7hTnVTRswV.xxmpCx34EcqKDgddHpYUQoGTNP1JPFvzKnxT04.D94mCS6QX7FkYA3c7zZ0jWV9G5R4joZ_lDNZaE_eS6ujVE3cDHco61mwZldmlTAkKbe4oYkRGFs11B_49rBv_0fhwLBYPkbr3gMH2B1ILs1krmLBH2KCUIO8NQJI4kQF5bk4tF8KaKSrIc5quQ7PENsWmZ4Z1y9OHoeNPCmrA0d4.gkiqCsrWGkLZ.iPM8NV9MVv910wRsk8.9UPRuxX0W_eNFLU4rNjdBDN_vep7v2luRsPhWVxKHTAufqxpCx5HNGuU4FjB5LuXWNAycO.JGhgFQDEXNA6KItH_AEJJp3ZVjeTapqV_TV_..tTRP6_DTDlR1DNY2XLGAsWuOTz0rTWPLF5e5HLSgc3BpxiOiegAq5L0OVlA; XSRF-TOKEN=eyJpdiI6IlR2TkxJWUoxSXd0VVdwNVFNeThmNUE9PSIsInZhbHVlIjoieG9HVlhHSUs0SkhwanVUYVJaSWVHUUpxQVVXOU9kZjM5NnVYQ0xSVHNzaE00ZmVxSzI3WmxnRnhCcllYZnFlSm1KZGRuT3duZ0h3T0R1UDhLMjdqdGdzdWd4V1FzOWJJWjBqZWYyZnR6UkpMK3o3eHBrMDVlaVhZWmd4SXRybEQiLCJtYWMiOiIyNWUzMWIzMDhhNmY0YTYyODMyMDIxMjlkMmU0NjdkMTQyYzE3MjBkMWEwZGFjZmY2Yjg0YjRhOWNkZTc0ODg0IiwidGFnIjoiIn0%3D; ivas_sms_session=eyJpdiI6IjNiVWRqNlF3U3BYL3VITmZiSnFUbmc9PSIsInZhbHVlIjoib0pra3RZUUkxbzlySjErL21Ya2ZsdlpkY0dEaDBJVHZqeThaR3ZsL1dDcFZMc1ZhaDR0WWU5VmhzcXNyZ29yVXAvODMyUms0RTd0d1RGV2pUbjRkZ21zbTNCVit3RTB1N1NoeEE2Zm1jZ2VjRHF5TitLc2kwRlFwSVo3bGdoQjUiLCJtYWMiOiI1MmQwYmI4NDI1Y2RlNTI2ZTRlNDcwNDY1Njk3OGZiZDc3NzcwZDRhMDlmZjJmN2UyYjM3ODAzN2I2MTQ2YjJhIiwidGFnIjoiIn0%3D"
+WS_COOKIE = "_fbp=fb.1.1792735593444.939033684972879674; cf_chl_rc_ni=35; cf_clearance=34rE2Kt4W441HdwTASHuYyR5MIveWB55RLCu_Ac0Sgk-1793021387-1.2.1.1-Hd..mVXDEB339Tta1CAAr9jyKWsXEswSv7BvFcBGgtbvG8W48QVVNmLLv5Jo_NMw9TmcQU2Vnw.cltemAC5y.IKuojp4nx6ssclEsEbMHHCrREA7hTnVTRswV.xxmpCx34EcqKDgddHpYUQoGTNP1JPFvzKnxT04.D94mCS6QX7FkYA3c7zZ0jWV9G5R4joZ_lDNZaE_eS6ujVE3cDHco61mwZldmlTAkKbe4oYkRGFs11B_49rBv_0fhwLBYPkbr3gMH2B1ILs1krmLBH2KCUIO8NQJI4kQF5bk4tF8KaKSrIc5quQ7PENsWmZ4Z1y9OHoeNPCmrA0d4.gkiqCsrWGkLZ.iPM8NV9MVv910wRsk8.9UPRuxX0W_eNFLU4rNjdBDN_vep7v2luRsPhWVxKHTAufqxpCx5HNGuU4FjB5LuXWNAycO.JGhgFQDEXNA6KItH_AEJJp3ZVjeTapqV_TV_..tTRP6_DTDlR1DNY2XLGAsWuOTz0rTWPLF5e5HLSgc3BpxiOiegAq5L0OVlA; XSRF-TOKEN=eyJpdiI6IlR2TkxJWUoxSXd0VVdwNVFNeThmNUE9PSIsInZhbHVlIjoieG9HVlhHSUs0SkhwanVUYVJaSWVHUUpxQVVXOU9kZjM5NnVYQ0xSVHNzaE00ZmVxSzI3WmxnRnhCcllYZnFlSm1KZGRuT3duZ0h3T0R1UDhLMjdqdGdzdWd4V1FzOWJJWjBqZWYyZnR6UkpMK3o3eHBrMDVlaVhZWmd4SXRybEQiLCJtYwciOiIyNWUzMWIzMDhhNmY0YTYyODMyMDIxMjlkMmU0NjdkMTQyYzE3MjBkMWEwZGFjZmY2Yjg0YjRhOWNkZTc0ODg0IiwidGFnIjoiIn0%3D; ivas_sms_session=eyJpdiI6IjNiVWRqNlF3U3BYL3VITmZiSnFUbmc9PSIsInZhbHVlIjoib0pra3RZUUkxbzlySjErL21Ya2ZsdlpkY0dEaDBJVHZqeThaR3ZsL1dDcFZMc1ZhaDR0WWU5VmhzcXNyZ29yVXAvODMyUms0RTd0d1RGV2pUbjRkZ21zbTNCVit3RTB1N1NoeEE2Zm1jZ2VjRHF5TitLc2kwRlFwSVo3bGdoQjUiLCJtYWMiOiI1MmQwYmI4NDI1Y2RlNTI2ZTRlNDcwNDY1Njk3OGZiZDc3NzcwZDRhMDlmZjJmN2UyYjM3ODAzN2I2MTQ2YjJhIiwidGFnIjoiIn0%3D"
 
 def sync_numbers_from_ivas_web():
     """Hàm tương thích thay thế, trả về cache hiện tại"""
@@ -901,17 +901,11 @@ def handle_callbacks(call):
             if chat_id in USER_ACTIVE_PHONES:
                 del USER_ACTIVE_PHONES[chat_id]
 
-            if phone not in PHONE_CREATION_TIME:
-                PHONE_CREATION_TIME[phone] = time.time()
+            # Bắt đầu tính trọn vẹn 15 phút (900 giây) từ thời điểm user click chọn số này
+            PHONE_CREATION_TIME[phone] = time.time()
+            remaining_time = 900
+            expire_time = time.time() + 900
 
-            elapsed = time.time() - PHONE_CREATION_TIME[phone]
-            remaining_time = 900 - elapsed
-            if remaining_time <= 0:
-                remove_number_from_file(phone)
-                bot.answer_callback_query(call.id, "⚠️ Số này đã hết thời hạn 15 phút tồn tại!", show_alert=True)
-                return
-
-            expire_time = time.time() + remaining_time
             USER_ACTIVE_PHONES[chat_id] = {
                 "phone": phone,
                 "expire": expire_time,
@@ -958,17 +952,11 @@ def handle_callbacks(call):
 
             new_phone = random.choice(available_nums)
 
-            if new_phone not in PHONE_CREATION_TIME:
-                PHONE_CREATION_TIME[new_phone] = time.time()
+            # Đổi sang số mới cũng được cấp trọn vẹn 15 phút mới từ thời điểm click
+            PHONE_CREATION_TIME[new_phone] = time.time()
+            remaining_time = 900
+            expire_time = time.time() + 900
 
-            elapsed = time.time() - PHONE_CREATION_TIME[new_phone]
-            remaining_time = 900 - elapsed
-            if remaining_time <= 0:
-                remove_number_from_file(new_phone)
-                bot.answer_callback_query(call.id, "⚠️ Số này đã hết hạn!", show_alert=True)
-                return
-
-            expire_time = time.time() + remaining_time
             USER_ACTIVE_PHONES[chat_id] = {
                 "phone": new_phone,
                 "expire": expire_time,
