@@ -10,7 +10,7 @@ import json
 import time
 import random
 import websocket
-from flask import Flask, request, jsonify
+from flask import Flask
 
 # ==========================================
 # 👑 1. CẤU HÌNH ADMIN TỐI CAO & TELEGRAM BOT
@@ -23,55 +23,13 @@ GROUP_OTP_LINK = "https://t.me/LIVEOTPIVAS"
 bot = telebot.TeleBot(TOKEN)
 
 # ==========================================
-# 🌐 2. FLASK WEB SERVER & CẦU NỐI BRIDGE API
+# 🌐 2. FLASK WEB SERVER (GIỮ BOT ONLINE 24/7)
 # ==========================================
 app = Flask(__name__)
 
-# Biến lưu trữ stock nhận từ cầu nối ngoài (tránh Cloudflare 403)
-BRIDGE_PHONE_CACHE = []
-BRIDGE_API_KEY = "khoibro_secret_bridge_key_123"
-
 @app.route('/')
 def home():
-    return "Bot IVASMS OTP Global & Bridge API Panel đang chạy 24/7 trên Render!"
-
-@app.route('/api/push-numbers', methods=['POST'])
-def push_numbers():
-    """Cầu nối nhận danh sách số sạch từ máy trạm (không bị Cloudflare chặn) đẩy lên"""
-    global BRIDGE_PHONE_CACHE
-    try:
-        data = request.json
-        if not data or data.get("key") != BRIDGE_API_KEY:
-            return jsonify({"status": "error", "message": "Unauthorized"}), 403
-        
-        incoming_numbers = data.get("numbers", [])
-        BRIDGE_PHONE_CACHE = incoming_numbers
-        
-        # Tự động cập nhật vào COUNTRY_CACHE của bot
-        temp_cache = {}
-        for num_str in incoming_numbers:
-            digits_only = re.sub(r'\D', '', num_str)
-            if len(digits_only) >= 7:
-                formatted = "+" + digits_only
-                if formatted not in DELETED_NUMBERS:
-                    if formatted not in PHONE_CREATION_TIME:
-                        PHONE_CREATION_TIME[formatted] = time.time()
-                    name, code = get_country_info(formatted)
-                    if code not in temp_cache:
-                        temp_cache[code] = {"name": name, "numbers": []}
-                    if formatted not in temp_cache[code]["numbers"]:
-                        temp_cache[code]["numbers"].append(formatted)
-        
-        global COUNTRY_CACHE
-        COUNTRY_CACHE = temp_cache
-        return jsonify({"status": "success", "count": len(incoming_numbers)})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-@app.route('/api/get-numbers', methods=['GET'])
-def get_numbers_api():
-    """Cầu nối cung cấp danh sách số sạch"""
-    return jsonify({"status": "success", "numbers": BRIDGE_PHONE_CACHE})
+    return "Bot IVASMS OTP Global & WebSocket Real-time đang chạy 24/7 trên Render!"
 
 def run_web():
     port = int(os.environ.get("PORT", 5000))
@@ -83,7 +41,7 @@ except Exception as e:
     print(f"Xử lý Webhook: {e}")
 
 # ==========================================
-# ⚙️ 3. QUẢN LÝ DỮ LIỆU & HỆ THỐNG
+# ⚙️ 3. QUẢN LÝ DỮ LIỆU & WEBSOCKET REAL-TIME
 # ==========================================
 session = requests.Session()
 headers = {
@@ -161,10 +119,82 @@ def save_deleted_numbers(deleted_set):
 
 DELETED_NUMBERS = load_deleted_numbers()
 
+# ==========================================
+# 🔌 WEBSOCKET REAL-TIME CONFIGURATION
+# ==========================================
+WS_URL = "wss://www.ivasms.com/live/socket.io/?token=eyJpdiI6IjgxMm9Vc3pqeW53aGhkVWxTUHVWMEE9PSIsInZhbHVlIjoiRzZmdE9TbjVGdGI0RXhxblFsT3h1bUJaUFhvUEphVzVWNThTc2s5S0Q5STV2YkJTOVBWbGFoK0dva1JJYlpveStCSkVvNU1pVSttdTI5OW5FT01mYUYreDVxMG5vSjRhL3doVTFBZll2bWEvWXgwVTNBeGRzbXRId2lSS1NKWVpOdFlsaW51NTdFYUUreUZsaU04OE44NERZY3VVT1pJOHlkVXpncC9qREUxVVBuZTVBTTVBSnRtNFFUUEdOK3RHczBNeXAvTWJzOG9jbkc0LzJkaEpQSnBxcnI4U2hWTnRxRkZGQXZZYVBQNEo0YXB1c0ZCeENRQ1BvZG1nK2wrbSIsIm1hYyI6ImExOGVkNDJmZTI3Zjg1NTcyNDY0Y2I1YzJlYjgxNGE5MDIxNDdhZDc4NzViOTBkOGUwNjU4OTIwMmIwYWMwZGIiLCJ0YWciOiIifQ%3D%3D&user=7f92a59de907c2a8fd06861aaee10264&EIO=4&transport=websocket"
+
+WS_COOKIE = "_fbp=fb.1.1792735593444.939033684972879674; cf_chl_rc_ni=35; cf_clearance=34rE2Kt4W441HdwTASHuYyR5MIveWB55RLCu_Ac0Sgk-1793021387-1.2.1.1-Hd..mVXDEB339Tta1CAAr9jyKWsXEswSv7BvFcBGgtbvG8W48QVVNmLLv5Jo_NMw9TmcQU2Vnw.cltemAC5y.IKuojp4nx6ssclEsEbMHHCrREA7hTnVTRswV.xxmpCx34EcqKDgddHpYUQoGTNP1JPFvzKnxT04.D94mCS6QX7FkYA3c7zZ0jWV9G5R4joZ_lDNZaE_eS6ujVE3cDHco61mwZldmlTAkKbe4oYkRGFs11B_49rBv_0fhwLBYPkbr3gMH2B1ILs1krmLBH2KCUIO8NQJI4kQF5bk4tF8KaKSrIc5quQ7PENsWmZ4Z1y9OHoeNPCmrA0d4.gkiqCsrWGkLZ.iPM8NV9MVv910wRsk8.9UPRuxX0W_eNFLU4rNjdBDN_vep7v2luRsPhWVxKHTAufqxpCx5HNGuU4FjB5LuXWNAycO.JGhgFQDEXNA6KItH_AEJJp3ZVjeTapqV_TV_..tTRP6_DTDlR1DNY2XLGAsWuOTz0rTWPLF5e5HLSgc3BpxiOiegAq5L0OVlA; XSRF-TOKEN=eyJpdiI6IlR2TkxJWUoxSXd0VVdwNVFNeThmNUE9PSIsInZhbHVlIjoieG9HVlhHSUs0SkhwanVUYVJaSWVHUUpxQVVXOU9kZjM5NnVYQ0xSVHNzaE00ZmVxSzI3WmxnRnhCcllYZnFlSm1KZGRuT3duZ0h3T0R1UDhLMjdqdGdzdWd4V1FzOWJJWjBqZWYyZnR6UkpMK3o3eHBrMDVlaVhZWmd4SXRybEQiLCJtYWMiOiIyNWUzMWIzMDhhNmY0YTYyODMyMDIxMjlkMmU0NjdkMTQyYzE3MjBkMWEwZGFjZmY2Yjg0YjRhOWNkZTc0ODg0IiwidGFnIjoiIn0%3D; ivas_sms_session=eyJpdiI6IjNiVWRqNlF3U3BYL3VITmZiSnFUbmc9PSIsInZhbHVlIjoib0pra3RZUUkxbzlySjErL21Ya2ZsdlpkY0dEaDBJVHZqeThaR3ZsL1dDcFZMc1ZhaDR0WWU5VmhzcXNyZ29yVXAvODMyUms0RTd0d1RGV2pUbjRkZ21zbTNCVit3RTB1N1NoeEE2Zm1jZ2VjRHF5TitLc2kwRlFwSVo3bGdoQjUiLCJtYWMiOiI1MmQwYmI4NDI1Y2RlNTI2ZTRlNDcwNDY1Njk3OGZiZDc3NzcwZDRhMDlmZjJmN2UyYjM3ODAzN2I2MTQ2YjJhIiwidGFnIjoiIn0%3D"
+
 def sync_numbers_from_ivas_web():
-    """Hàm đồng bộ thông qua bộ nhớ Bridge API"""
     global COUNTRY_CACHE
     return True, len(COUNTRY_CACHE) if COUNTRY_CACHE else 0
+
+def on_ws_message(ws, message):
+    global COUNTRY_CACHE
+    try:
+        if message == "2":
+            ws.send("3")
+            return
+            
+        if message.startswith("42"):
+            json_data_str = message[2:]
+            data = json.loads(json_data_str)
+            
+            text_payload = json.dumps(data)
+            found_nums = re.findall(r'\+?\d{8,15}', text_payload)
+            
+            scraped_numbers = set()
+            for num in found_nums:
+                digits_only = re.sub(r'\D', '', num)
+                if len(digits_only) >= 8:
+                    formatted = "+" + digits_only
+                    if formatted not in DELETED_NUMBERS:
+                        scraped_numbers.add(formatted)
+            
+            if scraped_numbers:
+                temp_cache = COUNTRY_CACHE.copy() if COUNTRY_CACHE else {}
+                for formatted in scraped_numbers:
+                    if formatted not in PHONE_CREATION_TIME:
+                        PHONE_CREATION_TIME[formatted] = time.time()
+                    name, code = get_country_info(formatted) if 'get_country_info' in globals() else ("Unknown", "UN")
+                    if code not in temp_cache:
+                        temp_cache[code] = {"name": name, "numbers": []}
+                    if formatted not in temp_cache[code]["numbers"]:
+                        temp_cache[code]["numbers"].append(formatted)
+                COUNTRY_CACHE = temp_cache
+                print(f"[WebSocket Realtime]: Đã cập nhật {len(scraped_numbers)} số mới từ luồng WSS!")
+    except Exception as e:
+        print(f"[WS Parse Error]: {e}")
+
+def on_ws_error(ws, error):
+    print(f"[WebSocket Error]: {error}")
+
+def on_ws_close(ws, close_status_code, close_msg):
+    print("[WebSocket Closed] Đang kết nối lại sau 5 giây...")
+    time.sleep(5)
+    start_websocket_background()
+
+def on_ws_open(ws):
+    print("[WebSocket Success]: Đã kết nối thành công vào luồng Real-time của iVASMS!")
+
+def start_websocket_background():
+    headers = {
+        "Cookie": WS_COOKIE,
+        "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+    }
+    ws_app = websocket.WebSocketApp(
+        WS_URL,
+        header=headers,
+        on_open=on_ws_open,
+        on_message=on_ws_message,
+        on_error=on_ws_error,
+        on_close=on_ws_close
+    )
+    ws_app.run_forever(ping_interval=20, ping_payload="2")
+
+ws_thread = threading.Thread(target=start_websocket_background, daemon=True)
+ws_thread.start()
 
 def remove_number_from_file(target_phone):
     DELETED_NUMBERS.add(target_phone)
@@ -217,6 +247,13 @@ def update_balance(uid, amount):
         return update_balance(uid, amount)
 
 def mask_phone_number(phone):
+    p = phone.strip()
+    if len(p) > 6:
+        return p[:4] + "***" + p[-2:]
+    return p
+
+def mask_phone_group(phone):
+    """Che dãy số ở giữa, chỉ giữ lại 2 số đầu và 2 số cuối (VD: +998***42)"""
     p = phone.strip()
     if len(p) > 6:
         return p[:4] + "***" + p[-2:]
@@ -476,6 +513,7 @@ def get_numbers_by_category(category_code, page=0, limit=6):
     return [], 0
 
 def get_available_countries():
+    sync_numbers_from_ivas_web()
     clean_expired_sessions()
     valid_countries = {}
     for code, data in COUNTRY_CACHE.items():
@@ -513,6 +551,7 @@ def send_auto_otp(chat_id, number, otp_code, full_msg="", user_id=None, user_nam
             except Exception:
                 pass
 
+        # 1. Gửi thông báo cho người dùng cá nhân (hiện số đầy đủ cho chủ nhân)
         text = (
             "⚡️ <b>HỆ THỐNG XÁC THỰC TỰ ĐỘNG</b> ⚡️\n"
             "-----------------------------------\n"
@@ -527,6 +566,25 @@ def send_auto_otp(chat_id, number, otp_code, full_msg="", user_id=None, user_nam
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton(f"📋 COPY OTP • {otp_code}", callback_data=f"copy_{otp_code}"))
         bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=markup)
+
+        # 2. Bắn thông báo sang Group công khai (Che số điện thoại: 2 số đầu và 2 số cuối)
+        masked_number = mask_phone_group(number)
+        group_text = (
+            "🚀 <b>GIAO DỊCH NHẬN OTP THÀNH CÔNG!</b> 🚀\n"
+            "-----------------------------------\n"
+            f"📞 <b>Số điện thoại:</b> <code>{masked_number}</code>\n"
+            f"🔑 <b>Mã OTP:</b> <code>{otp_code}</code>\n"
+            f"🌟 <b>Trạng thái:</b> <i>Uy tín - Nhanh chóng - Real-time 24/7</i>\n"
+            "-----------------------------------\n"
+            "👇 <i>Bấm vào nút bên dưới để lấy số nhận mã OTP miễn phí:</i>"
+        )
+        group_markup = InlineKeyboardMarkup()
+        group_markup.add(InlineKeyboardButton("🤖 Về Bot Lấy Số Ngay", url=f"https://t.me/{bot.get_me().username}"))
+        try:
+            bot.send_message(GROUP_CHAT_ID, group_text, parse_mode="HTML", reply_markup=group_markup)
+        except Exception as e:
+            print(f"Lỗi gửi thông báo sang Group: {e}")
+
     except Exception as e:
         print(f"Lỗi gửi OTP tới {chat_id}: {e}")
 
@@ -559,6 +617,78 @@ def process_incoming_sms_content(text_content):
                                 send_auto_otp(target_cid, phone, otp, text_content, user_id=target_cid, user_name=user_info.get("name"), msg_id=target_msg_id)
     except Exception as e:
         print(f"Lỗi process_incoming_sms_content: {e}")
+
+def fetch_and_parse_otps():
+    clean_expired_sessions()
+    today_str = datetime.datetime.now().strftime('%Y-%m-%d')
+    yesterday_str = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+    
+    urls = [
+        ("https://ivasms.com/portal/sms_received", {'start_date': yesterday_str, 'end_date': today_str}),
+        ("https://ivasms.com/portal/live", None)
+    ]
+    
+    for url, post_data in urls:
+        try:
+            if post_data:
+                resp = session.post(url, data=post_data, headers=headers, timeout=10)
+                if resp.status_code != 200 or len(resp.text) < 300:
+                    resp = session.get(url, headers=headers, timeout=10)
+            else:
+                resp = session.get(url, headers=headers, timeout=10)
+                
+            if resp.status_code == 200:
+                soup = BeautifulSoup(resp.text, 'html.parser')
+                for element in soup.find_all(['tr', 'div', 'td']):
+                    text_content = element.get_text(separator=" ", strip=True)
+                    process_incoming_sms_content(text_content)
+        except Exception as e:
+            print(f"Lỗi quét SMS từ {url}: {e}")
+
+def background_sms_scanner():
+    while True:
+        try:
+            fetch_and_parse_otps()
+        except Exception as e:
+            print(f"Lỗi background scanner: {e}")
+        time.sleep(3)
+
+def ivas_websocket_listener():
+    while True:
+        try:
+            settings = load_settings()
+            ws_url = settings.get("ivas_ws_url", "").strip()
+            if not ws_url:
+                time.sleep(5)
+                continue
+                
+            def on_message(ws, message):
+                try:
+                    print(f"[WSS Real-time Received]: {message}")
+                    process_incoming_sms_content(str(message))
+                except Exception as e:
+                    print(f"Lỗi xử lý message từ WebSocket: {e}")
+
+            def on_error(ws, error):
+                print(f"Lỗi kết nối WebSocket: {error}")
+
+            def on_close(ws, close_status_code, close_msg):
+                print("Kết nối WebSocket đã đóng, đang thử kết nối lại sau 5 giây...")
+
+            def on_open(ws):
+                print("✅ Đã kết nối thành công tới WebSocket iVASMS real-time!")
+
+            ws = websocket.WebSocketApp(
+                ws_url,
+                on_open=on_open,
+                on_message=on_message,
+                on_error=on_error,
+                on_close=on_close
+            )
+            ws.run_forever(ping_interval=30, ping_timeout=10)
+        except Exception as e:
+            print(f"Ngoại lệ luồng WebSocket: {e}")
+        time.sleep(5)
 
 @bot.message_handler(commands=['adminhelp'])
 def cmd_admin_help(message):
@@ -1114,20 +1244,25 @@ def handle_callbacks(call):
         elif data == "admin_panel" and uid == ADMIN_ID:
             users = load_json_db(USERS_FILE)
             spam_data = load_json_db(SPAM_TRACKER_FILE)
+            settings = load_settings()
+            wss_status = "🟢 Đã kết nối" if settings.get("ivas_ws_url") else "🔴 Chưa cài"
             
             text = (
-                "👑 <b>BẢNG ĐIỀU KHIỂN ADMIN TỐI CAO (BRIDGE API)</b>\n"
+                "👑 <b>BẢNG ĐIỀU KHIỂN ADMIN TỐI CAO</b>\n"
                 "-----------------------------------\n"
                 f"👥 Tổng số user: <b>{len(users)}</b>\n"
-                f"📊 Tổng số stock hiện tại: <b>{sum(len(d['numbers']) for d in COUNTRY_CACHE.values())}</b>\n"
+                f"📊 Tổng số stock: <b>{sum(len(d['numbers']) for d in COUNTRY_CACHE.values())}</b>\n"
+                f"🔗 Trạng thái IVAS WSS: <b>{wss_status}</b>\n"
                 f"🛡 Tài khoản bị phạt/khóa: <b>{len(spam_data)}</b>\n"
             )
             markup = InlineKeyboardMarkup(row_width=1)
             markup.add(
+                InlineKeyboardButton("🔗 Cấu hình IVAS WebSocket (WSS)", callback_data="admin_set_wss"),
                 InlineKeyboardButton("🗑️ Quản lý & Xóa Cache Số", callback_data="admin_manage_cache_countries"),
-                InlineKeyboardButton("🏆 Top Số Dư User", callback_data="admin_top_balances"),
+                InlineKeyboardButton("🏆 Top Số Dư User (Kiểm tra gian lận)", callback_data="admin_top_balances"),
                 InlineKeyboardButton("👥 Danh sách User Đăng Ký", callback_data="admin_view_users"),
                 InlineKeyboardButton("💸 Duyệt Lệnh Rút Tiền", callback_data="admin_view_withdraws"),
+                InlineKeyboardButton("🔄 Sync Batch Số Mới (Web iVASMS)", callback_data="admin_reload"),
                 InlineKeyboardButton("🛡 Quản lý & Mở khóa Spam", callback_data="admin_users"),
                 InlineKeyboardButton("🔙 Quay lại Menu Chính", callback_data="back_home")
             )
@@ -1162,15 +1297,43 @@ def handle_callbacks(call):
             markup.add(InlineKeyboardButton("🔙 Quay lại danh sách quốc gia", callback_data="admin_manage_cache_countries"))
             
             try:
-                bot.edit_message_text(f"📞 <b>Danh sách số trong {code}:</b>", chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
+                bot.edit_message_text(f"📞 <b>Danh sách số trong {code} (Bấm vào số để xóa từng cái hoặc bấm Xóa tất cả bên dưới):</b>", chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
             except Exception:
                 pass
 
         elif data.startswith("adm_ask_del_all_") and uid == ADMIN_ID:
             code = data.replace("adm_ask_del_all_", "")
+            if code not in COUNTRY_CACHE or not COUNTRY_CACHE[code]["numbers"]:
+                bot.answer_callback_query(call.id, "Danh mục này đã trống số!", show_alert=True)
+                return
+            markup = InlineKeyboardMarkup(row_width=2)
+            markup.add(
+                InlineKeyboardButton("✅ Xác nhận xóa tất cả", callback_data=f"adm_yes_del_all_{code}"),
+                InlineKeyboardButton("🚫 Không", callback_data=f"adm_cache_c_{code}")
+            )
+            try:
+                bot.edit_message_text(
+                    f"⚠️ <b>BẠN CÓ CHẮC CHẮN MUỐN XÓA TOÀN BỘ SỐ CỦA QUỐC GIA {code}?</b>\n\n"
+                    f"📊 Tổng số lượng: <b>{len(COUNTRY_CACHE[code]['numbers'])} số</b>\n\n"
+                    "Thao tác này sẽ xóa sạch tất cả số của quốc gia này khỏi hệ thống ngay lập tức!",
+                    chat_id, msg_id, parse_mode="HTML", reply_markup=markup
+                )
+            except Exception:
+                pass
+
+        elif data.startswith("adm_yes_del_all_") and uid == ADMIN_ID:
+            code = data.replace("adm_yes_del_all_", "")
             if code in COUNTRY_CACHE:
+                nums_to_delete = list(COUNTRY_CACHE[code]["numbers"])
+                for phone in nums_to_delete:
+                    remove_number_from_file(phone)
+                    if phone in PHONE_CREATION_TIME:
+                        del PHONE_CREATION_TIME[phone]
+                    if phone in OTP_ACTIVE_SESSIONS:
+                        del OTP_ACTIVE_SESSIONS[phone]
                 del COUNTRY_CACHE[code]
                 bot.answer_callback_query(call.id, f"Đã xóa toàn bộ số của {code} thành công!", show_alert=True)
+            
             call.data = "admin_manage_cache_countries"
             handle_callbacks(call)
 
@@ -1180,17 +1343,59 @@ def handle_callbacks(call):
             code = remainder[:plus_idx].rstrip("_")
             phone = remainder[plus_idx:]
             
+            markup = InlineKeyboardMarkup(row_width=2)
+            markup.add(
+                InlineKeyboardButton("✅ Xác nhận xóa", callback_data=f"adm_yes_del_{code}_{phone}"),
+                InlineKeyboardButton("🚫 Không", callback_data=f"adm_cache_c_{code}")
+            )
+            try:
+                bot.edit_message_text(
+                    f"⚠️ <b>BẠN CÓ CHẮC CHẮN MUỐN XÓA SỐ NÀY?</b>\n\n"
+                    f"📞 Số điện thoại: <code>{phone}</code>\n\n"
+                    "Thao tác này sẽ xóa vĩnh viễn số khỏi bộ nhớ Cache và file hệ thống!",
+                    chat_id, msg_id, parse_mode="HTML", reply_markup=markup
+                )
+            except Exception:
+                pass
+
+        elif data.startswith("adm_yes_del_") and uid == ADMIN_ID:
+            remainder = data.replace("adm_yes_del_", "")
+            plus_idx = remainder.find("+")
+            code = remainder[:plus_idx].rstrip("_")
+            phone = remainder[plus_idx:]
+            
             if code in COUNTRY_CACHE and phone in COUNTRY_CACHE[code]["numbers"]:
                 COUNTRY_CACHE[code]["numbers"].remove(phone)
                 if not COUNTRY_CACHE[code]["numbers"]:
                     del COUNTRY_CACHE[code]
+            remove_number_from_file(phone)
+            if phone in PHONE_CREATION_TIME:
+                del PHONE_CREATION_TIME[phone]
+            if phone in OTP_ACTIVE_SESSIONS:
+                del OTP_ACTIVE_SESSIONS[phone]
+                
             bot.answer_callback_query(call.id, f"Đã xóa thành công số {phone}!", show_alert=True)
+            
             call.data = f"adm_cache_c_{code}"
             handle_callbacks(call)
 
+        elif data == "admin_set_wss" and uid == ADMIN_ID:
+            USER_WSS_STATE[uid] = True
+            markup = InlineKeyboardMarkup()
+            markup.add(InlineKeyboardButton("❌ Hủy bỏ", callback_data="admin_panel"))
+            try:
+                bot.edit_message_text(
+                    "<b>🔗 CẤU HÌNH WEBSOCKET URL (WSS)</b>\n"
+                    "-----------------------------------\n"
+                    "Vui lòng gửi đường dẫn WebSocket (`wss://...`) lấy từ trình duyệt (như Mises Browser) vào đây để bot lắng nghe OTP real-time:",
+                    chat_id, msg_id, parse_mode="HTML", reply_markup=markup
+                )
+            except Exception:
+                pass
+
         elif data == "admin_top_balances" and uid == ADMIN_ID:
             users_db = load_json_db(USERS_FILE)
-            text = "🏆 <b>BẢNG TOP SỐ DƯ NGƯỜI DÙNG:</b>\n\n"
+            text = "🏆 <b>BẢNG TOP SỐ DƯ NGƯỜI DÙNG (KIỂM TRA GIAN LẬN):</b>\n\n"
             if not users_db:
                 text += "<i>Chưa có dữ liệu người dùng.</i>"
             else:
@@ -1280,16 +1485,26 @@ def handle_callbacks(call):
                 bot.answer_callback_query(call.id, "Đã duyệt và cập nhật trạng thái thành công!", show_alert=True)
                 call.data = "admin_view_withdraws"
                 handle_callbacks(call)
+            else:
+                bot.answer_callback_query(call.id, "Không tìm thấy dữ liệu lệnh rút này!", show_alert=True)
+
+        elif data == "admin_reload" and uid == ADMIN_ID:
+            success, res = load_text_batch(reset=True)
+            if success:
+                bot.answer_callback_query(call.id, f"Đã đồng bộ thành công: {res} số từ iVASMS!", show_alert=True)
+            else:
+                bot.answer_callback_query(call.id, f"Lỗi đồng bộ: {res}", show_alert=True)
 
         elif data == "admin_users" and uid == ADMIN_ID:
             spam_data = load_json_db(SPAM_TRACKER_FILE)
-            text = f"🛡 <b>Danh sách tài khoản đang bị khóa:</b>\n\n"
+            text = f"🛡 <b>Danh sách tài khoản đang vi phạm / bị khóa:</b>\n\n"
             markup = InlineKeyboardMarkup(row_width=1)
             if not spam_data:
                 text += "<i>Hiện không có user nào bị phạt.</i>"
             else:
                 for s_id, info in spam_data.items():
-                    text += f"• ID: <code>{s_id}</code> | Tên: {info.get('name')}\n"
+                    b_type = "Vĩnh viễn" if info.get('ban_until') == 0 else "Tạm thời"
+                    text += f"• ID: <code>{s_id}</code> | Tên: {info.get('name')} | Vi phạm: {info.get('count')} lần ({b_type})\n"
                     markup.add(InlineKeyboardButton(f"🔓 Mở khóa ID: {s_id}", callback_data=f"unban_{s_id}"))
             markup.add(InlineKeyboardButton("🔙 Quay lại Admin Panel", callback_data="admin_panel"))
             try:
@@ -1303,10 +1518,12 @@ def handle_callbacks(call):
                 bot.answer_callback_query(call.id, f"Đã gỡ khóa thành công cho ID: {target_uid}", show_alert=True)
                 call.data = "admin_users"
                 handle_callbacks(call)
+            else:
+                bot.answer_callback_query(call.id, "Không tìm thấy user này trong danh sách phạt!", show_alert=True)
     except Exception as e:
         print(f"Lỗi trong handle_callbacks: {e}")
 
-@bot.message_handler(func=lambda message: USER_WITHDRAW_STATE.get(message.from_user.id, False))
+@bot.message_handler(func=lambda message: USER_WITHDRAW_STATE.get(message.from_user.id, False) or USER_WSS_STATE.get(message.from_user.id, False))
 def handle_text_inputs(message):
     uid = message.from_user.id
     text_val = message.text.strip()
@@ -1314,6 +1531,24 @@ def handle_text_inputs(message):
     if text_val.startswith('/'):
         USER_WITHDRAW_STATE.pop(uid, None)
         USER_PENDING_WALLET.pop(uid, None)
+        USER_WSS_STATE.pop(uid, None)
+        return
+
+    if USER_WSS_STATE.get(uid, False):
+        if uid != ADMIN_ID:
+            USER_WSS_STATE.pop(uid, None)
+            return
+        
+        settings = load_settings()
+        settings["ivas_ws_url"] = text_val
+        save_settings(settings)
+        USER_WSS_STATE.pop(uid, None)
+        
+        bot.send_message(
+            uid,
+            f"✅ <b>Đã lưu WebSocket URL thành công!</b>\n<code>{text_val}</code>\n\nLuồng ngầm WSS sẽ tự động kết nối để nhận OTP real-time.",
+            parse_mode="HTML"
+        )
         return
 
     if USER_WITHDRAW_STATE.get(uid, False):
@@ -1362,10 +1597,16 @@ def handle_text_inputs(message):
         bot.send_message(uid, confirm_text, parse_mode="HTML", reply_markup=markup)
 
 if __name__ == "__main__":
+    t_scanner = threading.Thread(target=background_sms_scanner, daemon=True)
+    t_scanner.start()
+    
+    t_wss = threading.Thread(target=ivas_websocket_listener, daemon=True)
+    t_wss.start()
+    
     t_web = threading.Thread(target=run_web, daemon=True)
     t_web.start()
     
-    print("🤖 Bot Telegram IVASMS + Bridge API Panel đang chạy mượt mà...")
+    print("🤖 Bot Telegram IVASMS + WebSocket Real-time + Auto-Sync Web đang chạy mượt mà...")
     
     while True:
         try:
