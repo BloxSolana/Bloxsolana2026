@@ -291,7 +291,7 @@ def api_push_sms_handler():
         group_msg = (
             "⚡ <b>OTP RECEIVED</b>\n"
             "-----------------------------------\n"
-            f"🇻🇳 <b>Country:</b> {country_display}\n"
+            f"🌍 <b>Country:</b> {country_display}\n"
             f"📞 <b>Number:</b> <code>{masked_phone}</code>\n"
             f"📱 <b>Service:</b> {service_name}\n"
             f"🔑 <b>OTP:</b> <code>{otp_display}</code>\n"
