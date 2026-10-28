@@ -148,8 +148,9 @@ def load_settings():
         return DEFAULT_SETTINGS
     return load_json_db(SETTINGS_FILE)
 
-def save_settings(s):
-    save_json_db(SETTINGS_FILE, s)
+def save_json_db(filename, data):
+    with open(filename, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
 def load_json_db(filename):
     if os.path.exists(filename):
@@ -159,10 +160,6 @@ def load_json_db(filename):
         except Exception:
             return {}
     return {}
-
-def save_json_db(filename, data):
-    with open(filename, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
 
 def load_deleted_numbers():
     if os.path.exists(DELETED_NUMBERS_FILE):
@@ -206,92 +203,32 @@ def get_user(uid, name="", username=""):
     uid_str = str(uid)
     if uid_str not in users:
         users[uid_str] = {
-            "id": uid,
-            "name": name or "Ẩn danh",
-            "username": username or "Không có",
-            "balance": 0.0,
-            "referrals": 0,
-            "referral_earnings": 0.0,
-            "referred_by": None,
-            "joined_at": datetime.datetime.now().strftime('%H:%M:%S - %d/%m/%Y')
+            "id": uid, "name": name or "Ẩn danh", "username": username or "Không có",
+            "balance": 0.0, "referrals": 0, "referral_earnings": 0.0,
+            "referred_by": None, "joined_at": datetime.datetime.now().strftime('%H:%M:%S - %d/%m/%Y')
         }
         save_json_db(USERS_FILE, users)
     return users[uid_str]
 
-def update_balance(uid, amount):
-    users = load_json_db(USERS_FILE)
-    uid_str = str(uid)
-    if uid_str in users:
-        users[uid_str]["balance"] = round(users[uid_str].get("balance", 0.0) + amount, 4)
-        save_json_db(USERS_FILE, users)
-        return users[uid_str]["balance"]
-    else:
-        get_user(uid)
-        return update_balance(uid, amount)
-
 def mask_phone_number(phone):
     p = phone.strip()
-    if len(p) > 6:
-        return p[:4] + "****" + p[-2:]
-    return p
+    return p[:4] + "****" + p[-2:] if len(p) > 6 else p
 
-# ==========================================
-# 🛡️ 5. HỆ THỐNG CHỐNG SPAM & UNBAN
-# ==========================================
 def check_user_status(user_id, name=""):
     if user_id == ADMIN_ID:
         return True, ""
-    
     spam_data = load_json_db(SPAM_TRACKER_FILE)
     uid = str(user_id)
     now = time.time()
-    
     if uid in spam_data:
         info = spam_data[uid]
         ban_until = info.get("ban_until", 0)
-        if ban_until == 0:
-            return False, "⛔ <b>Tài khoản của bạn đã bị KHÓA VĨNH VIỄN</b> do vi phạm quy định spam nhiều lần."
-        if now < ban_until:
-            remaining_mins = int((ban_until - now) / 60) + 1
-            return False, f"⏳ <b>Bạn đang bị tạm khóa do thao tác quá nhanh.</b>\n⏱ Thời gian mở khóa tự động sau: khoảng <b>{remaining_mins} phút</b> nữa."
-
-    last_time = USER_LAST_ACTION.get(user_id, 0)
-    if now - last_time < 0.8:
-        if uid not in spam_data:
-            count = 1
-        else:
-            count = spam_data[uid].get("count", 0) + 1
-        if count == 1:
-            ban_until = now + 300  
-            msg = "⚠️ <b>Cảnh cáo Spam lần 1:</b> Bạn thao tác quá nhanh nên đã bị tạm khóa <b>5 phút</b>."
-        elif count == 2:
-            ban_until = now + 1800 
-            msg = "⚠️ <b>Cảnh cáo Spam lần 2:</b> Nâng mức phạt tạm khóa <b>30 phút</b>."
-        else:
-            ban_until = 0          
-            msg = "⛔ <b>Khóa vĩnh viễn (Lần 3):</b> Tài khoản đã bị khóa vĩnh viễn do spam liên tục!"
-            
-        spam_data[uid] = {
-            "name": name, "count": count, "ban_until": ban_until,
-            "banned_at": datetime.datetime.now().strftime('%H:%M:%S - %d/%m/%Y')
-        }
-        save_json_db(SPAM_TRACKER_FILE, spam_data)
-        return False, msg
-
-    USER_LAST_ACTION[user_id] = now
+        if ban_until == 0 or now < ban_until:
+            return False, "⛔ Tài khoản của bạn đang bị khóa tạm thời hoặc vĩnh viễn do thao tác quá nhanh."
     return True, ""
 
-def unban_user_manual(user_id):
-    spam_data = load_json_db(SPAM_TRACKER_FILE)
-    uid = str(user_id)
-    if uid in spam_data:
-        del spam_data[uid]
-        save_json_db(SPAM_TRACKER_FILE, spam_data)
-        return True
-    return False
-
 # ==========================================
-# 🌍 6. BỘ TỪ ĐIỂN MỞ RỘNG FULL 195+ QUỐC GIA
+# 🌍 6. BỘ TỪ ĐIỂN FULL 195+ QUỐC GIA CHUẨN XÁC
 # ==========================================
 GLOBAL_COUNTRY_PREFIXES = {
     "1": ("🇺🇸 Mỹ / Canada (+1)", "US"), "52": ("🇲🇽 Mexico (+52)", "MX"), "53": ("🇨🇺 Cuba (+53)", "CU"),
@@ -406,4 +343,56 @@ def load_text_batch():
                             name, code = get_country_info(formatted)
                             if code not in temp_cache:
                                 temp_cache[code] = {"name": name, "numbers": []}
-                            if formatted not in temp_cache[code]["number
+                            if formatted not in temp_cache[code]["numbers"]:
+                                temp_cache[code]["numbers"].append(formatted)
+                global COUNTRY_CACHE
+                COUNTRY_CACHE = temp_cache
+                return True, len(batch_numbers)
+        except Exception:
+            pass
+    return False, 0
+
+load_text_batch()
+
+def is_phone_busy(phone):
+    if phone in OTP_ACTIVE_SESSIONS:
+        return True
+    return any(info.get("phone") == phone for info in USER_ACTIVE_PHONES.values())
+
+def get_numbers_by_category(category_code, page=0, limit=6):
+    clean_expired_sessions()
+    if category_code in COUNTRY_CACHE:
+        all_nums = [n for n in COUNTRY_CACHE[category_code]["numbers"] if not is_phone_busy(n) and n not in DELETED_NUMBERS]
+        start = page * limit
+        return all_nums[start:start+limit], len(all_nums)
+    return [], 0
+
+def get_available_countries():
+    clean_expired_sessions()
+    valid_countries = {}
+    for code, data in COUNTRY_CACHE.items():
+        active_nums = [n for n in data["numbers"] if not is_phone_busy(n) and n not in DELETED_NUMBERS]
+        if active_nums:
+            valid_countries[code] = f"{data['name']} — [{len(active_nums)} Số]"
+    return valid_countries
+
+# ==========================================
+# ⌨️ 7. GIAO DIỆN BÀN PHÍM MENU DƯỚI
+# ==========================================
+def get_main_menu_markup(is_admin=False):
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    markup.add(KeyboardButton("📞 Get Number"), KeyboardButton("🗑 Clear Prefix"))
+    markup.add(KeyboardButton("🔍 Search with Prefix"))
+    markup.add(KeyboardButton("💰 My Balance"), KeyboardButton("💸 Withdraw"))
+    markup.add(KeyboardButton("👥 Refer"), KeyboardButton("📊 Stats"))
+    markup.add(KeyboardButton("⚡ Live Traffic"), KeyboardButton("🏆 Top Users"))
+    markup.add(KeyboardButton("❓ Help"))
+    if is_admin:
+        markup.add(KeyboardButton("👑 Admin Panel"))
+    return markup
+
+@bot.message_handler(commands=['start'])
+def cmd_start(message):
+    uid = message.from_user.id
+    name = message.from_user.first_name or "Bạn"
+    ok, err_msg = check_u
