@@ -288,7 +288,6 @@ def api_push_sms_handler():
 
         pure_otp_code = otp_display.replace("-", "")
 
-        # Form hiển thị gọn gàng, mã OTP bọc trong thẻ <code> giúp 1 chạm copy thẳng vào clipboard trên Telegram
         group_msg = (
             "⚡ <b>OTP RECEIVED</b>\n"
             "-----------------------------------\n"
@@ -466,4 +465,5 @@ def handle_text_messages(message):
     if uid in USER_WITHDRAW_STATE and USER_WITHDRAW_STATE[uid]:
         wallet_addr = text.strip()
         if not re.match(r'^(EQ|UQ)[A-Za-z0-9\-_]{46}$', wallet_addr):
-            bot.send_message(chat_id, "❌ <b>Invalid wallet 
+            bot.send_message(chat_id, "❌ <b>Invalid wallet address!</b> TON wallet must start with EQ or UQ and have 48 chars. Try again:", parse_mode="HTML")
+            r
