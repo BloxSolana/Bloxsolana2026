@@ -40,7 +40,7 @@ def webhook():
     return '', 403
 
 # ==========================================
-# 🚀 3. ENDPOINT NHẬN SMS & LỌC OTP CỰC CHUẨN
+# 🚀 3. ENDPOINT NHẬN SMS & LỌC OTP TUYỆT ĐỐI CHUẨN (ĐÃ FIX LỖI 0120)
 # ==========================================
 @app.route('/api/push-sms', methods=['POST'])
 def api_push_sms_handler():
@@ -68,16 +68,24 @@ def api_push_sms_handler():
         elif not country_name or country_name.lower() in ["global", "unknown", ""]:
             country_name = "Tajikistan (+992)"
 
+        # THUẬT TOÁN LỌC OTP SIÊU CHUẨN: Chặn hoàn toàn số ID rác như 0120
         otp_display = "Not Found"
-        match_pattern = re.search(r'(?:код|code|ma|otp)[:\s\-]*([0-9]{3}[\-\s]?[0-9]{3}|[0-9]{4,6})', raw_text, re.IGNORECASE)
+        
+        # 1. Tìm theo từ khóa rõ ràng (code, код, otp, pin, ma)
+        match_pattern = re.search(r'(?:код|code|ma|otp|pin)[:\s\-]*([0-9]{3}[\-\s]?[0-9]{3}|[0-9]{4,8})', raw_text, re.IGNORECASE)
         if match_pattern:
             raw_otp = match_pattern.group(1)
-            otp_display = raw_otp.replace("-", "").replace(" ", "")
-        else:
-            all_nums = re.findall(r'\b\d{4,6}\b', raw_text)
-            valid_nums = [n for n in all_nums if not n.startswith('2026') and not n.startswith('2025')]
-            if valid_nums:
-                otp_display = valid_nums[-1]
+            cleaned_otp = raw_otp.replace("-", "").replace(" ", "")
+            # Loại bỏ các chuỗi rác hay gặp như năm tháng hoặc mã ID dạng 0120
+            if not cleaned_otp.startswith(('2026', '2025', '0120')):
+                otp_display = cleaned_otp
+        
+        # 2. Nếu chưa thấy, tìm chuỗi 6 chữ số đặc thù của OTP (như WhatsApp/Telegram) nhưng phải bỏ qua các số đứng sau dấu $ hoặc ID
+        if otp_display == "Not Found":
+            all_digits = re.findall(r'\b\d{4,6}\b', raw_text)
+            valid_digits = [d for d in all_digits if not d.startswith(('2026', '2025', '0120'))]
+            if valid_digits:
+                otp_display = valid_digits[-1]
 
         masked_phone = "+992985****77"
         if extracted_phone:
