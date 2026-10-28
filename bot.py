@@ -212,7 +212,7 @@ def log_fraud(uid, action):
     save_json_db(FRAUD_LOG_FILE, fraud_db)
 
 # ==========================================
-# ⌨️ 5. GIAO DIỆN BÀN PHÍM MENU DƯỚI (ĐÃ GỠ CLEAR PREFIX CHO USER)
+# ⌨️ 5. GIAO DIỆN BÀN PHÍM MENU DƯỚI (DÀNH CHO USER)
 # ==========================================
 def get_main_menu_markup(is_admin=False):
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -355,6 +355,7 @@ def handle_text_messages(message):
         markup.add(
             InlineKeyboardButton("💸 Pending Withdrawals", callback_data="admin_view_withdraws"),
             InlineKeyboardButton("🛡 Anti-Fraud Logs", callback_data="admin_view_fraud"),
+            InlineKeyboardButton("🗑 Clear Prefix", callback_data="admin_clear_prefix"),
             InlineKeyboardButton("🔄 Sync New Numbers", callback_data="admin_reload"),
             InlineKeyboardButton("🔙 Back", callback_data="close_menu")
         )
@@ -514,6 +515,14 @@ def handle_callbacks(call):
             markup = InlineKeyboardMarkup()
             markup.add(InlineKeyboardButton("🔙 Back", callback_data="close_menu"))
             bot.edit_message_text(text_f, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
+
+        elif data == "admin_clear_prefix" and uid == ADMIN_ID:
+            global DELETED_NUMBERS
+            DELETED_NUMBERS = set()
+            if os.path.exists(DELETED_NUMBERS_FILE):
+                os.remove(DELETED_NUMBERS_FILE)
+            load_text_batch()
+            bot.answer_callback_query(call.id, "Cleared prefix cache & deleted numbers successfully!", show_alert=True)
 
         elif data == "admin_reload" and uid == ADMIN_ID:
             _, count = load_text_batch()
