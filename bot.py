@@ -87,7 +87,8 @@ def api_push_sms_handler():
 # ==========================================
 # ⚙️ 4. QUẢN LÝ DỮ LIỆU & KHO SỐ 195+ QUỐC GIA
 # ==========================================
-USER_ACTIVE_PHONES = {}
+USER_ACTIVE_PHONES = {}      # Lưu số user đang thuê {uid: {"phone": ..., "expire": ...}}
+USER_CLICKED_NUMBERS = {}    # Lưu các số user đã từng click để không lặp lại {uid: [phone1, phone2]}
 COUNTRY_CACHE = {}
 USER_WITHDRAW_STATE = {}
 USER_PENDING_WALLET = {}
@@ -95,6 +96,7 @@ USER_PENDING_WALLET = {}
 USERS_FILE = "users_log.json"
 WITHDRAW_HISTORY_FILE = "withdraw_history.json"
 DELETED_NUMBERS_FILE = "deleted_numbers.json"
+FRAUD_LOG_FILE = "fraud_tracker.json"
 
 def load_json_db(filename):
     if os.path.exists(filename):
@@ -178,8 +180,19 @@ def get_available_countries():
             valid[code] = f"{data['name']} — [{len(active)} Số]"
     return valid
 
+# Ghi nhận log chống gian lận
+def log_fraud(uid, action):
+    fraud_db = load_json_db(FRAUD_LOG_FILE)
+    uid_str = str(uid)
+    if uid_str not in fraud_db:
+        fraud_db[uid_str] = []
+    fraud_db[uid_str].append({"action": action, "time": datetime.datetime.now().strftime('%H:%M:%S - %d/%m/%Y')})
+    if len(fraud_db[uid_str]) > 50:
+        fraud_db[uid_str] = fraud_db[uid_str][-50:]
+    save_json_db(FRAUD_LOG_FILE, fraud_db)
+
 # ==========================================
-# ⌨️ 5. GIAO DIỆN BÀN PHÍM MENU DƯỚI (THÊM HỒ SƠ)
+# ⌨️ 5. GIAO DIỆN BÀN PHÍM MENU DƯỚI
 # ==========================================
 def get_main_menu_markup(is_admin=False):
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -200,7 +213,7 @@ def cmd_start(message):
     username = message.from_user.username or "Không có"
     users = load_json_db(USERS_FILE)
     if str(uid) not in users:
-        users[str(uid)] = {"id": uid, "name": name, "username": username, "balance": 0.0}
+        users[str(uid)] = {"id": uid, "name": name, "username": username, "balance": 0.0, "referrals": 0}
         save_json_db(USERS_FILE, users)
     
     text = f"👋 Chào mừng <b>{name}</b> đến với hệ thống <b>IVASMS OTP Global</b>!\n🌐 Tự động nhận diện 195+ quốc gia."
@@ -213,6 +226,12 @@ def handle_text_messages(message):
     chat_id = message.chat.id
     name = message.from_user.first_name or "Bạn"
     username = message.from_user.username or "Không có"
+
+    # Xóa tin nhắn lệnh người dùng nhập để giao diện sạch sẽ
+    try:
+        bot.delete_message(chat_id, message.message_id)
+    except Exception:
+        pass
 
     # Xử lý nhập ví rút tiền
     if uid in USER_WITHDRAW_STATE and USER_WITHDRAW_STATE[uid]:
@@ -240,16 +259,15 @@ def handle_text_messages(message):
         markup = InlineKeyboardMarkup(row_width=1)
         for code, label in countries.items():
             markup.add(InlineKeyboardButton(f"🌍 {label}", callback_data=f"country_{code}"))
-        # Thêm nút Quay Lại để xóa bảng chọn
         markup.add(InlineKeyboardButton("🔙 Quay Lại", callback_data="close_menu"))
         bot.send_message(chat_id, "🌍 <b>CHỌN QUỐC GIA:</b>", parse_mode="HTML", reply_markup=markup)
 
     elif text == "💰 My Balance":
         users = load_json_db(USERS_FILE)
         bal = users.get(str(uid), {}).get("balance", 0.0)
-        markup = InlineKeyboardMarkup(row_width=2)
-        markup.add(InlineKeyboardButton("💸 Withdraw (USDT TON)", callback_data="request_withdraw"))
-        bot.send_message(chat_id, f"💰 <b>SỐ DƯ:</b> <code>${bal:.4f}</code>", parse_mode="HTML", reply_markup=markup)
+        markup = InlineKeyboardMarkup(row_width=1)
+        markup.add(InlineKeyboardButton("💸 Withdraw (USDT TON)", callback_data="request_withdraw"), InlineKeyboardButton("🔙 Quay lại", callback_data="close_menu"))
+        bot.send_message(chat_id, f"💰 <b>SỐ DƯ TÀI KHOẢN:</b>\n💵 Số dư: <code>${bal:.4f}</code>", parse_mode="HTML", reply_markup=markup)
 
     elif text == "💸 Withdraw":
         users = load_json_db(USERS_FILE)
@@ -271,18 +289,59 @@ def handle_text_messages(message):
             f"🆔 <b>Telegram ID:</b> <code>{uid}</code>\n"
             f"💵 <b>Số dư hiện tại:</b> <code>${u_data.get('balance', 0.0):.4f}</code>"
         )
-        bot.send_message(chat_id, profile_text, parse_mode="HTML")
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🔙 Quay lại", callback_data="close_menu"))
+        bot.send_message(chat_id, profile_text, parse_mode="HTML", reply_markup=markup)
+
+    elif text == "👥 Refer":
+        bot_info = bot.get_me()
+        ref_link = f"https://t.me/{bot_info.username}?start={uid}"
+        users = load_json_db(USERS_FILE)
+        refs = users.get(str(uid), {}).get("referrals", 0)
+        ref_text = f"👥 <b>MỜI BẠN BÈ NHẬN THƯỞNG</b>\n\n🔗 Link giới thiệu của bạn:\n<code>{ref_link}</code>\n\n📊 Đã mời: <b>{refs}</b> người."
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🔙 Quay lại", callback_data="close_menu"))
+        bot.send_message(chat_id, ref_text, parse_mode="HTML", reply_markup=markup)
+
+    elif text == "📊 Stats":
+        stats_text = f"📊 <b>THỐNG KÊ HỆ THỐNG</b>\n-----------------------------------\n👤 ID của bạn: <code>{uid}</code>\n🟢 Trạng thái hoạt động: Ổn định (24/7)"
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🔙 Quay lại", callback_data="close_menu"))
+        bot.send_message(chat_id, stats_text, parse_mode="HTML", reply_markup=markup)
 
     elif text == "⚡ Live Traffic":
-        bot.send_message(chat_id, f"⚡ Kênh: {GROUP_OTP_LINK}")
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🚀 Mở Kênh Live OTP", url=GROUP_OTP_LINK), InlineKeyboardButton("🔙 Quay lại", callback_data="close_menu"))
+        bot.send_message(chat_id, f"⚡ Kênh thông báo Live Traffic chính thức:", parse_mode="HTML", reply_markup=markup)
+
+    elif text == "🏆 Top Users":
+        users_db = load_json_db(USERS_FILE)
+        text_top = "🏆 <b>BẢNG XẾP HẠNG NGƯỜI DÙNG (TOP SỐ DƯ):</b>\n\n"
+        if not users_db:
+            text_top += "<i>Chưa có dữ liệu.</i>"
+        else:
+            sorted_users = sorted(users_db.values(), key=lambda x: x.get('balance', 0.0), reverse=True)
+            for idx, u_info in enumerate(sorted_users[:10], 1):
+                text_top += f"<b>#{idx}</b> | 👤 {u_info.get('name')} — <code>${u_info.get('balance', 0.0):.4f}</code>\n"
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🔙 Quay lại", callback_data="close_menu"))
+        bot.send_message(chat_id, text_top, parse_mode="HTML", reply_markup=markup)
+
+    elif text == "❓ Help":
+        help_text = "❓ <b>HƯỚNG DẪN SỬ DỤNG</b>\n- Chọn <b>Get Number</b> để lấy số điện thoại nhận OTP.\n- Số có hiệu lực trong 15 phút, có thể bấm đổi số mới bất cứ lúc nào.\n- Số dư tối thiểu để rút là 5$."
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🔙 Quay lại", callback_data="close_menu"))
+        bot.send_message(chat_id, help_text, parse_mode="HTML", reply_markup=markup)
 
     elif text == "👑 Admin Panel" and uid == ADMIN_ID:
         markup = InlineKeyboardMarkup(row_width=1)
         markup.add(
             InlineKeyboardButton("💸 Duyệt lệnh rút tiền", callback_data="admin_view_withdraws"),
-            InlineKeyboardButton("🔄 Sync số mới", callback_data="admin_reload")
+            InlineKeyboardButton("🛡 Kiểm tra gian lận (Fraud Log)", callback_data="admin_view_fraud"),
+            InlineKeyboardButton("🔄 Sync số mới", callback_data="admin_reload"),
+            InlineKeyboardButton("🔙 Quay lại", callback_data="close_menu")
         )
-        bot.send_message(chat_id, "👑 <b>BẢNG ADMIN</b>", parse_mode="HTML", reply_markup=markup)
+        bot.send_message(chat_id, "👑 <b>BẢNG ADMIN TỐI CAO</b>", parse_mode="HTML", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callbacks(call):
@@ -293,117 +352,50 @@ def handle_callbacks(call):
         msg_id = call.message.message_id
         
         if data == "close_menu":
-            bot.answer_callback_query(call.id, "Đã hủy.")
-            bot.delete_message(chat_id, msg_id)
+            bot.answer_callback_query(call.id, "Đã đóng.")
+            try:
+                bot.delete_message(chat_id, msg_id)
+            except Exception:
+                pass
 
         elif data.startswith("country_"):
             code = data.replace("country_", "")
             if code in COUNTRY_CACHE:
-                numbers = COUNTRY_CACHE[code]["numbers"][:6]
+                all_nums = COUNTRY_CACHE[code]["numbers"]
+                # Lọc ra các số user chưa từng click
+                clicked = USER_CLICKED_NUMBERS.get(uid, [])
+                available = [n for n in all_nums if n not in clicked]
+                if not available:
+                    # Nếu đã xem hết thì reset vòng lặp cho user đó
+                    available = all_nums
+                
+                selected_num = available[0]
+                # Đánh dấu đã click
+                if uid not in USER_CLICKED_NUMBERS:
+                    USER_CLICKED_NUMBERS[uid] = []
+                if selected_num not in USER_CLICKED_NUMBERS[uid]:
+                    USER_CLICKED_NUMBERS[uid].append(selected_num)
+
+                masked = selected_num[:4] + "****" + selected_num[-2:]
+                
                 markup = InlineKeyboardMarkup(row_width=1)
-                for num in numbers:
-                    masked = num[:4] + "****" + num[-2:]
-                    markup.add(InlineKeyboardButton(f"📞 Lấy số: {masked}", callback_data=f"getnum_{num}"))
-                markup.add(InlineKeyboardButton("🔙 Quay Lại", callback_data="close_menu"))
-                bot.edit_message_text(f"📋 <b>Danh sách số ({code}):</b>", chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
+                markup.add(
+                    InlineKeyboardButton(f"📞 Số: {masked} (Hiệu lực 15p)", callback_data=f"getnum_{selected_num}"),
+                    InlineKeyboardButton("🔄 Đổi số khác ngay (Chưa từng xem)", callback_data=f"country_{code}"),
+                    InlineKeyboardButton("🔙 Quay lại danh sách", callback_data="back_to_countries")
+                )
+                bot.edit_message_text(f"📋 <b>Kho số quốc gia ({code}):</b>\nNhấn vào số để xác nhận nhận diện hoặc đổi số ngay lập tức.", chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
+
+        elif data == "back_to_countries":
+            countries = get_available_countries()
+            markup = InlineKeyboardMarkup(row_width=1)
+            for code, label in countries.items():
+                markup.add(InlineKeyboardButton(f"🌍 {label}", callback_data=f"country_{code}"))
+            markup.add(InlineKeyboardButton("🔙 Quay Lại", callback_data="close_menu"))
+            bot.edit_message_text("🌍 <b>CHỌN QUỐC GIA:</b>", chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
 
         elif data.startswith("getnum_"):
             phone = data.replace("getnum_", "")
-            USER_ACTIVE_PHONES[chat_id] = {"phone": phone}
-            bot.edit_message_text(f"✅ <b>ĐÃ CẤP SỐ:</b> <code>{phone}</code>", chat_id, msg_id, parse_mode="HTML")
-
-        elif data == "request_withdraw":
-            users = load_json_db(USERS_FILE)
-            bal = users.get(str(uid), {}).get("balance", 0.0)
-            if bal < 5.0:
-                bot.answer_callback_query(call.id, f"Chưa đủ 5$ để rút (Hiện có ${bal:.4f})!", show_alert=True)
-                return
-            bot.answer_callback_query(call.id)
-            USER_WITHDRAW_STATE[uid] = True
-            bot.send_message(chat_id, "📥 Gửi địa chỉ ví <b>USDT mạng TON</b>:", parse_mode="HTML")
-            bot.delete_message(chat_id, msg_id)
-
-        elif data == "cancel_withdraw":
-            USER_WITHDRAW_STATE[uid] = False
-            USER_PENDING_WALLET.pop(uid, None)
-            bot.answer_callback_query(call.id, "Đã hủy yêu cầu rút.")
-            bot.delete_message(chat_id, msg_id)
-
-        elif data == "confirm_withdraw":
-            wallet = USER_PENDING_WALLET.pop(uid, None)
-            USER_WITHDRAW_STATE[uid] = False
-            if not wallet:
-                bot.answer_callback_query(call.id, "Lỗi phiên giao dịch!", show_alert=True)
-                return
-            
-            users = load_json_db(USERS_FILE)
-            uid_str = str(uid)
-            bal = users.get(uid_str, {}).get("balance", 0.0)
-            
-            if bal < 5.0:
-                bot.answer_callback_query(call.id, "Số dư chưa đạt tối thiểu 5$!", show_alert=True)
-                return
-            
-            # Trừ tiền user và lưu vào lịch sử rút ngầm cho admin
-            users[uid_str]["balance"] = 0.0
-            save_json_db(USERS_FILE, users)
-            
-            history = load_json_db(WITHDRAW_HISTORY_FILE)
-            if uid_str not in history:
-                history[uid_str] = []
-            history[uid_str].append({
-                "amount": bal,
-                "wallet": wallet,
-                "status": "⏳ Đang chờ duyệt",
-                "time": datetime.datetime.now().strftime('%H:%M:%S - %d/%m/%Y')
-            })
-            save_json_db(WITHDRAW_HISTORY_FILE, history)
-            
-            bot.answer_callback_query(call.id, "Gửi lệnh rút thành công!")
-            bot.edit_message_text(f"✅ <b>Gửi lệnh rút thành công!</b>\nAdmin sẽ kiểm tra và thanh toán vào ví của bạn.", chat_id, msg_id, parse_mode="HTML")
-
-        elif data == "admin_view_withdraws" and uid == ADMIN_ID:
-            history = load_json_db(WITHDRAW_HISTORY_FILE)
-            pending = [(u, i, it) for u, items in history.items() for i, it in enumerate(items) if "⏳" in it.get("status", "")]
-            if not pending:
-                bot.answer_callback_query(call.id, "Không có lệnh rút nào đang chờ!", show_alert=True)
-                return
-            markup = InlineKeyboardMarkup(row_width=1)
-            text_p = "💸 <b>LỆNH RÚT ĐANG CHỜ DUYỆT:</b>\n\n"
-            for u_id, idx, it in pending[:5]:
-                text_p += f"• ID {u_id} | ${it.get('amount'):.4f}\n"
-                markup.add(InlineKeyboardButton(f"✅ Duyệt ID {u_id} (${it.get('amount')})", callback_data=f"done_w_{u_id}_{idx}"))
-            bot.edit_message_text(text_p, chat_id, msg_id, parse_mode="HTML", markup=markup if 'markup' in locals() else None)
-
-        elif data.startswith("done_w_") and uid == ADMIN_ID:
-            parts = data.split("_")
-            target_uid, item_idx = parts[2], int(parts[3])
-            history = load_json_db(WITHDRAW_HISTORY_FILE)
-            if target_uid in history and len(history[target_uid]) > item_idx:
-                history[target_uid][item_idx]["status"] = "✅ Đã thanh toán thành công"
-                save_json_db(WITHDRAW_HISTORY_FILE, history)
-                try:
-                    bot.send_message(int(target_uid), "🎉 <b>Yêu cầu rút tiền của bạn đã được Admin duyệt và thanh toán USDT thành công!</b>", parse_mode="HTML")
-                except Exception:
-                    pass
-                bot.answer_callback_query(call.id, "Đã duyệt lệnh rút thành công!", show_alert=True)
-
-        elif data == "admin_reload" and uid == ADMIN_ID:
-            _, count = load_text_batch()
-            bot.answer_callback_query(call.id, f"Đã load {count} dòng số thành công!", show_alert=True)
-
-    except Exception as e:
-        print(f"Lỗi callback: {e}")
-
-# ==========================================
-# 🚀 KHỞI ĐỘNG ỨNG DỤNG
-# ==========================================
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "")
-    if RENDER_URL:
-        bot.remove_webhook()
-        time.sleep(1)
-        bot.set_webhook(url=f"{RENDER_URL}/{TOKEN}")
-    app.run(host='0.0.0.0', port=port)
-    
+            USER_ACTIVE_PHONES[chat_id] = {"phone": phone, "expire": time.time() + 900}
+            log_fraud(uid, f"Nhận số thành công: {phone}")
+            bot.edit_message_text(f"✅ <b>ĐÃ CẤP
