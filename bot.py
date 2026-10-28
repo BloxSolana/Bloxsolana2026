@@ -40,7 +40,7 @@ def webhook():
     return '', 403
 
 # ==========================================
-# 🚀 3. ENDPOINT NHẬN SMS & LỌC OTP HOÀN HẢO (HỖ TRỢ ĐỊNH DẠNG 693-423)
+# 🚀 3. ENDPOINT NHẬN SMS & TỰ ĐỘNG NHẬN DIỆN 195+ QUỐC GIA CHUẨN XÁC
 # ==========================================
 @app.route('/api/push-sms', methods=['POST'])
 def api_push_sms_handler():
@@ -50,51 +50,53 @@ def api_push_sms_handler():
             return {"status": "error", "message": "Unauthorized"}, 403
 
         raw_text = data.get("raw_text", "")
-        service_name = data.get("service", "WhatsApp")
+        service_name = data.get("service", "Facebook")
         country_name = data.get("country", "")
 
         useless_phrases = ["No SMS found", "Range Count", "Client System", "Dashboard", "TRUSTED PREMIUM SMS"]
-        if not raw_text or (any(p in raw_text for p in useless_phrases) and len(raw_text) < 30):
+        if not raw_text or (any(p in raw_text for p in useless_phrases) and len(raw_text) < 20):
             return {"status": "ignored"}, 200
 
-        phones = re.findall(r'\+?\d{8,15}', raw_text)
+        # Lấy số điện thoại từ request gửi lên hoặc quét trong raw_text
         extracted_phone = data.get("phone", "")
-        if not extracted_phone and phones:
-            extracted_phone = phones[0]
+        if not extracted_phone:
+            phones = re.findall(r'\+?[0-9]{10,15}', raw_text)
+            if phones:
+                extracted_phone = phones[0]
 
+        # TỰ ĐỘNG NHẬN DIỆN QUỐC GIA CHUẨN TỪ SỐ ĐIỆN THOẠI (KHÔNG BAO GIỜ BỊ NHẦM LẪN NỮA)
         if extracted_phone:
             c_name, c_code = get_country_info(extracted_phone)
             country_name = c_name
         elif not country_name or country_name.lower() in ["global", "unknown", ""]:
-            country_name = "Tajikistan (+992)"
+            country_name = "Russia (+7)"
 
-        # THUẬT TOÁN LỌC OTP TỐI ƯU TUYỆT ĐỐI
+        # THUẬT TOÁN BÓC TÁCH MÃ OTP ĐA DẠNG (Bắt cả 5 số như Facebook: 30908, WhatsApp: 693-423,...)
         otp_display = "Not Found"
         
-        # 1. Ưu tiên tìm ngay định dạng chuẩn 3 số - 3 số (ví dụ: 693-423 của WhatsApp)[cite: 6, 14]
-        dash_otp = re.search(r'\b([0-9]{3}\-[0-9]{3})\b', raw_text)
-        if dash_otp:
-            otp_display = dash_otp.group(1).replace("-", "")
+        # 1. Bắt định dạng gạch ngang (VD: 693-423)[cite: 6, 14]
+        dash_match = re.search(r'\b([0-9]{3}\-[0-9]{3})\b', raw_text)
+        if dash_match:
+            otp_display = dash_match.group(1).replace("-", "")
         else:
-            # 2. Tìm theo từ khóa (hỗ trợ cả chữ K Latin lẫn Cyrillic trong Koд / код)
-            match_pattern = re.search(r'(?:[кKk][оoOО][дД]|code|ma|otp|pin)[:\s\-]*([0-9]{3}[\-\s]?[0-9]{3}|[0-9]{4,8})', raw_text, re.IGNORECASE)
-            if match_pattern:
-                raw_otp = match_pattern.group(1)
-                cleaned_otp = raw_otp.replace("-", "").replace(" ", "")
-                if not cleaned_otp.startswith(('2026', '2025', '0120')):
-                    otp_display = cleaned_otp
+            # 2. Bắt cụm 5 hoặc 6 chữ số đứng độc lập (VD: 30908 của Facebook)
+            all_digits = re.findall(r'\b\d{5,6}\b', raw_text)
+            valid_digits = [d for d in all_digits if not d.startswith(('2026', '2025', '0120'))]
+            if valid_digits:
+                otp_display = valid_digits[-1]
             else:
-                # 3. Quét chuỗi 6 chữ số liên tiếp nếu có
-                all_digits = re.findall(r'\b\d{6}\b', raw_text)
-                valid_digits = [d for d in all_digits if not d.startswith(('2026', '2025', '0120'))]
-                if valid_digits:
-                    otp_display = valid_digits[-1]
+                # 3. Dự phòng bắt chuỗi 4 chữ số nếu mã ngắn
+                all_4 = re.findall(r'\b\d{4}\b', raw_text)
+                valid_4 = [d for d in all_4 if not d.startswith(('2026', '2025', '0120'))]
+                if valid_4:
+                    otp_display = valid_4[-1]
 
-        masked_phone = "+992985****77"
+        # Chuẩn hóa hiển thị số điện thoại che giữa
+        masked_phone = "+790280****50"
         if extracted_phone:
             clean_p = re.sub(r'\D', '', extracted_phone)
             if len(clean_p) >= 10:
-                masked_phone = ("+" if extracted_phone.startswith("+") else "") + clean_p[:5] + "****" + clean_p[-3:]
+                masked_phone = ("+" if extracted_phone.startswith("+") else "") + clean_p[:5] + "****" + clean_p[-2:]
             else:
                 masked_phone = extracted_phone
 
@@ -114,7 +116,7 @@ def api_push_sms_handler():
         return {"status": "error", "message": str(e)}, 500
 
 # ==========================================
-# ⚙️ 4. QUẢN LÝ DỮ LIỆU & BỘ TỪ ĐIỂN 195+ QUỐC GIA
+# ⚙️ 4. BỘ TỪ ĐIỂN 195+ QUỐC GIA CHUẨN XÁC
 # ==========================================
 USER_ACTIVE_PHONES = {}      
 USER_CLICKED_NUMBERS = {}    
@@ -143,23 +145,24 @@ def save_json_db(filename, data):
 DELETED_NUMBERS = load_json_db(DELETED_NUMBERS_FILE)
 
 GLOBAL_COUNTRY_PREFIXES = {
+    "7": ("🇷🇺 Russia / Kazakhstan (+7)", "RU"), "1": ("🇺🇸 USA / Canada (+1)", "US"),
     "992": ("🇹🇯 Tajikistan (+992)", "TJ"), "993": ("🇹🇲 Turkmenistan (+993)", "TM"),
-    "994": ("🇦🇿 Azerbaijan (+994)", "AZ"), "995": ("🇬🇪 Georgia (+995)", "GE"), "996": ("🇰🇬 Kyrgyzstan (+996)", "KG"),
-    "998": ("🇺🇿 Uzbekistan (+998)", "UZ"), "972": ("🇮🇱 Israel (+972)", "IL"), "971": ("🇦🇪 UAE (+971)", "AE"),
-    "966": ("🇸🇦 Saudi Arabia (+966)", "SA"), "965": ("🇰🇼 Kuwait (+965)", "KW"), "974": ("🇶🇦 Qatar (+974)", "QA"),
-    "973": ("🇧🇭 Bahrain (+973)", "BH"), "968": ("🇴🇲 Oman (+968)", "OM"), "962": ("🇯🇴 Jordan (+962)", "JO"),
-    "961": ("🇱🇧 Lebanon (+961)", "LB"), "963": ("🇸🇾 Syria (+963)", "SY"), "964": ("🇮🇶 Iraq (+964)", "IQ"),
-    "98": ("🇮🇷 Iran (+98)", "IR"), "93": ("🇦🇫 Afghanistan (+93)", "AF"), "94": ("🇱🇰 Sri Lanka (+94)", "LK"),
-    "92": ("🇵🇰 Pakistan (+92)", "PK"), "91": ("🇮🇳 India (+91)", "IN"), "880": ("🇧🇩 Bangladesh (+880)", "BD"),
-    "86": ("🇨🇳 China (+86)", "CN"), "81": ("🇯🇵 Japan (+81)", "JP"), "82": ("🇰🇷 South Korea (+82)", "KR"),
-    "84": ("🇻🇳 Vietnam (+84)", "VN"), "66": ("🇹🇭 Thailand (+66)", "TH"), "62": ("🇮🇩 Indonesia (+62)", "ID"),
-    "60": ("🇲🇾 Malaysia (+60)", "MY"), "63": ("🇵🇭 Philippines (+63)", "PH"), "65": ("🇸🇬 Singapore (+65)", "SG"),
-    "855": ("🇰🇭 Cambodia (+855)", "KH"), "856": ("🇱🇦 Laos (+855)", "LA"), "95": ("🇲🇲 Myanmar (+95)", "MM"),
-    "1809": ("🇩🇴 Dominican Rep (+1-809)", "DO"), "1": ("🇺🇸 USA / Canada (+1)", "US"), "52": ("🇲🇽 Mexico (+52)", "MX"),
-    "55": ("🇧🇷 Brazil (+55)", "BR"), "54": ("🇦🇷 Argentina (+54)", "AR"), "57": ("🇨🇴 Colombia (+57)", "CO"),
-    "51": ("🇵🇪 Peru (+51)", "PE"), "58": ("🇻🇪 Venezuela (+58)", "VE"), "56": ("🇨🇱 Chile (+56)", "CL"),
-    "44": ("🇬🇧 United Kingdom (+44)", "UK"), "33": ("🇫🇷 France (+33)", "FR"), "49": ("🇩🇪 Germany (+49)", "DE"),
-    "39": ("🇮🇹 Italy (+39)", "IT"), "34": ("🇪🇸 Spain (+34)", "ES"), "7": ("🇷🇺 Russia / Kazakhstan (+7)", "RU"),
+    "994": ("🇦🇿 Azerbaijan (+994)", "AZ"), "995": ("🇬🇪 Georgia (+995)", "GE"),
+    "996": ("🇰🇬 Kyrgyzstan (+996)", "KG"), "998": ("🇺🇿 Uzbekistan (+998)", "UZ"),
+    "972": ("🇮🇱 Israel (+972)", "IL"), "971": ("🇦🇪 UAE (+971)", "AE"), "966": ("🇸🇦 Saudi Arabia (+966)", "SA"),
+    "965": ("🇰🇼 Kuwait (+965)", "KW"), "974": ("🇶🇦 Qatar (+974)", "QA"), "973": ("🇧🇭 Bahrain (+973)", "BH"),
+    "968": ("🇴🇲 Oman (+968)", "OM"), "962": ("🇯🇴 Jordan (+962)", "JO"), "961": ("🇱🇧 Lebanon (+961)", "LB"),
+    "963": ("🇸🇾 Syria (+963)", "SY"), "964": ("🇮🇶 Iraq (+964)", "IQ"), "98": ("🇮🇷 Iran (+98)", "IR"),
+    "93": ("🇦🇫 Afghanistan (+93)", "AF"), "94": ("🇱🇰 Sri Lanka (+94)", "LK"), "92": ("🇵🇰 Pakistan (+92)", "PK"),
+    "91": ("🇮🇳 India (+91)", "IN"), "880": ("🇧🇩 Bangladesh (+880)", "BD"), "86": ("🇨🇳 China (+86)", "CN"),
+    "81": ("🇯🇵 Japan (+81)", "JP"), "82": ("🇰🇷 South Korea (+82)", "KR"), "84": ("🇻🇳 Vietnam (+84)", "VN"),
+    "66": ("🇹🇭 Thailand (+66)", "TH"), "62": ("🇮🇩 Indonesia (+62)", "ID"), "60": ("🇲🇾 Malaysia (+60)", "MY"),
+    "63": ("🇵🇭 Philippines (+63)", "PH"), "65": ("🇸🇬 Singapore (+65)", "SG"), "855": ("🇰🇭 Cambodia (+855)", "KH"),
+    "856": ("🇱🇦 Laos (+855)", "LA"), "95": ("🇲🇲 Myanmar (+95)", "MM"), "1809": ("🇩🇴 Dominican Rep (+1-809)", "DO"),
+    "52": ("🇲🇽 Mexico (+52)", "MX"), "55": ("🇧🇷 Brazil (+55)", "BR"), "54": ("🇦🇷 Argentina (+54)", "AR"),
+    "57": ("🇨🇴 Colombia (+57)", "CO"), "51": ("🇵🇪 Peru (+51)", "PE"), "58": ("🇻🇪 Venezuela (+58)", "VE"),
+    "56": ("🇨🇱 Chile (+56)", "CL"), "44": ("🇬🇧 United Kingdom (+44)", "UK"), "33": ("🇫🇷 France (+33)", "FR"),
+    "49": ("🇩🇪 Germany (+49)", "DE"), "39": ("🇮🇹 Italy (+39)", "IT"), "34": ("🇪🇸 Spain (+34)", "ES"),
     "380": ("🇺🇦 Ukraine (+380)", "UA"), "48": ("🇵🇱 Poland (+48)", "PL"), "31": ("🇳🇱 Netherlands (+31)", "NL"),
     "32": ("🇧🇪 Belgium (+32)", "BE"), "41": ("🇨🇭 Switzerland (+41)", "CH"), "43": ("🇦🇹 Austria (+43)", "AT"),
     "46": ("🇸🇪 Sweden (+46)", "SE"), "47": ("🇳🇴 Norway (+47)", "NO"), "45": ("🇩🇰 Denmark (+45)", "DK"),
