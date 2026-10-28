@@ -5,7 +5,6 @@ from bs4 import BeautifulSoup
 import re
 import datetime
 import os
-import threading
 import json
 import time
 import random
@@ -24,7 +23,7 @@ BRIDGE_API_KEY = "khoibro_secret_bridge_key_123"
 bot = telebot.TeleBot(TOKEN)
 
 # ==========================================
-# 🌐 2. FLASK WEB SERVER (GIỮ BOT ONLINE 24/7)
+# 🌐 2. FLASK WEB SERVER (CHUẨN PORT RENDER 24/7)
 # ==========================================
 app = Flask(__name__)
 
@@ -32,14 +31,23 @@ app = Flask(__name__)
 def home():
     return "Bot IVASMS OTP Global Webhook Server đang chạy 24/7 trên Render!"
 
+@app.route(f'/{TOKEN}', methods=['POST'])
+def webhook():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return '', 200
+    else:
+        return '', 403
+
 # ==========================================
-# 🚀 3. ENDPOINT NHẬN SMS: BẮT TRỌN OTP, ẨN RÁC, CHUẨN MẪU
+# 🚀 3. ENDPOINT NHẬN SMS: BẮT TRỌN OTP, ẨN RÁC
 # ==========================================
 @app.route('/api/push-sms', methods=['POST'])
 def api_push_sms_handler():
     try:
         data = request.json if request.is_json else {}
-        
         client_key = data.get("key", "")
         if client_key and client_key != BRIDGE_API_KEY:
             return {"status": "error", "message": "Unauthorized API Key"}, 403
@@ -63,13 +71,7 @@ def api_push_sms_handler():
             otp_display = match_pattern.group(1)
         else:
             all_nums = re.findall(r'\b\d{4,6}\b', raw_text)
-            valid_nums = []
-            for n in all_nums:
-                if n.startswith('2026') or n.startswith('2025'):
-                    continue
-                if f"${n}" in raw_text or f".{n}" in raw_text:
-                    continue
-                valid_nums.append(n)
+            valid_nums = [n for n in all_nums if not n.startswith('2026') and not n.startswith('2025')]
             if valid_nums:
                 otp_display = valid_nums[-1]
 
@@ -79,8 +81,7 @@ def api_push_sms_handler():
             p = phones[0]
             clean_p = re.sub(r'\D', '', p)
             if len(clean_p) >= 8:
-                prefix_sign = "+" if p.startswith("+") else ""
-                masked_phone = prefix_sign + clean_p[:4] + "****" + clean_p[-2:]
+                masked_phone = ("+" if p.startswith("+") else "") + clean_p[:4] + "****" + clean_p[-2:]
             else:
                 masked_phone = p
         if not masked_phone:
@@ -96,30 +97,14 @@ def api_push_sms_handler():
         
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton(f"🚀 {country_name} {service_name} ↗", url=GROUP_OTP_LINK))
-        
         bot.send_message(GROUP_CHAT_ID, group_msg, parse_mode="HTML", reply_markup=markup)
         return {"status": "success", "message": "SMS handled successfully"}, 200
     except Exception as e:
         return {"status": "error", "message": str(e)}, 500
 
-def run_web():
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
-
-try:
-    bot.remove_webhook()
-except Exception as e:
-    print(f"Xử lý Webhook: {e}")
-
 # ==========================================
 # ⚙️ 4. QUẢN LÝ DỮ LIỆU & KHO SỐ
 # ==========================================
-session = requests.Session()
-headers = {
-    'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-    'X-Requested-With': 'XMLHttpRequest'
-}
-
 USER_ACTIVE_PHONES = {}      
 OTP_ACTIVE_SESSIONS = {}     
 PHONE_CREATION_TIME = {}     
@@ -135,23 +120,6 @@ WITHDRAW_HISTORY_FILE = "withdraw_history.json"
 DELETED_NUMBERS_FILE = "deleted_numbers.json"
 USER_LAST_ACTION = {}        
 
-DEFAULT_SETTINGS = {
-    "min_withdraw": 5.0,        
-    "max_withdraw": 100.0,
-    "otp_reward": 0.009,        
-    "refer_bonus": 0.01,
-}
-
-def load_settings():
-    if not os.path.exists(SETTINGS_FILE):
-        save_json_db(SETTINGS_FILE, DEFAULT_SETTINGS)
-        return DEFAULT_SETTINGS
-    return load_json_db(SETTINGS_FILE)
-
-def save_json_db(filename, data):
-    with open(filename, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
-
 def load_json_db(filename):
     if os.path.exists(filename):
         try:
@@ -160,6 +128,10 @@ def load_json_db(filename):
         except Exception:
             return {}
     return {}
+
+def save_json_db(filename, data):
+    with open(filename, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
 def load_deleted_numbers():
     if os.path.exists(DELETED_NUMBERS_FILE):
@@ -170,33 +142,14 @@ def load_deleted_numbers():
             return set()
     return set()
 
+DELETED_NUMBERS = load_deleted_numbers()
+
 def save_deleted_numbers(deleted_set):
     try:
         with open(DELETED_NUMBERS_FILE, "w", encoding="utf-8") as f:
             json.dump(list(deleted_set), f, ensure_ascii=False, indent=4)
     except Exception:
         pass
-
-DELETED_NUMBERS = load_deleted_numbers()
-
-def remove_number_from_file(target_phone):
-    DELETED_NUMBERS.add(target_phone)
-    save_deleted_numbers(DELETED_NUMBERS)
-    file_path = "numbers.txt"
-    if os.path.exists(file_path):
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                lines = f.readlines()
-            new_lines = []
-            target_clean = target_phone.replace("+", "").strip()
-            for line in lines:
-                line_clean = re.sub(r'\D', '', line)
-                if line_clean != target_clean and line_clean:
-                    new_lines.append(line)
-            with open(file_path, "w", encoding="utf-8") as f:
-                f.writelines(new_lines)
-        except Exception as e:
-            print(f"Lỗi khi xóa số khỏi file: {e}")
 
 def get_user(uid, name="", username=""):
     users = load_json_db(USERS_FILE)
@@ -224,11 +177,11 @@ def check_user_status(user_id, name=""):
         info = spam_data[uid]
         ban_until = info.get("ban_until", 0)
         if ban_until == 0 or now < ban_until:
-            return False, "⛔ Tài khoản của bạn đang bị khóa tạm thời hoặc vĩnh viễn do thao tác quá nhanh."
+            return False, "⛔ Tài khoản của bạn đang bị khóa tạm thời do thao tác quá nhanh."
     return True, ""
 
 # ==========================================
-# 🌍 6. BỘ TỪ ĐIỂN FULL 195+ QUỐC GIA CHUẨN XÁC
+# 🌍 5. BỘ TỪ ĐIỂN 195+ QUỐC GIA ĐẦY ĐỦ NHẤT
 # ==========================================
 GLOBAL_COUNTRY_PREFIXES = {
     "1": ("🇺🇸 Mỹ / Canada (+1)", "US"), "52": ("🇲🇽 Mexico (+52)", "MX"), "53": ("🇨🇺 Cuba (+53)", "CU"),
@@ -315,16 +268,7 @@ def get_country_info(phone):
     fallback_code = p[:2] if len(p) >= 2 else p[:1]
     return f"🌐 Quốc tế Khác (+{fallback_code})", f"OTHER_{fallback_code}"
 
-def clean_expired_sessions():
-    now = time.time()
-    for phone, create_time in list(PHONE_CREATION_TIME.items()):
-        if now - create_time > 900:
-            remove_number_from_file(phone)
-            PHONE_CREATION_TIME.pop(phone, None)
-            OTP_ACTIVE_SESSIONS.pop(phone, None)
-
 def load_text_batch():
-    clean_expired_sessions()
     file_path = "numbers.txt"
     if os.path.exists(file_path):
         try:
@@ -338,8 +282,6 @@ def load_text_batch():
                     if len(digits_only) >= 7:
                         formatted = "+" + digits_only
                         if formatted not in DELETED_NUMBERS:
-                            if formatted not in PHONE_CREATION_TIME:
-                                PHONE_CREATION_TIME[formatted] = time.time()
                             name, code = get_country_info(formatted)
                             if code not in temp_cache:
                                 temp_cache[code] = {"name": name, "numbers": []}
@@ -354,30 +296,16 @@ def load_text_batch():
 
 load_text_batch()
 
-def is_phone_busy(phone):
-    if phone in OTP_ACTIVE_SESSIONS:
-        return True
-    return any(info.get("phone") == phone for info in USER_ACTIVE_PHONES.values())
-
-def get_numbers_by_category(category_code, page=0, limit=6):
-    clean_expired_sessions()
-    if category_code in COUNTRY_CACHE:
-        all_nums = [n for n in COUNTRY_CACHE[category_code]["numbers"] if not is_phone_busy(n) and n not in DELETED_NUMBERS]
-        start = page * limit
-        return all_nums[start:start+limit], len(all_nums)
-    return [], 0
-
 def get_available_countries():
-    clean_expired_sessions()
     valid_countries = {}
     for code, data in COUNTRY_CACHE.items():
-        active_nums = [n for n in data["numbers"] if not is_phone_busy(n) and n not in DELETED_NUMBERS]
+        active_nums = [n for n in data["numbers"] if n not in DELETED_NUMBERS]
         if active_nums:
             valid_countries[code] = f"{data['name']} — [{len(active_nums)} Số]"
     return valid_countries
 
 # ==========================================
-# ⌨️ 7. GIAO DIỆN BÀN PHÍM MENU DƯỚI
+# ⌨️ 6. GIAO DIỆN BÀN PHÍM MENU DƯỚI
 # ==========================================
 def get_main_menu_markup(is_admin=False):
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -395,4 +323,52 @@ def get_main_menu_markup(is_admin=False):
 def cmd_start(message):
     uid = message.from_user.id
     name = message.from_user.first_name or "Bạn"
-    ok, err_msg = check_u
+    ok, err_msg = check_user_status(uid, name)
+    if not ok:
+        bot.send_message(uid, err_msg, parse_mode="HTML")
+        return
+    get_user(uid, name, message.from_user.username or "")
+    text = f"👋 Chào mừng <b>{name}</b> đến với hệ thống <b>IVASMS OTP Global</b>!\n\n🌐 Tự động nhận diện 195+ quốc gia."
+    bot.send_message(uid, text, parse_mode="HTML", reply_markup=get_main_menu_markup(uid == ADMIN_ID))
+
+@bot.message_handler(func=lambda message: True)
+def handle_text_messages(message):
+    uid = message.from_user.id
+    text = message.text
+    chat_id = message.chat.id
+
+    ok, err_msg = check_user_status(uid)
+    if not ok:
+        bot.send_message(chat_id, err_msg, parse_mode="HTML")
+        return
+
+    if uid in USER_WITHDRAW_STATE and USER_WITHDRAW_STATE[uid]:
+        wallet_addr = text.strip()
+        TON_REGEX = re.compile(r'^(EQ|UQ)[A-Za-z0-9\-_]{46}$')
+        if not TON_REGEX.match(wallet_addr):
+            bot.send_message(chat_id, "❌ <b>Địa chỉ ví không hợp lệ!</b> Ví TON phải bắt đầu bằng EQ hoặc UQ và có đúng 48 ký tự:", parse_mode="HTML")
+            return
+        USER_PENDING_WALLET[uid] = wallet_addr
+        USER_WITHDRAW_STATE[uid] = False
+        user_info = get_user(uid)
+        current_bal = user_info.get("balance", 0.0)
+        markup = InlineKeyboardMarkup(row_width=2)
+        markup.add(InlineKeyboardButton("✅ Xác Nhận", callback_data="confirm_withdraw_action"), InlineKeyboardButton("❌ Hủy", callback_data="cancel_withdraw"))
+        bot.send_message(chat_id, f"🔍 <b>XÁC NHẬN RÚT</b>\n💵 Số tiền: <b>${current_bal:.4f} USDT</b>\n📤 Ví: <code>{wallet_addr}</code>", parse_mode="HTML", reply_markup=markup)
+        return
+
+    if text in ["📞 Get Number", "🔍 Search with Prefix"]:
+        countries = get_available_countries()
+        if not countries:
+            bot.send_message(chat_id, "❌ Kho số hiện tại đang trống!")
+            return
+        markup = InlineKeyboardMarkup(row_width=1)
+        for code, label in countries.items():
+            markup.add(InlineKeyboardButton(f"🌍 {label}", callback_data=f"country_{code}_0"))
+        bot.send_message(chat_id, "🌍 <b>CHỌN QUỐC GIA (195+):</b>", parse_mode="HTML", reply_markup=markup)
+
+    elif text == "💰 My Balance":
+        user_info = get_user(uid)
+        markup = InlineKeyboardMarkup(row_width=2)
+        markup.add(InlineKeyboardButton("💸 Withdraw (USDT TON)", callback_data="request_withdraw"), InlineKeyboardButton("📜 Lịch sử rút", callback_data="withdraw_history"))
+        bot.send_mess
