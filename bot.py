@@ -96,7 +96,6 @@ def fetch_numbers_from_github():
             file_content_str = decoded_bytes.decode("utf-8")
             with open(FILE_PATH, "w", encoding="utf-8") as f:
                 f.write(file_content_str)
-            print("🌐 [SYNC] Đã tải và đồng bộ numbers.txt trực tiếp từ GitHub về thành công!")
             return True
     except Exception as e:
         print(f"⚠️ Lỗi tải file từ GitHub: {e}")
@@ -130,7 +129,21 @@ def push_numbers_to_github(numbers_list):
         print(f"⚠️ Lỗi đẩy GitHub khi xóa số hết hạn: {e}")
 
 # ==========================================
-# ⏰ 4. LUỒNG CHẠY NGẦM TỰ ĐỘNG XÓA SỐ SAU 15 PHÚT
+# 🔄 LUỒNG ĐỒNG BỘ KHO SỐ TỪ GITHUB REAL-TIME
+# ==========================================
+def github_sync_worker():
+    while True:
+        try:
+            time.sleep(60) # Cứ mỗi 60 giây tự động kéo dữ liệu mới nhất từ GitHub về
+            fetch_numbers_from_github()
+            load_text_batch()
+        except Exception as e:
+            print(f"⚠️ Lỗi luồng đồng bộ GitHub ngầm: {e}")
+
+threading.Thread(target=github_sync_worker, daemon=True).start()
+
+# ==========================================
+# ⏰ LUỒNG CHẠY NGẦM TỰ ĐỘNG XÓA SỐ SAU 15 PHÚT
 # ==========================================
 def background_expiry_worker():
     while True:
@@ -168,7 +181,6 @@ def background_expiry_worker():
                             
                             push_numbers_to_github(new_lines)
                             load_text_batch()
-                            print(f"🗑️ [EXPIRE] Đã tự động xóa duy nhất số hết hạn {phone_to_remove} khỏi numbers.txt & GitHub!")
 
             for chat_id in expired_keys:
                 USER_ACTIVE_PHONES.pop(chat_id, None)
@@ -179,7 +191,7 @@ def background_expiry_worker():
 threading.Thread(target=background_expiry_worker, daemon=True).start()
 
 # ==========================================
-# 🚀 5. ENDPOINT NHẬN SMS & FORMAT CHUẨN MẪU ZM OTP (LỌC NOT FOUND)
+# 🚀 5. ENDPOINT NHẬN SMS & FORMAT CHUẨN MẪU ZM OTP
 # ==========================================
 @app.route('/api/push-sms', methods=['POST'])
 def api_push_sms_handler():
@@ -194,7 +206,6 @@ def api_push_sms_handler():
         if not raw_text or (any(p in raw_text for p in useless_phrases) and len(raw_text) < 20):
             return {"status": "ignored"}, 200
 
-        # BÓC TÁCH MÃ OTP CHUẨN XÁC
         otp_display = None
         dash_match = re.search(r'\b([0-9]{3}\-[0-9]{3})\b', raw_text)
         if dash_match:
@@ -218,91 +229,59 @@ def api_push_sms_handler():
                     if valid_4:
                         otp_display = valid_4[-1]
 
-        # LỌC KHÔNG GỬI NẾU KHÔNG CÓ OTP
         if not otp_display or otp_display == "Not Found":
             return {"status": "ignored_no_otp"}, 200
 
         text_upper = raw_text.upper()
         service_name = "Other Service"
         
-        if "WHATSAPP" in text_upper:
-            service_name = "WhatsApp"
-        elif "TELEGRAM" in text_upper:
-            service_name = "Telegram"
-        elif "FACEBOOK" in text_upper or "MA FACEBOOK" in text_upper or "FB" in text_upper:
-            service_name = "Facebook"
-        elif "TIKTOK" in text_upper:
-            service_name = "TikTok"
-        elif "SHOPEE" in text_upper:
-            service_name = "Shopee"
-        elif "PAYPAL" in text_upper:
-            service_name = "PayPal"
-        elif "UBER" in text_upper:
-            service_name = "Uber"
-        elif "APPLE" in text_upper or "ICLOUD" in text_upper:
-            service_name = "Apple"
-        elif "YANGO" in text_upper:
-            service_name = "Yango"
-        elif "MICROSOFT" in text_upper or "MS" in text_upper:
-            service_name = "Microsoft"
-        elif "AUTHMSG" in text_upper:
-            service_name = "AUTHMSG"
-        elif "TENCENT" in text_upper:
-            service_name = "Tencent"
-        elif "AMAZON" in text_upper:
-            service_name = "Amazon"
-        elif "LALAMOVE" in text_upper:
-            service_name = "Lalamove"
-        elif "PTAK" in text_upper:
-            service_name = "PTAK"
-        elif "NETFLIX" in text_upper:
-            service_name = "Netflix"
-        elif "MELBET" in text_upper:
-            service_name = "Melbet"
-        elif "TWVERIFY" in text_upper or "TWITTER" in text_upper or "X.COM" in text_upper:
-            service_name = "TWVerify"
-        elif "MSVERIFY" in text_upper:
-            service_name = "MSVERIFY"
-        elif "NCSOFT" in text_upper:
-            service_name = "NCSOFT"
-        elif "GOOGLE" in text_upper or "G-" in text_upper:
-            service_name = "Google"
-        elif "INSTAGRAM" in text_upper or "IG" in text_upper:
-            service_name = "Instagram"
-        elif "DISCORD" in text_upper:
-            service_name = "Discord"
-        elif "ZALO" in text_upper:
-            service_name = "Zalo"
-        elif "VERIFY" in text_upper:
-            service_name = "VERIFY"
+        if "WHATSAPP" in text_upper: service_name = "WhatsApp"
+        elif "TELEGRAM" in text_upper: service_name = "Telegram"
+        elif "FACEBOOK" in text_upper or "MA FACEBOOK" in text_upper or "FB" in text_upper: service_name = "Facebook"
+        elif "TIKTOK" in text_upper: service_name = "TikTok"
+        elif "SHOPEE" in text_upper: service_name = "Shopee"
+        elif "PAYPAL" in text_upper: service_name = "PayPal"
+        elif "UBER" in text_upper: service_name = "Uber"
+        elif "APPLE" in text_upper or "ICLOUD" in text_upper: service_name = "Apple"
+        elif "YANGO" in text_upper: service_name = "Yango"
+        elif "MICROSOFT" in text_upper or "MS" in text_upper: service_name = "Microsoft"
+        elif "AUTHMSG" in text_upper: service_name = "AUTHMSG"
+        elif "TENCENT" in text_upper: service_name = "Tencent"
+        elif "AMAZON" in text_upper: service_name = "Amazon"
+        elif "LALAMOVE" in text_upper: service_name = "Lalamove"
+        elif "PTAK" in text_upper: service_name = "PTAK"
+        elif "NETFLIX" in text_upper: service_name = "Netflix"
+        elif "MELBET" in text_upper: service_name = "Melbet"
+        elif "TWVERIFY" in text_upper or "TWITTER" in text_upper or "X.COM" in text_upper: service_name = "TWVerify"
+        elif "MSVERIFY" in text_upper: service_name = "MSVERIFY"
+        elif "NCSOFT" in text_upper: service_name = "NCSOFT"
+        elif "GOOGLE" in text_upper or "G-" in text_upper: service_name = "Google"
+        elif "INSTAGRAM" in text_upper or "IG" in text_upper: service_name = "Instagram"
+        elif "DISCORD" in text_upper: service_name = "Discord"
+        elif "ZALO" in text_upper: service_name = "Zalo"
+        elif "VERIFY" in text_upper: service_name = "VERIFY"
 
         record_service_message(service_name)
 
         extracted_phone = data.get("phone", "")
         if not extracted_phone or extracted_phone == "+790280****50":
             phones = re.findall(r'\+?[0-9]{10,15}', raw_text)
-            if phones:
-                extracted_phone = phones[0]
+            if phones: extracted_phone = phones[0]
 
         if not extracted_phone:
             plus_phones = re.findall(r'\+[0-9]{10,14}', raw_text)
-            if plus_phones:
-                extracted_phone = plus_phones[0]
+            if plus_phones: extracted_phone = plus_phones[0]
 
         country_display = "🇷🇺 Russia (+7)"
-        country_code = "RU"
         if extracted_phone:
-            c_name, c_code = get_country_info(extracted_phone)
+            c_name, _ = get_country_info(extracted_phone)
             country_display = c_name
-            country_code = c_code
 
         masked_phone = "+790280****50"
         if extracted_phone:
             clean_p = re.sub(r'\D', '', extracted_phone)
             if len(clean_p) >= 8:
-                prefix_p = "+" + clean_p[:2]
-                suffix_p = clean_p[-3:]
-                masked_phone = f"{prefix_p}**{suffix_p}"
+                masked_phone = f"+{clean_p[:2]}**{clean_p[-3:]}"
             else:
                 masked_phone = extracted_phone
 
@@ -399,9 +378,7 @@ def extract_phone_without_cc(phone):
     return p
 
 def load_text_batch():
-    # Tự động tải từ GitHub về trước khi xử lý
     fetch_numbers_from_github()
-    
     file_path = "numbers.txt"
     if os.path.exists(file_path):
         try:
@@ -679,12 +656,15 @@ def handle_callbacks(call):
 
         elif data.startswith("copy_"):
             code_val = data.replace("copy_", "")
-            bot.answer_callback_query(call.id, f"✅ Đã copy mã OTP: {code_val}", show_alert=True)
+            # Đồng thời gửi thẳng một đoạn mã dạng inline code ra chat riêng để chạm 1 phát là copy vào bộ nhớ tạm
+            bot.send_message(chat_id, f"🔑 <b>Mã OTP của bạn (chạm để copy):</b>\n<code>{code_val}</code>", parse_mode="HTML")
+            bot.answer_callback_query(call.id, f"✅ Đã gửi mã OTP ra khung chat để copy: {code_val}", show_alert=True)
 
         elif data.startswith("copynum_"):
             num_val = data.replace("copynum_", "")
             GLOBAL_TAKEN_NUMBERS.add(num_val)
             USER_ACTIVE_PHONES[chat_id] = {"phone": num_val, "expire": time.time() + 900}
+            bot.send_message(chat_id, f"📞 <b>Số điện thoại bạn chọn:</b>\n<code>{num_val}</code>", parse_mode="HTML")
             bot.answer_callback_query(call.id, f"Đã chọn số: {num_val}", show_alert=False)
 
         elif data.startswith("toggle_cc_"):
