@@ -40,7 +40,31 @@ def webhook():
     return '', 403
 
 # ==========================================
-# 🚀 3. ENDPOINT NHẬN SMS & TỰ ĐỘNG BÓC TÁCH DỊCH VỤ / QUỐC GIA THÔNG MINH
+# 📊 3. QUẢN LÝ DATABASE DASHBOARD THỐNG KÊ (RESET SAU 24H)
+# ==========================================
+DASHBOARD_STATS_FILE = "dashboard_stats.json"
+
+def load_dashboard_stats():
+    data = load_json_db(DASHBOARD_STATS_FILE)
+    today_str = datetime.datetime.now().strftime('%Y-%m-%d')
+    # Nếu sang ngày mới (hơn 24h), tự động reset bảng thống kê về 0
+    if data.get("date") != today_str:
+        data = {"date": today_str, "services": {}}
+        save_json_db(DASHBOARD_STATS_FILE, data)
+    if "services" not in data:
+        data["services"] = {}
+    return data
+
+def record_service_message(service_name):
+    data = load_dashboard_stats()
+    # Cộng dồn +1 cho nền tảng tương ứng
+    if service_name not in data["services"]:
+        data["services"][service_name] = 0
+    data["services"][service_name] += 1
+    save_json_db(DASHBOARD_STATS_FILE, data)
+
+# ==========================================
+# 🚀 4. ENDPOINT NHẬN SMS & TỰ ĐỘNG CẬP NHẬT DASHBOARD
 # ==========================================
 @app.route('/api/push-sms', methods=['POST'])
 def api_push_sms_handler():
@@ -55,7 +79,7 @@ def api_push_sms_handler():
         if not raw_text or (any(p in raw_text for p in useless_phrases) and len(raw_text) < 20):
             return {"status": "ignored"}, 200
 
-        # 1. TỰ ĐỘNG NHẬN DIỆN TÊN DỊCH VỤ TỪ NỘI DUNG SMS (RAW TEXT)
+        # TỰ ĐỘNG NHẬN DIỆN TẤT CẢ CÁC NỀN TẢNG MẠNG XÃ HỘI & VÍ ĐIỆN TỬ
         text_upper = raw_text.upper()
         service_name = "Other Service"
         
@@ -69,41 +93,74 @@ def api_push_sms_handler():
             service_name = "TikTok"
         elif "SHOPEE" in text_upper:
             service_name = "Shopee"
+        elif "PAYPAL" in text_upper:
+            service_name = "PayPal"
+        elif "UBER" in text_upper:
+            service_name = "Uber"
+        elif "APPLE" in text_upper or "ICLOUD" in text_upper:
+            service_name = "Apple"
+        elif "YANGO" in text_upper:
+            service_name = "Yango"
+        elif "MICROSOFT" in text_upper or "MS" in text_upper:
+            service_name = "Microsoft"
+        elif "AUTHMSG" in text_upper:
+            service_name = "AUTHMSG"
+        elif "TENCENT" in text_upper:
+            service_name = "Tencent"
+        elif "AMAZON" in text_upper:
+            service_name = "Amazon"
+        elif "LALAMOVE" in text_upper:
+            service_name = "Lalamove"
+        elif "PTAK" in text_upper:
+            service_name = "PTAK"
+        elif "NETFLIX" in text_upper:
+            service_name = "Netflix"
+        elif "MELBET" in text_upper:
+            service_name = "Melbet"
+        elif "TWVERIFY" in text_upper or "TWITTER" in text_upper or "X.COM" in text_upper:
+            service_name = "TWVerify"
+        elif "MSVERIFY" in text_upper:
+            service_name = "MSVERIFY"
+        elif "NCSOFT" in text_upper:
+            service_name = "NCSOFT"
         elif "GOOGLE" in text_upper or "G-" in text_upper:
             service_name = "Google"
         elif "INSTAGRAM" in text_upper or "IG" in text_upper:
             service_name = "Instagram"
-        elif "TWITTER" in text_upper or "X.COM" in text_upper:
-            service_name = "Twitter / X"
         elif "DISCORD" in text_upper:
             service_name = "Discord"
-        elif "NETFLIX" in text_upper:
-            service_name = "Netflix"
         elif "ZALO" in text_upper:
             service_name = "Zalo"
+        elif "VERIFY" in text_upper:
+            service_name = "VERIFY"
 
-        # Lấy số điện thoại từ request hoặc quét trong raw_text
+        # 📊 Tự động ghi nhận và cộng dồn số lượng tin nhắn vào Dashboard theo ngày
+        record_service_message(service_name)
+
+        # LẤY SỐ ĐIỆN THOẠI THỰC TẾ
         extracted_phone = data.get("phone", "")
-        if not extracted_phone:
+        if not extracted_phone or extracted_phone == "+790280****50":
             phones = re.findall(r'\+?[0-9]{10,15}', raw_text)
             if phones:
                 extracted_phone = phones[0]
 
-        # 2. TỰ ĐỘNG NHẬN DIỆN QUỐC GIA CHUẨN TỪ SỐ ĐIỆN THOẠI HOẶC NỘI DUNG
+        if not extracted_phone:
+            plus_phones = re.findall(r'\+[0-9]{10,14}', raw_text)
+            if plus_phones:
+                extracted_phone = plus_phones[0]
+
+        # NHẬN DIỆN QUỐC GIA CHUẨN TỪ SỐ ĐIỆN THOẠI
         country_name = "Russia (+7)"
         if extracted_phone:
             c_name, c_code = get_country_info(extracted_phone)
             country_name = c_name
 
-        # 3. THUẬT TOÁN BÓC TÁCH MÃ OTP THÔNG MINH
+        # BÓC TÁCH MÃ OTP THÔNG MINH
         otp_display = "Not Found"
-        
-        # Bắt các định dạng mã OTP phổ biến (VD: 693-423, 30908, hoặc sau các từ khóa mã/code)
         dash_match = re.search(r'\b([0-9]{3}\-[0-9]{3})\b', raw_text)
         if dash_match:
             otp_display = dash_match.group(1).replace("-", "")
         else:
-            # Tìm các chuỗi số từ 4 đến 8 chữ số đứng sau các từ khóa OTP/code/ma
             otp_keyword_match = re.search(r'(?:OTP|code|mã|is)[:\s#]*([0-9]{4,8})', raw_text, re.IGNORECASE)
             if otp_keyword_match:
                 otp_display = otp_keyword_match.group(1)
@@ -118,7 +175,7 @@ def api_push_sms_handler():
                     if valid_4:
                         otp_display = valid_4[-1]
 
-        # Chuẩn hóa hiển thị số điện thoại che giữa chống lộ
+        # CHUẨN HÓA SỐ ĐIỆN THOẠI CHE GIỮA AN TOÀN
         masked_phone = "+790280****50"
         if extracted_phone:
             clean_p = re.sub(r'\D', '', extracted_phone)
@@ -143,7 +200,7 @@ def api_push_sms_handler():
         return {"status": "error", "message": str(e)}, 500
 
 # ==========================================
-# ⚙️ 4. BỘ TỪ ĐIỂN 195+ QUỐC GIA CHUẨN XÁC
+# ⚙️ 5. BỘ TỪ ĐIỂN 195+ QUỐC GIA CHUẨN XÁC
 # ==========================================
 USER_ACTIVE_PHONES = {}      
 USER_CLICKED_NUMBERS = {}    
@@ -185,7 +242,7 @@ GLOBAL_COUNTRY_PREFIXES = {
     "81": ("🇯🇵 Japan (+81)", "JP"), "82": ("🇰🇷 South Korea (+82)", "KR"), "84": ("🇻🇳 Vietnam (+84)", "VN"),
     "66": ("🇹🇭 Thailand (+66)", "TH"), "62": ("🇮🇩 Indonesia (+62)", "ID"), "60": ("🇲🇾 Malaysia (+60)", "MY"),
     "63": ("🇵🇭 Philippines (+63)", "PH"), "65": ("🇸🇬 Singapore (+65)", "SG"), "855": ("🇰🇭 Cambodia (+855)", "KH"),
-    "856": ("🇱🇦 Laos (+856)", "LA"), "95": ("🇲🇲 Myanmar (+95)", "MM"), "1809": ("🇩🇴 Dominican Rep (+1-809)", "DO"),
+    "856": ("🇱🇦 Laos (+855)", "LA"), "95": ("🇲🇲 Myanmar (+95)", "MM"), "1809": ("🇩🇴 Dominican Rep (+1-809)", "DO"),
     "52": ("🇲🇽 Mexico (+52)", "MX"), "55": ("🇧🇷 Brazil (+55)", "BR"), "54": ("🇦🇷 Argentina (+54)", "AR"),
     "57": ("🇨🇴 Colombia (+57)", "CO"), "51": ("🇵🇪 Peru (+51)", "PE"), "58": ("🇻🇪 Venezuela (+58)", "VE"),
     "56": ("🇨🇱 Chile (+56)", "CL"), "44": ("🇬🇧 United Kingdom (+44)", "UK"), "33": ("🇫🇷 France (+33)", "FR"),
@@ -196,7 +253,7 @@ GLOBAL_COUNTRY_PREFIXES = {
     "358": ("🇫🇮 Finland (+358)", "FI"), "353": ("🇮🇪 Ireland (+353)", "IE"), "351": ("🇵🇹 Portugal (+351)", "PT"),
     "30": ("🇬🇷 Greece (+30)", "GR"), "90": ("🇹🇷 Turkey (+90)", "TR"), "61": ("🇦🇺 Australia (+61)", "AU"),
     "64": ("🇳🇿 New Zealand (+64)", "NZ"), "20": ("🇪🇬 Egypt (+20)", "EG"), "27": ("🇿🇦 South Africa (+27)", "ZA"),
-    "234": ("🇳🇬 Nigeria (+234)", "NG"), "254": ("🇰🇪 Kenya (+254)", "254"), "212": ("🇲🇦 Morocco (+212)", "MA")
+    "234": ("🇳🇬 Nigeria (+234)", "NG"), "254": ("🇰🇪 Kenya (+254)", "KE"), "212": ("🇲🇦 Morocco (+212)", "MA")
 }
 
 def get_country_info(phone):
@@ -253,14 +310,14 @@ def log_fraud(uid, action):
     save_json_db(FRAUD_LOG_FILE, fraud_db)
 
 # ==========================================
-# ⌨️ 5. GIAO DIỆN BÀN PHÍM MENU DƯỚI (DÀNH CHO USER)
+# ⌨️ 6. GIAO DIỆN BÀN PHÍM MENU DƯỚI (ĐÃ THÊM DASHBOARD)
 # ==========================================
 def get_main_menu_markup(is_admin=False):
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    markup.add(KeyboardButton("📞 Get Number"), KeyboardButton("🔍 Search with Prefix"))
-    markup.add(KeyboardButton("💰 My Balance"), KeyboardButton("💸 Withdraw"))
-    markup.add(KeyboardButton("👤 Profile"), KeyboardButton("👥 Refer"))
-    markup.add(KeyboardButton("📊 Stats"), KeyboardButton("⚡ Live Traffic"))
+    markup.add(KeyboardButton("📞 Get Number"), KeyboardButton("📊 Dashboard"))
+    markup.add(KeyboardButton("🔍 Search with Prefix"), KeyboardButton("💰 My Balance"))
+    markup.add(KeyboardButton("💸 Withdraw"), KeyboardButton("👤 Profile"))
+    markup.add(KeyboardButton("👥 Refer"), KeyboardButton("⚡ Live Traffic"))
     markup.add(KeyboardButton("🏆 Top Users"), KeyboardButton("❓ Help"))
     if is_admin:
         markup.add(KeyboardButton("👑 Admin Panel"))
@@ -309,7 +366,26 @@ def handle_text_messages(message):
         bot.send_message(chat_id, f"🔍 <b>CONFIRM WITHDRAWAL</b>\n💵 Amount: <b>${bal:.4f} USDT</b>\n📤 Wallet: <code>{wallet_addr}</code>", parse_mode="HTML", reply_markup=markup)
         return
 
-    if text in ["📞 Get Number", "🔍 Search with Prefix"]:
+    # 📊 XỬ LÝ NÚT DASHBOARD HIỂN THỊ SỐ LƯỢNG TIN NHẮN TỪNG NỀN TẢNG
+    if text == "📊 Dashboard":
+        stats = load_dashboard_stats()
+        services = stats.get("services", {})
+        date_str = stats.get("date", "Today")
+        
+        dash_text = f"📊 <b>TOP APPLICATIONS ACCESS (DASHBOARD)</b>\n📅 Date: <i>{date_str}</i>\n-----------------------------------\n"
+        if not services:
+            dash_text += "<i>Chưa có tin nhắn nào nhận được trong hôm nay.</i>"
+        else:
+            # Sắp xếp nền tảng có số lượng tin nhắn nhiều nhất lên đầu
+            sorted_services = sorted(services.items(), key=lambda x: x[1], reverse=True)
+            for s_name, count in sorted_services:
+                dash_text += f"📱 <b>{s_name}:</b> <code>{count} message</code>\n"
+        
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🔄 Làm mới", callback_data="refresh_dashboard"), InlineKeyboardButton("🔙 Back", callback_data="close_menu"))
+        bot.send_message(chat_id, dash_text, parse_mode="HTML", reply_markup=markup)
+
+    elif text in ["📞 Get Number", "🔍 Search with Prefix"]:
         countries = get_available_countries()
         if not countries:
             bot.send_message(chat_id, "❌ Stock is currently empty!")
@@ -416,6 +492,22 @@ def handle_callbacks(call):
                 bot.delete_message(chat_id, msg_id)
             except Exception:
                 pass
+
+        elif data == "refresh_dashboard":
+            stats = load_dashboard_stats()
+            services = stats.get("services", {})
+            date_str = stats.get("date", "Today")
+            dash_text = f"📊 <b>TOP APPLICATIONS ACCESS (DASHBOARD)</b>\n📅 Date: <i>{date_str}</i>\n-----------------------------------\n"
+            if not services:
+                dash_text += "<i>Chưa có tin nhắn nào nhận được trong hôm nay.</i>"
+            else:
+                sorted_services = sorted(services.items(), key=lambda x: x[1], reverse=True)
+                for s_name, count in sorted_services:
+                    dash_text += f"📱 <b>{s_name}:</b> <code>{count} message</code>\n"
+            markup = InlineKeyboardMarkup()
+            markup.add(InlineKeyboardButton("🔄 Làm mới", callback_data="refresh_dashboard"), InlineKeyboardButton("🔙 Back", callback_data="close_menu"))
+            bot.edit_message_text(dash_text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
+            bot.answer_callback_query(call.id, "Đã cập nhật mới nhất!")
 
         elif data.startswith("country_"):
             code = data.replace("country_", "")
