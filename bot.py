@@ -82,6 +82,26 @@ def record_service_message(service_name):
     data["services"][service_name] += 1
     save_json_db(DASHBOARD_STATS_FILE, data)
 
+def fetch_numbers_from_github():
+    try:
+        api_url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
+        headers = {
+            "Authorization": f"Bearer {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github+json"
+        }
+        res = requests.get(api_url, headers=headers, timeout=10)
+        if res.status_code == 200:
+            content_encoded = res.json().get("content", "")
+            decoded_bytes = base64.b64decode(content_encoded)
+            file_content_str = decoded_bytes.decode("utf-8")
+            with open(FILE_PATH, "w", encoding="utf-8") as f:
+                f.write(file_content_str)
+            print("🌐 [SYNC] Đã tải và đồng bộ numbers.txt trực tiếp từ GitHub về thành công!")
+            return True
+    except Exception as e:
+        print(f"⚠️ Lỗi tải file từ GitHub: {e}")
+    return False
+
 def push_numbers_to_github(numbers_list):
     try:
         api_url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
@@ -379,6 +399,9 @@ def extract_phone_without_cc(phone):
     return p
 
 def load_text_batch():
+    # Tự động tải từ GitHub về trước khi xử lý
+    fetch_numbers_from_github()
+    
     file_path = "numbers.txt"
     if os.path.exists(file_path):
         try:
