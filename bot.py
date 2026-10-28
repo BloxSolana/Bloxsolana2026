@@ -466,4 +466,362 @@ def handle_text_messages(message):
         wallet_addr = text.strip()
         if not re.match(r'^(EQ|UQ)[A-Za-z0-9\-_]{46}$', wallet_addr):
             bot.send_message(chat_id, "❌ <b>Invalid wallet address!</b> TON wallet must start with EQ or UQ and have 48 chars. Try again:", parse_mode="HTML")
-            ret
+            return
+        
+        USER_PENDING_WALLET[uid] = wallet_addr
+        USER_WITHDRAW_STATE[uid] = False
+        
+        users = load_json_db(USERS_FILE)
+        bal = users.get(str(uid), {}).get("balance", 0.0)
+        
+        markup = InlineKeyboardMarkup(row_width=2)
+        markup.add(InlineKeyboardButton("✅ Confirm", callback_data="confirm_withdraw"), InlineKeyboardButton("❌ Cancel", callback_data="cancel_withdraw"))
+        bot.send_message(chat_id, f"🔍 <b>CONFIRM WITHDRAWAL</b>\n💵 Amount: <b>${bal:.4f} USDT</b>\n📤 Wallet: <code>{wallet_addr}</code>", parse_mode="HTML", reply_markup=markup)
+        return
+
+    if text == "📊 Dashboard":
+        stats = load_dashboard_stats()
+        services = stats.get("services", {})
+        date_str = stats.get("date", "Today")
+        
+        dash_text = f"📊 <b>TOP APPLICATIONS ACCESS (DASHBOARD)</b>\n📅 Date: <i>{date_str}</i>\n-----------------------------------\n"
+        if not services:
+            dash_text += "<i>Chưa có tin nhắn nào nhận được trong hôm nay.</i>"
+        else:
+            sorted_services = sorted(services.items(), key=lambda x: x[1], reverse=True)
+            for s_name, count in sorted_services:
+                dash_text += f"📱 <b>{s_name}:</b> <code>{count} message</code>\n"
+        
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🔄 Làm mới", callback_data="refresh_dashboard"), InlineKeyboardButton("🔙 Back", callback_data="close_menu"))
+        bot.send_message(chat_id, dash_text, parse_mode="HTML", reply_markup=markup)
+
+    elif text in ["📞 Get Number", "🔍 Search with Prefix"]:
+        countries = get_available_countries()
+        if not countries:
+            bot.send_message(chat_id, "❌ Stock is currently empty!")
+            return
+        markup = InlineKeyboardMarkup(row_width=1)
+        for code, label in countries.items():
+            markup.add(InlineKeyboardButton(f"🌍 {label}", callback_data=f"country_{code}"))
+        markup.add(InlineKeyboardButton("🔙 Back", callback_data="close_menu"))
+        bot.send_message(chat_id, "🌍 <b>SELECT COUNTRY:</b>", parse_mode="HTML", reply_markup=markup)
+
+    elif text == "💰 My Balance":
+        users = load_json_db(USERS_FILE)
+        bal = users.get(str(uid), {}).get("balance", 0.0)
+        markup = InlineKeyboardMarkup(row_width=1)
+        markup.add(InlineKeyboardButton("💸 Withdraw (USDT TON)", callback_data="request_withdraw"), InlineKeyboardButton("🔙 Back", callback_data="close_menu"))
+        bot.send_message(chat_id, f"💰 <b>ACCOUNT BALANCE:</b>\n💵 Balance: <code>${bal:.4f}</code>", parse_mode="HTML", reply_markup=markup)
+
+    elif text == "💸 Withdraw":
+        users = load_json_db(USERS_FILE)
+        bal = users.get(str(uid), {}).get("balance", 0.0)
+        if bal < 5.0:
+            bot.send_message(chat_id, f"❌ Current balance is ${bal:.4f}. You need at least **$5.0** to withdraw!", parse_mode="HTML")
+            return
+        USER_WITHDRAW_STATE[uid] = True
+        bot.send_message(chat_id, "📥 Send your <b>USDT TON Network</b> wallet address (starts with EQ or UQ):", parse_mode="HTML")
+
+    elif text == "👤 Profile":
+        users = load_json_db(USERS_FILE)
+        u_data = users.get(str(uid), {"balance": 0.0})
+        profile_text = (
+            "👤 <b>USER PROFILE</b>\n"
+            "-----------------------------------\n"
+            f"🏷 <b>Nick Name:</b> {name}\n"
+            f"🔗 <b>Username:</b> @{username}\n"
+            f"🆔 <b>Telegram ID:</b> <code>{uid}</code>\n"
+            f"💵 <b>Balance:</b> <code>${u_data.get('balance', 0.0):.4f}</code>"
+        )
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🔙 Back", callback_data="close_menu"))
+        bot.send_message(chat_id, profile_text, parse_mode="HTML", reply_markup=markup)
+
+    elif text == "👥 Refer":
+        bot_info = bot.get_me()
+        ref_link = f"https://t.me/{bot_info.username}?start={uid}"
+        users = load_json_db(USERS_FILE)
+        refs = users.get(str(uid), {}).get("referrals", 0)
+        ref_text = f"👥 <b>REFERRAL PROGRAM</b>\n\n🔗 Your referral link:\n<code>{ref_link}</code>\n\n📊 Total referred: <b>{refs}</b> users."
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🔙 Back", callback_data="close_menu"))
+        bot.send_message(chat_id, ref_text, parse_mode="HTML", reply_markup=markup)
+
+    elif text == "📊 Stats":
+        stats_text = f"📊 <b>SYSTEM STATS</b>\n-----------------------------------\n👤 Your ID: <code>{uid}</code>\n🟢 Status: Stable (24/7)"
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🔙 Back", callback_data="close_menu"))
+        bot.send_message(chat_id, stats_text, parse_mode="HTML", reply_markup=markup)
+
+    elif text == "⚡ Live Traffic":
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🚀 Open Live OTP Channel", url=GROUP_OTP_LINK), InlineKeyboardButton("🔙 Back", callback_data="close_menu"))
+        bot.send_message(chat_id, f"⚡ Official Live Traffic notification channel:", parse_mode="HTML", reply_markup=markup)
+
+    elif text == "🏆 Top Users":
+        users_db = load_json_db(USERS_FILE)
+        text_top = "🏆 <b>TOP USERS (BY BALANCE):</b>\n\n"
+        if not users_db:
+            text_top += "<i>No data available.</i>"
+        else:
+            sorted_users = sorted(users_db.values(), key=lambda x: x.get('balance', 0.0), reverse=True)
+            for idx, u_info in enumerate(sorted_users[:10], 1):
+                text_top += f"<b>#{idx}</b> | 👤 {u_info.get('name')} — <code>${u_info.get('balance', 0.0):.4f}</code>\n"
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🔙 Back", callback_data="close_menu"))
+        bot.send_message(chat_id, text_top, parse_mode="HTML", reply_markup=markup)
+
+    elif text == "❓ Help":
+        help_text = "❓ <b>HELP & GUIDE</b>\n- Select <b>Get Number</b> to get phone numbers for OTP.\n- Numbers are valid for 15 minutes, instant change available.\n- Minimum withdrawal is 5$."
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🔙 Back", callback_data="close_menu"))
+        bot.send_message(chat_id, help_text, parse_mode="HTML", reply_markup=markup)
+
+    elif text == "👑 Admin Panel" and uid == ADMIN_ID:
+        markup = InlineKeyboardMarkup(row_width=1)
+        markup.add(
+            InlineKeyboardButton("💸 Pending Withdrawals", callback_data="admin_view_withdraws"),
+            InlineKeyboardButton("🛡 Anti-Fraud Logs", callback_data="admin_view_fraud"),
+            InlineKeyboardButton("🗑 Clear Prefix", callback_data="admin_clear_prefix"),
+            InlineKeyboardButton("🔄 Sync New Numbers", callback_data="admin_reload"),
+            InlineKeyboardButton("🔙 Back", callback_data="close_menu")
+        )
+        bot.send_message(chat_id, "👑 <b>ADMIN PANEL</b>", parse_mode="HTML", reply_markup=markup)
+
+# ==========================================
+# 💎 BẢNG HIỂN THỊ DANH SÁCH SỐ CHUẨN ZM OTP
+# ==========================================
+def render_country_numbers_view(chat_id, uid, code, msg_id=None):
+    if code in COUNTRY_CACHE:
+        c_data = COUNTRY_CACHE[code]
+        all_nums = c_data["numbers"]
+        c_name = c_data["name"]
+        
+        available = [n for n in all_nums if n not in GLOBAL_TAKEN_NUMBERS and n not in DELETED_NUMBERS]
+        
+        if not available:
+            if msg_id:
+                bot.edit_message_text("❌ Kho số quốc gia này đã hết hoặc đang được người khác dùng!", chat_id, msg_id)
+            return
+
+        user_shuffled = available.copy()
+        random.shuffle(user_shuffled)
+        display_list = user_shuffled[:3]
+
+        is_add_cc = USER_ADD_CC_STATE.get(uid, False)
+        
+        body_text = f"{c_name} — 🟢 <b>ALL SERVICES NUMBERS</b>\n\n👇 <b>TAP TO COPY:</b>\n\n"
+        markup = InlineKeyboardMarkup()
+
+        for num in display_list:
+            if is_add_cc:
+                show_num = num
+                clean_copy = re.sub(r'\D', '', num)
+            else:
+                show_num = extract_phone_without_cc(num)
+                clean_copy = show_num
+                
+            body_text += f"📞 <code>{show_num}</code>\n"
+            markup.add(InlineKeyboardButton(f"📋 COPY • {clean_copy}", callback_data=f"copynum_{clean_copy}"))
+
+        cc_button_text = "➖ REMOVE CC" if is_add_cc else "➕ ADD CC"
+        markup.row(
+            InlineKeyboardButton("🔄 REFRESH", callback_data=f"country_{code}"),
+            InlineKeyboardButton(cc_button_text, callback_data=f"toggle_cc_{code}")
+        )
+        markup.add(InlineKeyboardButton("📬 OTP GROUP", url=GROUP_OTP_LINK))
+        markup.add(InlineKeyboardButton("🌐 CHANGE", callback_data="back_to_countries"))
+        markup.add(InlineKeyboardButton("🔙 MAIN MENU", callback_data="close_menu"))
+
+        if msg_id:
+            bot.edit_message_text(body_text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
+        else:
+            bot.send_message(chat_id, body_text, parse_mode="HTML", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: True)
+def handle_callbacks(call):
+    try:
+        uid = call.from_user.id
+        data = call.data
+        chat_id = call.message.chat.id
+        msg_id = call.message.message_id
+        
+        if data == "close_menu":
+            bot.answer_callback_query(call.id, "Closed.")
+            try:
+                bot.delete_message(chat_id, msg_id)
+            except Exception:
+                pass
+
+        elif data.startswith("copy_"):
+            code_val = data.replace("copy_", "")
+            bot.answer_callback_query(call.id, f"✅ Đã copy mã OTP: {code_val}", show_alert=True)
+
+        elif data.startswith("copynum_"):
+            num_val = data.replace("copynum_", "")
+            GLOBAL_TAKEN_NUMBERS.add(num_val)
+            USER_ACTIVE_PHONES[chat_id] = {"phone": num_val, "expire": time.time() + 900}
+            bot.answer_callback_query(call.id, f"Đã chọn số: {num_val}", show_alert=False)
+
+        elif data.startswith("toggle_cc_"):
+            code = data.replace("toggle_cc_", "")
+            USER_ADD_CC_STATE[uid] = not USER_ADD_CC_STATE.get(uid, False)
+            state_label = "Đã BẬT Add CC (+Mã vùng)" if USER_ADD_CC_STATE[uid] else "Đã TẮT Add CC (Số thuần)"
+            bot.answer_callback_query(call.id, state_label, show_alert=False)
+            render_country_numbers_view(chat_id, uid, code, msg_id)
+
+        elif data == "refresh_dashboard":
+            stats = load_dashboard_stats()
+            services = stats.get("services", {})
+            date_str = stats.get("date", "Today")
+            dash_text = f"📊 <b>TOP APPLICATIONS ACCESS (DASHBOARD)</b>\n📅 Date: <i>{date_str}</i>\n-----------------------------------\n"
+            if not services:
+                dash_text += "<i>Chưa có tin nhắn nào nhận được trong hôm nay.</i>"
+            else:
+                sorted_services = sorted(services.items(), key=lambda x: x[1], reverse=True)
+                for s_name, count in sorted_services:
+                    dash_text += f"📱 <b>{s_name}:</b> <code>{count} message</code>\n"
+            markup = InlineKeyboardMarkup()
+            markup.add(InlineKeyboardButton("🔄 Làm mới", callback_data="refresh_dashboard"), InlineKeyboardButton("🔙 Back", callback_data="close_menu"))
+            bot.edit_message_text(dash_text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
+            bot.answer_callback_query(call.id, "Đã cập nhật mới nhất!")
+
+        elif data.startswith("country_"):
+            code = data.replace("country_", "")
+            render_country_numbers_view(chat_id, uid, code, msg_id)
+
+        elif data == "back_to_countries":
+            countries = get_available_countries()
+            markup = InlineKeyboardMarkup(row_width=1)
+            for code, label in countries.items():
+                markup.add(InlineKeyboardButton(f"🌍 {label}", callback_data=f"country_{code}"))
+            markup.add(InlineKeyboardButton("🔙 Back", callback_data="close_menu"))
+            bot.edit_message_text("🌍 <b>SELECT COUNTRY:</b>", chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
+
+        elif data == "request_withdraw":
+            users = load_json_db(USERS_FILE)
+            bal = users.get(str(uid), {}).get("balance", 0.0)
+            if bal < 5.0:
+                bot.answer_callback_query(call.id, f"Minimum withdrawal is 5$! (Current: ${bal:.4f})", show_alert=True)
+                return
+            bot.answer_callback_query(call.id)
+            USER_WITHDRAW_STATE[uid] = True
+            bot.send_message(chat_id, "📥 Send your <b>USDT TON Network</b> wallet address:", parse_mode="HTML")
+            try:
+                bot.delete_message(chat_id, msg_id)
+            except Exception:
+                pass
+
+        elif data == "cancel_withdraw":
+            USER_WITHDRAW_STATE[uid] = False
+            USER_PENDING_WALLET.pop(uid, None)
+            bot.answer_callback_query(call.id, "Withdrawal cancelled.")
+            try:
+                bot.delete_message(chat_id, msg_id)
+            except Exception:
+                pass
+
+        elif data == "confirm_withdraw":
+            wallet = USER_PENDING_WALLET.pop(uid, None)
+            USER_WITHDRAW_STATE[uid] = False
+            if not wallet:
+                bot.answer_callback_query(call.id, "Session expired!", show_alert=True)
+                return
+            
+            users = load_json_db(USERS_FILE)
+            uid_str = str(uid)
+            bal = users.get(uid_str, {}).get("balance", 0.0)
+            
+            if bal < 5.0:
+                bot.answer_callback_query(call.id, "Balance less than 5$!", show_alert=True)
+                return
+            
+            users[uid_str]["balance"] = 0.0
+            save_json_db(USERS_FILE, users)
+            
+            history = load_json_db(WITHDRAW_HISTORY_FILE)
+            if uid_str not in history:
+                history[uid_str] = []
+            history[uid_str].append({
+                "amount": bal,
+                "wallet": wallet,
+                "status": "⏳ Pending",
+                "time": datetime.datetime.now().strftime('%H:%M:%S - %d/%m/%Y')
+            })
+            save_json_db(WITHDRAW_HISTORY_FILE, history)
+            log_fraud(uid, f"Created withdrawal request: ${bal:.4f} to wallet {wallet}")
+            
+            bot.answer_callback_query(call.id, "Withdrawal request sent!")
+            bot.edit_message_text(f"✅ <b>Withdrawal request submitted!</b>\nSent to Admin pending review list.", chat_id, msg_id, parse_mode="HTML")
+
+        elif data == "admin_view_withdraws" and uid == ADMIN_ID:
+            history = load_json_db(WITHDRAW_HISTORY_FILE)
+            pending = [(u, i, it) for u, items in history.items() for i, it in enumerate(items) if "⏳" in it.get("status", "")]
+            if not pending:
+                bot.answer_callback_query(call.id, "No pending withdrawals!", show_alert=True)
+                return
+            markup = InlineKeyboardMarkup(row_width=1)
+            text_p = "💸 <b>PENDING WITHDRAWALS:</b>\n\n"
+            for u_id, idx, it in pending[:5]:
+                text_p += f"• ID {u_id} | ${it.get('amount'):.4f}\n"
+                markup.add(InlineKeyboardButton(f"✅ Approve ID {u_id} (${it.get('amount')})", callback_data=f"done_w_{u_id}_{idx}"))
+            markup.add(InlineKeyboardButton("🔙 Back", callback_data="close_menu"))
+            bot.edit_message_text(text_p, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
+
+        elif data.startswith("done_w_") and uid == ADMIN_ID:
+            parts = data.split("_")
+            target_uid, item_idx = parts[2], int(parts[3])
+            history = load_json_db(WITHDRAW_HISTORY_FILE)
+            if target_uid in history and len(history[target_uid]) > item_idx:
+                history[target_uid][item_idx]["status"] = "✅ Paid Successfully"
+                save_json_db(WITHDRAW_HISTORY_FILE, history)
+                try:
+                    bot.send_message(int(target_uid), "🎉 <b>Your withdrawal request has been approved and paid in USDT by Admin successfully!</b>", parse_mode="HTML")
+                except Exception:
+                    pass
+                bot.answer_callback_query(call.id, "Withdrawal approved!", show_alert=True)
+
+        elif data == "admin_view_fraud" and uid == ADMIN_ID:
+            fraud_db = load_json_db(FRAUD_LOG_FILE)
+            text_f = "🛡 <b>ANTI-FRAUD & ACTIVITY LOGS:</b>\n\n"
+            if not fraud_db:
+                text_f = "<i>No suspicious logs.</i>"
+            else:
+                for u_id, logs in list(fraud_db.items())[-5:]:
+                    text_f += f"👤 <b>ID:</b> <code>{u_id}</code>\n"
+                    for l in logs[-3:]:
+                        text_f += f" - {l['action']} ({l['time']})\n"
+                    text_f += "-------------------\n"
+            markup = InlineKeyboardMarkup()
+            markup.add(InlineKeyboardButton("🔙 Back", callback_data="close_menu"))
+            bot.edit_message_text(text_f, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
+
+        elif data == "admin_clear_prefix" and uid == ADMIN_ID:
+            global DELETED_NUMBERS
+            DELETED_NUMBERS = set()
+            if os.path.exists(DELETED_NUMBERS_FILE):
+                os.remove(DELETED_NUMBERS_FILE)
+            load_text_batch()
+            bot.answer_callback_query(call.id, "Cleared prefix cache & deleted numbers successfully!", show_alert=True)
+
+        elif data == "admin_reload" and uid == ADMIN_ID:
+            _, count = load_text_batch()
+            bot.answer_callback_query(call.id, f"Synced {count} numbers successfully!", show_alert=True)
+
+    except Exception as e:
+        print(f"Callback error: {e}")
+
+# ==========================================
+# 🚀 KHỞI ĐỘNG ỨNG DỤNG BIND PORT CHUẨN RENDER
+# ==========================================
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "")
+    if RENDER_URL:
+        bot.remove_webhook()
+        time.sleep(1)
+        bot.set_webhook(url=f"{RENDER_URL}/{TOKEN}")
+        print(f"🔗 Webhook configured automatically to: {RENDER_URL}/{TOKEN}")
+    
+    app.run(host='0.0.0.0', port=port)
