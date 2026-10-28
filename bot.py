@@ -57,34 +57,28 @@ def api_push_sms_handler():
         if not raw_text or (any(p in raw_text for p in useless_phrases) and len(raw_text) < 30):
             return {"status": "ignored"}, 200
 
-        # Lấy số điện thoại từ request hoặc bóc từ raw_text
         phones = re.findall(r'\+?\d{8,15}', raw_text)
         extracted_phone = data.get("phone", "")
         if not extracted_phone and phones:
             extracted_phone = phones[0]
 
-        # Tự động nhận diện quốc gia chuẩn xác từ số điện thoại (ưu tiên mã dài)
         if extracted_phone:
             c_name, c_code = get_country_info(extracted_phone)
             country_name = c_name
         elif not country_name or country_name.lower() in ["global", "unknown", ""]:
             country_name = "Tajikistan (+992)"
 
-        # Thuật toán lọc OTP thông minh: Bắt chuẩn các định dạng Code/Код hoặc chuỗi 6 số có gạch ngang
         otp_display = "Not Found"
-        # Bắt dạng: код WhatsApp: 693-423 hoặc code: 123456
         match_pattern = re.search(r'(?:код|code|ma|otp)[:\s\-]*([0-9]{3}[\-\s]?[0-9]{3}|[0-9]{4,6})', raw_text, re.IGNORECASE)
         if match_pattern:
             raw_otp = match_pattern.group(1)
             otp_display = raw_otp.replace("-", "").replace(" ", "")
         else:
-            # Tìm tất cả cụm số 4 đến 6 chữ số
             all_nums = re.findall(r'\b\d{4,6}\b', raw_text)
             valid_nums = [n for n in all_nums if not n.startswith('2026') and not n.startswith('2025')]
             if valid_nums:
                 otp_display = valid_nums[-1]
 
-        # Chuẩn hóa hiển thị số điện thoại (Che giữa, giữ đầu cuối đầy đủ mã vùng)
         masked_phone = "+992985****77"
         if extracted_phone:
             clean_p = re.sub(r'\D', '', extracted_phone)
@@ -109,7 +103,7 @@ def api_push_sms_handler():
         return {"status": "error", "message": str(e)}, 500
 
 # ==========================================
-# ⚙️ 4. QUẢN LÝ DỮ LIỆU & BỘ TỪ ĐIỂN 195+ QUỐC GIA CHUẨN XÁC
+# ⚙️ 4. QUẢN LÝ DỮ LIỆU & BỘ TỪ ĐIỂN 195+ QUỐC GIA
 # ==========================================
 USER_ACTIVE_PHONES = {}      
 USER_CLICKED_NUMBERS = {}    
@@ -137,7 +131,6 @@ def save_json_db(filename, data):
 
 DELETED_NUMBERS = load_json_db(DELETED_NUMBERS_FILE)
 
-# Bộ từ điển 195+ quốc gia chuẩn xác (Ưu tiên mã dài trước)
 GLOBAL_COUNTRY_PREFIXES = {
     "992": ("🇹🇯 Tajikistan (+992)", "TJ"), "993": ("🇹🇲 Turkmenistan (+993)", "TM"),
     "994": ("🇦🇿 Azerbaijan (+994)", "AZ"), "995": ("🇬🇪 Georgia (+995)", "GE"), "996": ("🇰🇬 Kyrgyzstan (+996)", "KG"),
@@ -219,12 +212,11 @@ def log_fraud(uid, action):
     save_json_db(FRAUD_LOG_FILE, fraud_db)
 
 # ==========================================
-# ⌨️ 5. GIAO DIỆN BÀN PHÍM MENU DƯỚI (ENGLISH)
+# ⌨️ 5. GIAO DIỆN BÀN PHÍM MENU DƯỚI (ĐÃ GỠ CLEAR PREFIX CHO USER)
 # ==========================================
 def get_main_menu_markup(is_admin=False):
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    markup.add(KeyboardButton("📞 Get Number"), KeyboardButton("🗑 Clear Prefix"))
-    markup.add(KeyboardButton("🔍 Search with Prefix"))
+    markup.add(KeyboardButton("📞 Get Number"), KeyboardButton("🔍 Search with Prefix"))
     markup.add(KeyboardButton("💰 My Balance"), KeyboardButton("💸 Withdraw"))
     markup.add(KeyboardButton("👤 Profile"), KeyboardButton("👥 Refer"))
     markup.add(KeyboardButton("📊 Stats"), KeyboardButton("⚡ Live Traffic"))
