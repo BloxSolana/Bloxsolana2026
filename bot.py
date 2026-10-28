@@ -40,7 +40,7 @@ def webhook():
     return '', 403
 
 # ==========================================
-# 🚀 3. ENDPOINT NHẬN SMS & TỰ ĐỘNG NHẬN DIỆN 195+ QUỐC GIA CHUẨN XÁC
+# 🚀 3. ENDPOINT NHẬN SMS & TỰ ĐỘNG BÓC TÁCH DỊCH VỤ / QUỐC GIA THÔNG MINH
 # ==========================================
 @app.route('/api/push-sms', methods=['POST'])
 def api_push_sms_handler():
@@ -50,48 +50,75 @@ def api_push_sms_handler():
             return {"status": "error", "message": "Unauthorized"}, 403
 
         raw_text = data.get("raw_text", "")
-        service_name = data.get("service", "Facebook")
-        country_name = data.get("country", "")
-
+        
         useless_phrases = ["No SMS found", "Range Count", "Client System", "Dashboard", "TRUSTED PREMIUM SMS"]
         if not raw_text or (any(p in raw_text for p in useless_phrases) and len(raw_text) < 20):
             return {"status": "ignored"}, 200
 
-        # Lấy số điện thoại từ request gửi lên hoặc quét trong raw_text
+        # 1. TỰ ĐỘNG NHẬN DIỆN TÊN DỊCH VỤ TỪ NỘI DUNG SMS (RAW TEXT)
+        text_upper = raw_text.upper()
+        service_name = "Other Service"
+        
+        if "WHATSAPP" in text_upper:
+            service_name = "WhatsApp"
+        elif "TELEGRAM" in text_upper:
+            service_name = "Telegram"
+        elif "FACEBOOK" in text_upper or "MA FACEBOOK" in text_upper or "FB" in text_upper:
+            service_name = "Facebook"
+        elif "TIKTOK" in text_upper:
+            service_name = "TikTok"
+        elif "SHOPEE" in text_upper:
+            service_name = "Shopee"
+        elif "GOOGLE" in text_upper or "G-" in text_upper:
+            service_name = "Google"
+        elif "INSTAGRAM" in text_upper or "IG" in text_upper:
+            service_name = "Instagram"
+        elif "TWITTER" in text_upper or "X.COM" in text_upper:
+            service_name = "Twitter / X"
+        elif "DISCORD" in text_upper:
+            service_name = "Discord"
+        elif "NETFLIX" in text_upper:
+            service_name = "Netflix"
+        elif "ZALO" in text_upper:
+            service_name = "Zalo"
+
+        # Lấy số điện thoại từ request hoặc quét trong raw_text
         extracted_phone = data.get("phone", "")
         if not extracted_phone:
             phones = re.findall(r'\+?[0-9]{10,15}', raw_text)
             if phones:
                 extracted_phone = phones[0]
 
-        # TỰ ĐỘNG NHẬN DIỆN QUỐC GIA CHUẨN TỪ SỐ ĐIỆN THOẠI (KHÔNG BAO GIỜ BỊ NHẦM LẪN NỮA)
+        # 2. TỰ ĐỘNG NHẬN DIỆN QUỐC GIA CHUẨN TỪ SỐ ĐIỆN THOẠI HOẶC NỘI DUNG
+        country_name = "Russia (+7)"
         if extracted_phone:
             c_name, c_code = get_country_info(extracted_phone)
             country_name = c_name
-        elif not country_name or country_name.lower() in ["global", "unknown", ""]:
-            country_name = "Russia (+7)"
 
-        # THUẬT TOÁN BÓC TÁCH MÃ OTP ĐA DẠNG (Bắt cả 5 số như Facebook: 30908, WhatsApp: 693-423,...)
+        # 3. THUẬT TOÁN BÓC TÁCH MÃ OTP THÔNG MINH
         otp_display = "Not Found"
         
-        # 1. Bắt định dạng gạch ngang (VD: 693-423)[cite: 6, 14]
+        # Bắt các định dạng mã OTP phổ biến (VD: 693-423, 30908, hoặc sau các từ khóa mã/code)
         dash_match = re.search(r'\b([0-9]{3}\-[0-9]{3})\b', raw_text)
         if dash_match:
             otp_display = dash_match.group(1).replace("-", "")
         else:
-            # 2. Bắt cụm 5 hoặc 6 chữ số đứng độc lập (VD: 30908 của Facebook)
-            all_digits = re.findall(r'\b\d{5,6}\b', raw_text)
-            valid_digits = [d for d in all_digits if not d.startswith(('2026', '2025', '0120'))]
-            if valid_digits:
-                otp_display = valid_digits[-1]
+            # Tìm các chuỗi số từ 4 đến 8 chữ số đứng sau các từ khóa OTP/code/ma
+            otp_keyword_match = re.search(r'(?:OTP|code|mã|is)[:\s#]*([0-9]{4,8})', raw_text, re.IGNORECASE)
+            if otp_keyword_match:
+                otp_display = otp_keyword_match.group(1)
             else:
-                # 3. Dự phòng bắt chuỗi 4 chữ số nếu mã ngắn
-                all_4 = re.findall(r'\b\d{4}\b', raw_text)
-                valid_4 = [d for d in all_4 if not d.startswith(('2026', '2025', '0120'))]
-                if valid_4:
-                    otp_display = valid_4[-1]
+                all_digits = re.findall(r'\b\d{5,6}\b', raw_text)
+                valid_digits = [d for d in all_digits if not d.startswith(('2026', '2025', '0120'))]
+                if valid_digits:
+                    otp_display = valid_digits[-1]
+                else:
+                    all_4 = re.findall(r'\b\d{4}\b', raw_text)
+                    valid_4 = [d for d in all_4 if not d.startswith(('2026', '2025', '0120'))]
+                    if valid_4:
+                        otp_display = valid_4[-1]
 
-        # Chuẩn hóa hiển thị số điện thoại che giữa
+        # Chuẩn hóa hiển thị số điện thoại che giữa chống lộ
         masked_phone = "+790280****50"
         if extracted_phone:
             clean_p = re.sub(r'\D', '', extracted_phone)
@@ -158,7 +185,7 @@ GLOBAL_COUNTRY_PREFIXES = {
     "81": ("🇯🇵 Japan (+81)", "JP"), "82": ("🇰🇷 South Korea (+82)", "KR"), "84": ("🇻🇳 Vietnam (+84)", "VN"),
     "66": ("🇹🇭 Thailand (+66)", "TH"), "62": ("🇮🇩 Indonesia (+62)", "ID"), "60": ("🇲🇾 Malaysia (+60)", "MY"),
     "63": ("🇵🇭 Philippines (+63)", "PH"), "65": ("🇸🇬 Singapore (+65)", "SG"), "855": ("🇰🇭 Cambodia (+855)", "KH"),
-    "856": ("🇱🇦 Laos (+855)", "LA"), "95": ("🇲🇲 Myanmar (+95)", "MM"), "1809": ("🇩🇴 Dominican Rep (+1-809)", "DO"),
+    "856": ("🇱🇦 Laos (+856)", "LA"), "95": ("🇲🇲 Myanmar (+95)", "MM"), "1809": ("🇩🇴 Dominican Rep (+1-809)", "DO"),
     "52": ("🇲🇽 Mexico (+52)", "MX"), "55": ("🇧🇷 Brazil (+55)", "BR"), "54": ("🇦🇷 Argentina (+54)", "AR"),
     "57": ("🇨🇴 Colombia (+57)", "CO"), "51": ("🇵🇪 Peru (+51)", "PE"), "58": ("🇻🇪 Venezuela (+58)", "VE"),
     "56": ("🇨🇱 Chile (+56)", "CL"), "44": ("🇬🇧 United Kingdom (+44)", "UK"), "33": ("🇫🇷 France (+33)", "FR"),
@@ -169,7 +196,7 @@ GLOBAL_COUNTRY_PREFIXES = {
     "358": ("🇫🇮 Finland (+358)", "FI"), "353": ("🇮🇪 Ireland (+353)", "IE"), "351": ("🇵🇹 Portugal (+351)", "PT"),
     "30": ("🇬🇷 Greece (+30)", "GR"), "90": ("🇹🇷 Turkey (+90)", "TR"), "61": ("🇦🇺 Australia (+61)", "AU"),
     "64": ("🇳🇿 New Zealand (+64)", "NZ"), "20": ("🇪🇬 Egypt (+20)", "EG"), "27": ("🇿🇦 South Africa (+27)", "ZA"),
-    "234": ("🇳🇬 Nigeria (+234)", "NG"), "254": ("🇰🇪 Kenya (+254)", "KE"), "212": ("🇲🇦 Morocco (+212)", "MA")
+    "234": ("🇳🇬 Nigeria (+234)", "NG"), "254": ("🇰🇪 Kenya (+254)", "254"), "212": ("🇲🇦 Morocco (+212)", "MA")
 }
 
 def get_country_info(phone):
