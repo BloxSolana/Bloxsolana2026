@@ -40,7 +40,7 @@ def webhook():
     return '', 403
 
 # ==========================================
-# 🚀 3. ENDPOINT NHẬN SMS & LỌC OTP TUYỆT ĐỐI CHUẨN (ĐÃ FIX LỖI 0120)
+# 🚀 3. ENDPOINT NHẬN SMS & LỌC OTP HOÀN HẢO (HỖ TRỢ ĐỊNH DẠNG 693-423)
 # ==========================================
 @app.route('/api/push-sms', methods=['POST'])
 def api_push_sms_handler():
@@ -68,24 +68,27 @@ def api_push_sms_handler():
         elif not country_name or country_name.lower() in ["global", "unknown", ""]:
             country_name = "Tajikistan (+992)"
 
-        # THUẬT TOÁN LỌC OTP SIÊU CHUẨN: Chặn hoàn toàn số ID rác như 0120
+        # THUẬT TOÁN LỌC OTP TỐI ƯU TUYỆT ĐỐI
         otp_display = "Not Found"
         
-        # 1. Tìm theo từ khóa rõ ràng (code, код, otp, pin, ma)
-        match_pattern = re.search(r'(?:код|code|ma|otp|pin)[:\s\-]*([0-9]{3}[\-\s]?[0-9]{3}|[0-9]{4,8})', raw_text, re.IGNORECASE)
-        if match_pattern:
-            raw_otp = match_pattern.group(1)
-            cleaned_otp = raw_otp.replace("-", "").replace(" ", "")
-            # Loại bỏ các chuỗi rác hay gặp như năm tháng hoặc mã ID dạng 0120
-            if not cleaned_otp.startswith(('2026', '2025', '0120')):
-                otp_display = cleaned_otp
-        
-        # 2. Nếu chưa thấy, tìm chuỗi 6 chữ số đặc thù của OTP (như WhatsApp/Telegram) nhưng phải bỏ qua các số đứng sau dấu $ hoặc ID
-        if otp_display == "Not Found":
-            all_digits = re.findall(r'\b\d{4,6}\b', raw_text)
-            valid_digits = [d for d in all_digits if not d.startswith(('2026', '2025', '0120'))]
-            if valid_digits:
-                otp_display = valid_digits[-1]
+        # 1. Ưu tiên tìm ngay định dạng chuẩn 3 số - 3 số (ví dụ: 693-423 của WhatsApp)[cite: 6, 14]
+        dash_otp = re.search(r'\b([0-9]{3}\-[0-9]{3})\b', raw_text)
+        if dash_otp:
+            otp_display = dash_otp.group(1).replace("-", "")
+        else:
+            # 2. Tìm theo từ khóa (hỗ trợ cả chữ K Latin lẫn Cyrillic trong Koд / код)
+            match_pattern = re.search(r'(?:[кKk][оoOО][дД]|code|ma|otp|pin)[:\s\-]*([0-9]{3}[\-\s]?[0-9]{3}|[0-9]{4,8})', raw_text, re.IGNORECASE)
+            if match_pattern:
+                raw_otp = match_pattern.group(1)
+                cleaned_otp = raw_otp.replace("-", "").replace(" ", "")
+                if not cleaned_otp.startswith(('2026', '2025', '0120')):
+                    otp_display = cleaned_otp
+            else:
+                # 3. Quét chuỗi 6 chữ số liên tiếp nếu có
+                all_digits = re.findall(r'\b\d{6}\b', raw_text)
+                valid_digits = [d for d in all_digits if not d.startswith(('2026', '2025', '0120'))]
+                if valid_digits:
+                    otp_display = valid_digits[-1]
 
         masked_phone = "+992985****77"
         if extracted_phone:
