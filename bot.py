@@ -9,16 +9,24 @@ import json
 import time
 import random
 import html
+import threading
+import base64
 from flask import Flask, request
 
 # ==========================================
-# 👑 1. CẤU HÌNH HỆ THỐNG & TELEGRAM BOT
+# 👑 1. CẤU HÌNH HỆ THỐNG & GITHUB & TELEGRAM BOT
 # ==========================================
 ADMIN_ID = 6726769296
 TOKEN = "8622066775:AAFncl413hILhGl-J6DQD9oDbK4PEEHsERc"
 GROUP_CHAT_ID = "-1004341368656"
 GROUP_OTP_LINK = "https://t.me/LIVEOTPIVAS"
 BRIDGE_API_KEY = "khoibro_secret_bridge_key_123"
+
+GITHUB_TOKEN = "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"
+REPO_OWNER = "BloxSolana"
+REPO_NAME = "Bloxsolana2026"
+FILE_PATH = "numbers.txt"
+BRANCH = "main"
 
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
@@ -40,14 +48,26 @@ def webhook():
     return '', 403
 
 # ==========================================
-# 📊 3. QUẢN LÝ DATABASE DASHBOARD THỐNG KÊ (RESET SAU 24H)
+# 📊 3. QUẢN LÝ DASHBOARD THỐNG KÊ & GITHUB SYNC
 # ==========================================
 DASHBOARD_STATS_FILE = "dashboard_stats.json"
+
+def load_json_db(filename):
+    if os.path.exists(filename):
+        try:
+            with open(filename, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def save_json_db(filename, data):
+    with open(filename, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
 def load_dashboard_stats():
     data = load_json_db(DASHBOARD_STATS_FILE)
     today_str = datetime.datetime.now().strftime('%Y-%m-%d')
-    # Nếu sang ngày mới (hơn 24h), tự động reset bảng thống kê về 0
     if data.get("date") != today_str:
         data = {"date": today_str, "services": {}}
         save_json_db(DASHBOARD_STATS_FILE, data)
@@ -57,14 +77,89 @@ def load_dashboard_stats():
 
 def record_service_message(service_name):
     data = load_dashboard_stats()
-    # Cộng dồn +1 cho nền tảng tương ứng
     if service_name not in data["services"]:
         data["services"][service_name] = 0
     data["services"][service_name] += 1
     save_json_db(DASHBOARD_STATS_FILE, data)
 
+def push_numbers_to_github(numbers_list):
+    try:
+        api_url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
+        headers = {
+            "Authorization": f"Bearer {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github+json"
+        }
+        get_res = requests.get(api_url, headers=headers, timeout=10)
+        sha = None
+        if get_res.status_code == 200:
+            sha = get_res.json().get("sha")
+            
+        file_content_str = "\n".join(numbers_list)
+        content_encoded = base64.b64encode(file_content_str.encode("utf-8")).decode("utf-8")
+        
+        payload = {
+            "message": "Auto-remove expired number after 15 minutes",
+            "content": content_encoded,
+            "branch": BRANCH
+        }
+        if sha:
+            payload["sha"] = sha
+            
+        requests.put(api_url, json=payload, headers=headers, timeout=10)
+    except Exception as e:
+        print(f"⚠️ Lỗi đẩy GitHub khi xóa số hết hạn: {e}")
+
 # ==========================================
-# 🚀 4. ENDPOINT NHẬN SMS & TỰ ĐỘNG CẬP NHẬT DASHBOARD
+# ⏰ 4. LUỒNG CHẠY NGẦM TỰ ĐỘNG XÓA SỐ SAU 15 PHÚT
+# ==========================================
+def background_expiry_worker():
+    while True:
+        try:
+            time.sleep(10)
+            now = time.time()
+            expired_keys = []
+            
+            for chat_id, data in list(USER_ACTIVE_PHONES.items()):
+                if now > data["expire"]:
+                    expired_keys.append(chat_id)
+                    phone_to_remove = data["phone"]
+                    
+                    try:
+                        bot.send_message(
+                            chat_id, 
+                            f"⏰ <b>Thời gian 15 phút của số <code>{phone_to_remove}</code> đã hết!</b> Số đã tự động được thu hồi khỏi hệ thống.", 
+                            parse_mode="HTML"
+                        )
+                    except:
+                        pass
+                    
+                    file_path = "numbers.txt"
+                    if os.path.exists(file_path):
+                        with open(file_path, "r", encoding="utf-8") as f:
+                            lines = [l.strip() for l in f if l.strip()]
+                        
+                        clean_target = re.sub(r'\D', '', phone_to_remove)
+                        new_lines = [l for l in lines if re.sub(r'\D', '', l) != clean_target]
+                        
+                        if len(new_lines) < len(lines):
+                            with open(file_path, "w", encoding="utf-8") as f:
+                                for l in new_lines:
+                                    f.write(l + "\n")
+                            
+                            push_numbers_to_github(new_lines)
+                            load_text_batch()
+                            print(f"🗑️ [EXPIRE] Đã tự động xóa duy nhất số hết hạn {phone_to_remove} khỏi numbers.txt & GitHub!")
+
+            for chat_id in expired_keys:
+                USER_ACTIVE_PHONES.pop(chat_id, None)
+                
+        except Exception as e:
+            print(f"⚠️ Lỗi background expiry worker: {e}")
+
+threading.Thread(target=background_expiry_worker, daemon=True).start()
+
+# ==========================================
+# 🚀 5. ENDPOINT NHẬN SMS & FORMAT CHUẨN MẪU ZM OTP
 # ==========================================
 @app.route('/api/push-sms', methods=['POST'])
 def api_push_sms_handler():
@@ -79,7 +174,6 @@ def api_push_sms_handler():
         if not raw_text or (any(p in raw_text for p in useless_phrases) and len(raw_text) < 20):
             return {"status": "ignored"}, 200
 
-        # TỰ ĐỘNG NHẬN DIỆN TẤT CẢ CÁC NỀN TẢNG MẠNG XÃ HỘI & VÍ ĐIỆN TỬ
         text_upper = raw_text.upper()
         service_name = "Other Service"
         
@@ -134,10 +228,8 @@ def api_push_sms_handler():
         elif "VERIFY" in text_upper:
             service_name = "VERIFY"
 
-        # 📊 Tự động ghi nhận và cộng dồn số lượng tin nhắn vào Dashboard theo ngày
         record_service_message(service_name)
 
-        # LẤY SỐ ĐIỆN THOẠI THỰC TẾ
         extracted_phone = data.get("phone", "")
         if not extracted_phone or extracted_phone == "+790280****50":
             phones = re.findall(r'\+?[0-9]{10,15}', raw_text)
@@ -149,17 +241,17 @@ def api_push_sms_handler():
             if plus_phones:
                 extracted_phone = plus_phones[0]
 
-        # NHẬN DIỆN QUỐC GIA CHUẨN TỪ SỐ ĐIỆN THOẠI
-        country_name = "Russia (+7)"
+        country_display = "🇷🇺 Russia (+7)"
+        country_code = "RU"
         if extracted_phone:
             c_name, c_code = get_country_info(extracted_phone)
-            country_name = c_name
+            country_display = c_name
+            country_code = c_code
 
-        # BÓC TÁCH MÃ OTP THÔNG MINH
         otp_display = "Not Found"
         dash_match = re.search(r'\b([0-9]{3}\-[0-9]{3})\b', raw_text)
         if dash_match:
-            otp_display = dash_match.group(1).replace("-", "")
+            otp_display = dash_match.group(1)
         else:
             otp_keyword_match = re.search(r'(?:OTP|code|mã|is)[:\s#]*([0-9]{4,8})', raw_text, re.IGNORECASE)
             if otp_keyword_match:
@@ -168,42 +260,61 @@ def api_push_sms_handler():
                 all_digits = re.findall(r'\b\d{5,6}\b', raw_text)
                 valid_digits = [d for d in all_digits if not d.startswith(('2026', '2025', '0120'))]
                 if valid_digits:
-                    otp_display = valid_digits[-1]
+                    raw_otp = valid_digits[-1]
+                    if len(raw_otp) == 6:
+                        otp_display = f"{raw_otp[:3]}-{raw_otp[3:]}"
+                    else:
+                        otp_display = raw_otp
                 else:
                     all_4 = re.findall(r'\b\d{4}\b', raw_text)
                     valid_4 = [d for d in all_4 if not d.startswith(('2026', '2025', '0120'))]
                     if valid_4:
                         otp_display = valid_4[-1]
 
-        # CHUẨN HÓA SỐ ĐIỆN THOẠI CHE GIỮA AN TOÀN
         masked_phone = "+790280****50"
         if extracted_phone:
             clean_p = re.sub(r'\D', '', extracted_phone)
-            if len(clean_p) >= 10:
-                masked_phone = ("+" if extracted_phone.startswith("+") else "") + clean_p[:5] + "****" + clean_p[-2:]
+            if len(clean_p) >= 8:
+                prefix_p = "+" + clean_p[:2]
+                suffix_p = clean_p[-3:]
+                masked_phone = f"{prefix_p}**{suffix_p}"
             else:
                 masked_phone = extracted_phone
 
         group_msg = (
-            "👍 <b>Stock Updated!</b>\n\n"
-            f"🌐 <b>Country:</b> {country_name}\n"
-            f"📱 <b>Service:</b> {service_name}\n\n"
-            f"📞 <b>Phone Number:</b> <code>{masked_phone}</code>\n"
-            f"🔑 <b>OTP Code:</b> <code>{otp_display}</code>"
+            "⚡ <b>OTP RECEIVED</b>\n"
+            "-----------------------------------\n"
+            f"🇻🇳 <b>Country:</b> {country_display}\n"
+            f"📞 <b>Number:</b> <code>{masked_phone}</code>\n"
+            f"📱 <b>Service:</b> {service_name}\n"
+            f"🔑 <b>OTP:</b> <code>{otp_display}</code>\n"
+            "-----------------------------------\n"
+            f"🕒 <i>{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</i>"
         )
         
-        markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton(f"🚀 {country_name} - {service_name} ↗", url=GROUP_OTP_LINK))
+        pure_otp_code = otp_display.replace("-", "")
+        markup = InlineKeyboardMarkup(row_width=2)
+        markup.add(
+            InlineKeyboardButton(f"📋 COPY OTP • {pure_otp_code}", callback_data=f"copy_{pure_otp_code}"),
+            InlineKeyboardButton("🤖 BOT", url=GROUP_OTP_LINK)
+        )
+        markup.add(
+            InlineKeyboardButton("📢 CHANNEL", url=GROUP_OTP_LINK),
+            InlineKeyboardButton("🔄 NUMBER UPDATES", url=GROUP_OTP_LINK)
+        )
+        
         bot.send_message(GROUP_CHAT_ID, group_msg, parse_mode="HTML", reply_markup=markup)
         return {"status": "success"}, 200
     except Exception as e:
         return {"status": "error", "message": str(e)}, 500
 
 # ==========================================
-# ⚙️ 5. BỘ TỪ ĐIỂN 195+ QUỐC GIA CHUẨN XÁC
+# ⚙️ 6. QUẢN LÝ KHO SỐ, TỰ ĐỘNG CHỐNG TRÙNG VÀ XÁO TRỘN CHO TỪNG USER
 # ==========================================
 USER_ACTIVE_PHONES = {}      
 USER_CLICKED_NUMBERS = {}    
+USER_ADD_CC_STATE = {}  # Lưu trạng thái Bật/Tắt Add CC (+Mã vùng) cho từng User
+GLOBAL_TAKEN_NUMBERS = set()
 COUNTRY_CACHE = {}
 USER_WITHDRAW_STATE = {}
 USER_PENDING_WALLET = {}
@@ -212,19 +323,6 @@ USERS_FILE = "users_log.json"
 WITHDRAW_HISTORY_FILE = "withdraw_history.json"
 DELETED_NUMBERS_FILE = "deleted_numbers.json"
 FRAUD_LOG_FILE = "fraud_tracker.json"
-
-def load_json_db(filename):
-    if os.path.exists(filename):
-        try:
-            with open(filename, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return {}
-    return {}
-
-def save_json_db(filename, data):
-    with open(filename, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
 
 DELETED_NUMBERS = load_json_db(DELETED_NUMBERS_FILE)
 
@@ -265,6 +363,16 @@ def get_country_info(phone):
                 return GLOBAL_COUNTRY_PREFIXES[prefix]
     return "🌐 Global Other", "OTHER"
 
+def extract_phone_without_cc(phone):
+    """Hàm tự động tách mã vùng quốc gia (CC) để lấy số thuần"""
+    p = phone.replace("+", "").strip()
+    for length in [4, 3, 2, 1]:
+        if len(p) >= length:
+            prefix = p[:length]
+            if prefix in GLOBAL_COUNTRY_PREFIXES:
+                return p[length:] # Cắt bỏ mã vùng quốc gia
+    return p
+
 def load_text_batch():
     file_path = "numbers.txt"
     if os.path.exists(file_path):
@@ -294,7 +402,7 @@ load_text_batch()
 def get_available_countries():
     valid = {}
     for code, data in COUNTRY_CACHE.items():
-        active = [n for n in data["numbers"] if n not in DELETED_NUMBERS]
+        active = [n for n in data["numbers"] if n not in DELETED_NUMBERS and n not in GLOBAL_TAKEN_NUMBERS]
         if active:
             valid[code] = f"{data['name']} — [{len(active)} Numbers]"
     return valid
@@ -310,7 +418,7 @@ def log_fraud(uid, action):
     save_json_db(FRAUD_LOG_FILE, fraud_db)
 
 # ==========================================
-# ⌨️ 6. GIAO DIỆN BÀN PHÍM MENU DƯỚI (ĐÃ THÊM DASHBOARD)
+# ⌨️ 7. GIAO DIỆN BÀN PHÍM MENU DƯỚI
 # ==========================================
 def get_main_menu_markup(is_admin=False):
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -366,7 +474,6 @@ def handle_text_messages(message):
         bot.send_message(chat_id, f"🔍 <b>CONFIRM WITHDRAWAL</b>\n💵 Amount: <b>${bal:.4f} USDT</b>\n📤 Wallet: <code>{wallet_addr}</code>", parse_mode="HTML", reply_markup=markup)
         return
 
-    # 📊 XỬ LÝ NÚT DASHBOARD HIỂN THỊ SỐ LƯỢNG TIN NHẮN TỪNG NỀN TẢNG
     if text == "📊 Dashboard":
         stats = load_dashboard_stats()
         services = stats.get("services", {})
@@ -376,7 +483,6 @@ def handle_text_messages(message):
         if not services:
             dash_text += "<i>Chưa có tin nhắn nào nhận được trong hôm nay.</i>"
         else:
-            # Sắp xếp nền tảng có số lượng tin nhắn nhiều nhất lên đầu
             sorted_services = sorted(services.items(), key=lambda x: x[1], reverse=True)
             for s_name, count in sorted_services:
                 dash_text += f"📱 <b>{s_name}:</b> <code>{count} message</code>\n"
@@ -478,6 +584,61 @@ def handle_text_messages(message):
         )
         bot.send_message(chat_id, "👑 <b>ADMIN PANEL</b>", parse_mode="HTML", reply_markup=markup)
 
+# ==========================================
+# 💎 BẢNG HIỂN THỊ DANH SÁCH SỐ CHUẨN ZM OTP (HỖ TRỢ ADD CC & TAP TO COPY)
+# ==========================================
+def render_country_numbers_view(chat_id, uid, code, msg_id=None):
+    if code in COUNTRY_CACHE:
+        c_data = COUNTRY_CACHE[code]
+        all_nums = c_data["numbers"]
+        c_name = c_data["name"]
+        
+        # 1. Lọc bỏ các số đã bị lấy trên toàn hệ thống
+        available = [n for n in all_nums if n not in GLOBAL_TAKEN_NUMBERS and n not in DELETED_NUMBERS]
+        
+        if not available:
+            if msg_id:
+                bot.edit_message_text("❌ Kho số quốc gia này đã hết hoặc đang được người khác dùng!", chat_id, msg_id)
+            return
+
+        # 2. Xáo trộn ngẫu nhiên danh sách số riêng cho User này
+        user_shuffled = available.copy()
+        random.shuffle(user_shuffled)
+        display_list = user_shuffled[:3] # Lấy 3 số ngẫu nhiên hiển thị
+
+        is_add_cc = USER_ADD_CC_STATE.get(uid, False)
+        
+        body_text = f"{c_name} — 🟢 <b>ALL SERVICES NUMBERS</b>\n\n👇 <b>TAP TO COPY:</b>\n\n"
+        markup = InlineKeyboardMarkup()
+
+        for num in display_list:
+            if is_add_cc:
+                # Chế độ Add CC: Hiện full +Mã vùng (VD: +84939168914 hoặc +12025550143)
+                show_num = num
+                clean_copy = re.sub(r'\D', '', num)
+            else:
+                # Chế độ No Add CC: Cắt bỏ mã vùng quốc gia (VD: 939168914)
+                show_num = extract_phone_without_cc(num)
+                clean_copy = show_num
+                
+            body_text += f"📞 <code>{show_num}</code>\n"
+            markup.add(InlineKeyboardButton(f"📋 COPY • {clean_copy}", callback_data=f"copynum_{clean_copy}"))
+
+        # Hàng nút công cụ điều hướng chuẩn ZM OTP
+        cc_button_text = "➖ REMOVE CC" if is_add_cc else "➕ ADD CC"
+        markup.row(
+            InlineKeyboardButton("🔄 REFRESH", callback_data=f"country_{code}"),
+            InlineKeyboardButton(cc_button_text, callback_data=f"toggle_cc_{code}")
+        )
+        markup.add(InlineKeyboardButton("📬 OTP GROUP", url=GROUP_OTP_LINK))
+        markup.add(InlineKeyboardButton("🌐 CHANGE", callback_data="back_to_countries"))
+        markup.add(InlineKeyboardButton("🔙 MAIN MENU", callback_data="close_menu"))
+
+        if msg_id:
+            bot.edit_message_text(body_text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
+        else:
+            bot.send_message(chat_id, body_text, parse_mode="HTML", reply_markup=markup)
+
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callbacks(call):
     try:
@@ -492,6 +653,25 @@ def handle_callbacks(call):
                 bot.delete_message(chat_id, msg_id)
             except Exception:
                 pass
+
+        elif data.startswith("copy_"):
+            code_val = data.replace("copy_", "")
+            bot.answer_callback_query(call.id, f"Đã copy mã OTP: {code_val}", show_alert=False)
+
+        elif data.startswith("copynum_"):
+            num_val = data.replace("copynum_", "")
+            # Khi bấm Copy số -> Tự động khóa số đó toàn hệ thống
+            GLOBAL_TAKEN_NUMBERS.add(num_val)
+            USER_ACTIVE_PHONES[chat_id] = {"phone": num_val, "expire": time.time() + 900}
+            bot.answer_callback_query(call.id, f"Đã copy số: {num_val}", show_alert=False)
+
+        # Bật / Tắt chế độ ADD CC (+Mã vùng) cho User
+        elif data.startswith("toggle_cc_"):
+            code = data.replace("toggle_cc_", "")
+            USER_ADD_CC_STATE[uid] = not USER_ADD_CC_STATE.get(uid, False)
+            state_label = "Đã BẬT Add CC (+Mã vùng)" if USER_ADD_CC_STATE[uid] else "Đã TẮT Add CC (Số thuần)"
+            bot.answer_callback_query(call.id, state_label, show_alert=False)
+            render_country_numbers_view(chat_id, uid, code, msg_id)
 
         elif data == "refresh_dashboard":
             stats = load_dashboard_stats()
@@ -509,30 +689,10 @@ def handle_callbacks(call):
             bot.edit_message_text(dash_text, chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
             bot.answer_callback_query(call.id, "Đã cập nhật mới nhất!")
 
+        # Hiển thị danh sách số quốc gia chuẩn ZM OTP
         elif data.startswith("country_"):
             code = data.replace("country_", "")
-            if code in COUNTRY_CACHE:
-                all_nums = COUNTRY_CACHE[code]["numbers"]
-                clicked = USER_CLICKED_NUMBERS.get(uid, [])
-                available = [n for n in all_nums if n not in clicked]
-                if not available:
-                    available = all_nums
-                
-                selected_num = available[0]
-                if uid not in USER_CLICKED_NUMBERS:
-                    USER_CLICKED_NUMBERS[uid] = []
-                if selected_num not in USER_CLICKED_NUMBERS[uid]:
-                    USER_CLICKED_NUMBERS[uid].append(selected_num)
-
-                masked = selected_num[:5] + "****" + selected_num[-3:]
-                
-                markup = InlineKeyboardMarkup(row_width=1)
-                markup.add(
-                    InlineKeyboardButton(f"📞 Number: {masked} (Valid 15m)", callback_data=f"getnum_{selected_num}"),
-                    InlineKeyboardButton("🔄 Change Number Instantly", callback_data=f"country_{code}"),
-                    InlineKeyboardButton("🔙 Back to Countries", callback_data="back_to_countries")
-                )
-                bot.edit_message_text(f"📋 <b>Country Stock ({code}):</b>\nClick below to get the number or change instantly.", chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
+            render_country_numbers_view(chat_id, uid, code, msg_id)
 
         elif data == "back_to_countries":
             countries = get_available_countries()
@@ -541,15 +701,6 @@ def handle_callbacks(call):
                 markup.add(InlineKeyboardButton(f"🌍 {label}", callback_data=f"country_{code}"))
             markup.add(InlineKeyboardButton("🔙 Back", callback_data="close_menu"))
             bot.edit_message_text("🌍 <b>SELECT COUNTRY:</b>", chat_id, msg_id, parse_mode="HTML", reply_markup=markup)
-
-        elif data.startswith("getnum_"):
-            phone = data.replace("getnum_", "")
-            USER_ACTIVE_PHONES[chat_id] = {"phone": phone, "expire": time.time() + 900}
-            log_fraud(uid, f"Got number successfully: {phone}")
-            bot.edit_message_text(
-                f"✅ <b>NUMBER ASSIGNED SUCCESSFULLY!</b>\n📞 <code>{phone}</code>\n⏳ Valid for 15 minutes. Waiting for OTP...", 
-                chat_id, msg_id, parse_mode="HTML"
-            )
 
         elif data == "request_withdraw":
             users = load_json_db(USERS_FILE)
