@@ -267,7 +267,8 @@ def answer_callback_query(callback_query_id, text="", show_alert=False):
 
 def delete_message(chat_id, message_id):
     payload = {"chat_id": chat_id, "message_id": message_id}
-    requests.post(BASE_URL + "deleteMessage", json=payload)
+    try: requests.post(BASE_URL + "deleteMessage", json=payload)
+    except Exception as e: pass
 
 def copy_message(chat_id, from_chat_id, message_id, reply_markup=None):
     payload = {"chat_id": chat_id, "from_chat_id": from_chat_id, "message_id": message_id}
@@ -583,6 +584,10 @@ def handle_message(message):
         
         if state == "waiting_ton_address":
             address = text.strip()
+            # Xóa tin nhắn nhập của người dùng để gọn khung chat
+            delete_message(chat_id, message_id)
+            if msg_id: delete_message(chat_id, msg_id)
+            
             if len(address) >= 30 and (address.startswith("EQ") or address.startswith("UQ") or address.startswith("0:")):
                 update_user_ton_address(user_id, address)
                 send_message(chat_id, f"✅ <b>TON USDT Address saved successfully!</b>\n\n<code>{address}</code>", reply_markup=get_main_keyboard(user_id))
@@ -592,6 +597,7 @@ def handle_message(message):
             return
             
         elif state == "waiting_broadcast":
+            delete_message(chat_id, message_id)
             if msg_id: edit_message(chat_id, msg_id, "⏳ <b>Broadcasting message to all users...</b>")
             threading.Thread(target=broadcast_worker, args=(chat_id, message_id, msg_id), daemon=True).start()
             del user_states[user_id]
@@ -686,8 +692,15 @@ def handle_callback(callback_query):
         
     elif data == "set_ton_address":
         user_states[user_id] = {"state": "waiting_ton_address", "msg_id": message_id}
-        edit_message(chat_id, message_id, "⚙️ <b>Please send your USDT (TON Network) wallet address now:</b>")
+        kb_cancel = {"inline_keyboard": [[{"text": "❌ CANCEL / BACK", "callback_data": "cancel_ton_address", "style": "danger"}]]}
+        edit_message(chat_id, message_id, "⚙️ <b>Please send your USDT (TON Network) wallet address now:</b>", reply_markup=kb_cancel)
         answer_callback_query(query_id)
+
+    elif data == "cancel_ton_address":
+        if user_id in user_states: del user_states[user_id]
+        delete_message(chat_id, message_id)
+        send_message(chat_id, "❌ <b>Setup cancelled.</b>", reply_markup=get_main_keyboard(user_id))
+        answer_callback_query(query_id, "Cancelled")
         
     elif data == "request_withdraw":
         user_data = get_user(user_id)
