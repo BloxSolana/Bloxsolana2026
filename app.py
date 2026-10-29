@@ -259,13 +259,15 @@ def send_message(chat_id, text, reply_markup=None, parse_mode="HTML"):
     payload = {"chat_id": chat_id, "text": apply_emojis(text), "parse_mode": parse_mode}
     if reply_markup: payload["reply_markup"] = reply_markup
     try: return requests.post(BASE_URL + "sendMessage", json=payload).json()
-    except Exception: return None
+    except Exception as e:
+        print(f"Send message error: {e}")
+        return None
 
 def edit_message(chat_id, message_id, text, reply_markup=None, parse_mode="HTML"):
     payload = {"chat_id": chat_id, "message_id": message_id, "text": apply_emojis(text), "parse_mode": parse_mode}
     if reply_markup: payload["reply_markup"] = reply_markup
     try: requests.post(BASE_URL + "editMessageText", json=payload)
-    except Exception: pass
+    except Exception as e: print(f"Edit message error: {e}")
 
 def answer_callback_query(callback_query_id, text="", show_alert=False):
     payload = {"callback_query_id": callback_query_id, "text": text, "show_alert": show_alert}
@@ -358,15 +360,18 @@ def update_user_ton_address(user_id, address):
 def get_total_users(): return len(get_all_user_ids())
 
 # ==========================================
-# MK Network API Integration (v3) - SAFE
+# MK Network API Integration (v3) - BULLETPROOF
 # ==========================================
 def fetch_access_list():
     try:
         res = requests.get(f"{MK_BASE_URL}/access_list", headers=get_mk_headers(), timeout=10)
         if res.status_code == 200:
             data = res.json()
-            if isinstance(data, dict) and data.get("meta", {}).get("code") == 200:
-                return data.get("data", {}).get("items", []) or []
+            if isinstance(data, dict):
+                # Hỗ trợ cả 2 định dạng trả về phổ biến của API v3
+                items = data.get("data", {}).get("items") or data.get("data") or data.get("items")
+                if isinstance(items, list):
+                    return items
     except Exception as e: print(f"Error fetching access list: {e}")
     return []
 
@@ -376,8 +381,8 @@ def allocate_mk_number(range_prefix):
         res = requests.post(f"{MK_BASE_URL}/getnum/number", headers=get_mk_headers(), json=payload, timeout=10)
         if res.status_code == 200:
             data = res.json()
-            if isinstance(data, dict) and data.get("meta", {}).get("code") == 200: 
-                return data.get("data", {}) or {}
+            if isinstance(data, dict):
+                return data.get("data", {}) or data
     except Exception as e: print(f"Error allocating number: {e}")
     return None
 
@@ -388,8 +393,8 @@ def check_mk_otp_batch(request_ids_list):
         res = requests.post(f"{MK_BASE_URL}/check/status", headers=get_mk_headers(), json=payload, timeout=10)
         if res.status_code == 200:
             data = res.json()
-            if isinstance(data, dict) and data.get("meta", {}).get("code") == 200: 
-                return data.get("data", {}).get("results", []) or []
+            if isinstance(data, dict):
+                return data.get("data", {}).get("results", []) or data.get("results", []) or []
     except Exception as e: print(f"Error checking OTP batch: {e}")
     return []
 
@@ -484,60 +489,66 @@ def get_owner_panel_text():
     )
 
 def get_services_content():
-    items = fetch_access_list()
-    if not items: 
-        return "❌ <b>No active countries/ranges available right now. Please try again later.</b>", {"inline_keyboard": [[{"text": "CLOSE", "callback_data": "close_panel", "style": "danger"}]]}
-    
-    kb = {"inline_keyboard": []}
-    row = []
-    seen_countries = set()
-    
-    for item in items[:12]:
-        if not isinstance(item, dict): continue
-        country = item.get("country")
-        range_prefix = item.get("range")
-        if country and range_prefix and country not in seen_countries:
-            seen_countries.add(country)
-            row.append({"text": str(country), "callback_data": f"cnt_{str(range_prefix)[:10]}", "style": "primary"})
-            if len(row) == 2:
-                kb["inline_keyboard"].append(row)
-                row = []
-    if row: kb["inline_keyboard"].append(row)
-    kb["inline_keyboard"].append([{"text": "CLOSE", "callback_data": "close_panel", "style": "danger"}])
-    return "🌍 <b>Select Country / Range:</b>", kb
+    try:
+        items = fetch_access_list()
+        if not items: 
+            return "⚠️ <b>MK Network API chưa trả về danh sách quốc gia (Kho số đang trống hoặc lỗi kết nối). Vui lòng thử lại sau!</b>", {"inline_keyboard": [[{"text": "CLOSE", "callback_data": "close_panel", "style": "danger"}]]}
+        
+        kb = {"inline_keyboard": []}
+        row = []
+        seen_countries = set()
+        
+        for item in items[:12]:
+            if not isinstance(item, dict): continue
+            country = item.get("country") or item.get("name") or "Unknown"
+            range_prefix = item.get("range") or item.get("code") or ""
+            if country and country not in seen_countries:
+                seen_countries.add(country)
+                row.append({"text": str(country), "callback_data": f"cnt_{str(range_prefix)[:10]}", "style": "primary"})
+                if len(row) == 2:
+                    kb["inline_keyboard"].append(row)
+                    row = []
+        if row: kb["inline_keyboard"].append(row)
+        kb["inline_keyboard"].append([{"text": "CLOSE", "callback_data": "close_panel", "style": "danger"}])
+        return "🌍 <b>Select Country / Range:</b>", kb
+    except Exception as e:
+        return f"❌ <b>Lỗi kết nối API:</b> <code>{html.escape(str(e))}</code>", None
 
 def get_number_allocation_content(range_prefix, user_id=None):
     global user_active_sessions, otp_button_link
-    num_data = allocate_mk_number(range_prefix)
-    
-    if num_data and isinstance(num_data, dict):
-        req_id = num_data.get("request_id")
-        full_number = num_data.get("full_number", "")
-        country = num_data.get("country", "Unknown")
+    try:
+        num_data = allocate_mk_number(range_prefix)
         
-        if user_id and req_id:
-            user_active_sessions[req_id] = user_id
-            save_local_data()
+        if num_data and isinstance(num_data, dict):
+            req_id = num_data.get("request_id") or num_data.get("id")
+            full_number = num_data.get("full_number", "") or num_data.get("number", "")
+            country = num_data.get("country", "Unknown")
             
-        update_daily_stat("numbers", 1)
-        clean_num = str(full_number).lstrip('+')
-        
-        msg = (
-            f"━━━━━━━━━━━━━━━\n"
-            f"⌛ <b>ACTIVE NUMBER (15M)</b>\n"
-            f"— — — — — — — — — —\n"
-            f"🌐 <b>Country:</b> {country}\n"
-            f"━━━━━━━━━━━━━━━"
-        )
-        kb = {
-            "inline_keyboard": [
-                [{"text": f"+{clean_num}", "copy_text": {"text": f"+{clean_num}"}, "style": "primary"}],
-                [{"text": "OTP Group", "url": otp_button_link, "style": "success"}],
-                [{"text": "BACK", "callback_data": "live_number_back", "style": "danger"}]
-            ]
-        }
-        return msg, kb
-    return "❌ <b>Out of stock or range error.</b>", {"inline_keyboard": [[{"text": "BACK", "callback_data": "live_number_back", "style": "danger"}]]}
+            if user_id and req_id:
+                user_active_sessions[req_id] = user_id
+                save_local_data()
+                
+            update_daily_stat("numbers", 1)
+            clean_num = str(full_number).lstrip('+')
+            
+            msg = (
+                f"━━━━━━━━━━━━━━━\n"
+                f"⌛ <b>ACTIVE NUMBER (15M)</b>\n"
+                f"— — — — — — — — — —\n"
+                f"🌐 <b>Country:</b> {country}\n"
+                f"━━━━━━━━━━━━━━━"
+            )
+            kb = {
+                "inline_keyboard": [
+                    [{"text": f"+{clean_num}", "copy_text": {"text": f"+{clean_num}"}, "style": "primary"}],
+                    [{"text": "OTP Group", "url": otp_button_link, "style": "success"}],
+                    [{"text": "BACK", "callback_data": "live_number_back", "style": "danger"}]
+                ]
+            }
+            return msg, kb
+    except Exception as e:
+        print(f"Allocation error: {e}")
+    return "❌ <b>Out of stock or API error. Please try another range.</b>", {"inline_keyboard": [[{"text": "BACK", "callback_data": "live_number_back", "style": "danger"}]]}
 
 def broadcast_worker(from_chat_id, message_id, target_msg_id):
     users = get_all_user_ids() 
@@ -592,9 +603,12 @@ def handle_message(message):
         send_message(chat_id, f"🔥 <b>FAST NODE • LIVE OTP GATEWAY</b>\n\nWelcome {html.escape(str(first_name))}, choose an option from the menu:", reply_markup=get_main_keyboard(user_id))
     
     elif text == "LIVE NUMBER":
-        msg, markup = get_services_content()
-        if markup: send_message(chat_id, msg, reply_markup=markup)
-        else: send_message(chat_id, msg)
+        try:
+            msg, markup = get_services_content()
+            if markup: send_message(chat_id, msg, reply_markup=markup)
+            else: send_message(chat_id, msg)
+        except Exception as e:
+            send_message(chat_id, f"❌ <b>Lỗi hệ thống:</b> <code>{html.escape(str(e))}</code>")
         
     elif text == "WALLET":
         ton_addr = user_data.get("ton_address", "")
@@ -629,9 +643,12 @@ def handle_callback(callback_query):
     message_id = callback_query["message"]["message_id"]
     
     if data == "live_number_back":
-        msg, markup = get_services_content()
-        if markup: edit_message(chat_id, message_id, msg, reply_markup=markup)
-        else: edit_message(chat_id, message_id, msg)
+        try:
+            msg, markup = get_services_content()
+            if markup: edit_message(chat_id, message_id, msg, reply_markup=markup)
+            else: edit_message(chat_id, message_id, msg)
+        except Exception as e:
+            edit_message(chat_id, message_id, f"❌ <b>Lỗi:</b> {e}")
         answer_callback_query(query_id)
         
     elif data.startswith("cnt_"):
