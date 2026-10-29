@@ -4,9 +4,10 @@ import os
 import re
 import html
 import json
+import threading
 
 # ==========================================
-# Configuration (Fast Node Full Features)
+# Configuration (Fast Node Smart Interactive Engine)
 # ==========================================
 BOT_TOKEN = "9139656226:AAF3G3Kll7E0DipP80mnXGWvex4BMdEVCzc"
 ADMIN_ID = 6726769296
@@ -83,7 +84,7 @@ country_db = {
     "962": ("Jordan", "🇯🇴"), "963": ("Syria", "🇸🇾"), "964": ("Iraq", "🇮🇶"), "965": ("Kuwait", "🇰🇼"),
     "966": ("Saudi Arabia", "🇸🇦"), "967": ("Yemen", "🇾🇪"), "968": ("Oman", "🇴🇲"), "970": ("Palestine", "🇵🇸"),
     "971": ("UAE", "🇦🇪"), "972": ("Israel", "🇮🇱"), "973": ("Bahrain", "🇧🇭"), "974": ("Qatar", "🇶🇦"),
-    "975": ("Bhutan", "🇹🇭"), "976": ("Mongolia", "🇲🇳"), "977": ("Nepal", "🇳🇵"), "992": ("Tajikistan", "🇹🇯"),
+    "975": ("Bhutan", "🇧🇹"), "976": ("Mongolia", "🇲🇳"), "977": ("Nepal", "🇳🇵"), "992": ("Tajikistan", "🇹🇯"),
     "993": ("Turkmenistan", "🇹🇲"), "994": ("Azerbaijan", "🇦🇿"), "995": ("Georgia", "🇬🇪"), "996": ("Kyrgyzstan", "🇰🇬"),
     "998": ("Uzbekistan", "🇺🇿")
 }
@@ -104,11 +105,15 @@ def load_cookie():
             pass
     return ""
 
+def save_cookie(val):
+    with open(CONFIG_FILE, "w") as f:
+        json.dump({"ivas_sms_session": val.strip()}, f)
+
 def verify_cookie(cookie_val):
     try:
         today = time.strftime("%Y-%m-%d")
         headers = {
-            "User-Agent": "Mozilla/5.0 (Linux; Android 10)",
+            "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
             "Referer": "https://www.ivasms.com/portal/sms",
             "X-Requested-With": "XMLHttpRequest"
         }
@@ -117,8 +122,59 @@ def verify_cookie(cookie_val):
     except Exception:
         return False
 
+# Luồng lắng nghe tin nhắn Telegram trực tiếp (Bắt cookie ngay lập tức, báo Sống/Die rõ ràng)
+def telegram_listener():
+    print("🚀 Telegram Message Listener Active...")
+    offset = 0
+    while True:
+        try:
+            r = requests.get(f"{BASE_URL}getUpdates", params={"offset": offset, "timeout": 25}, timeout=30)
+            if r.status_code == 200:
+                data = r.json()
+                for result in data.get("result", []):
+                    offset = result["update_id"] + 1
+                    msg = result.get("message", {})
+                    chat_id = msg.get("chat", {}).get("id")
+                    text = msg.get("text", "").strip()
+                    
+                    if chat_id == ADMIN_ID and text:
+                        # Kiểm tra xem có phải nội dung cookie không
+                        if "ivas_sms_session" in text or len(text) > 25:
+                            cookie_val = text
+                            # Tách lấy đúng chuỗi ivas_sms_session nếu user paste cả cục
+                            if "ivas_sms_session=" in text:
+                                match = re.search(r'ivas_sms_session=([^;\s]+)', text)
+                                if match:
+                                    cookie_val = match.group(1)
+                            
+                            requests.post(BASE_URL + "sendMessage", json={
+                                "chat_id": ADMIN_ID,
+                                "text": "⏳ Đang kiểm tra tính hợp lệ của cookie với Cloudflare...",
+                                "parse_mode": "HTML"
+                            })
+                            
+                            if verify_cookie(cookie_val):
+                                save_cookie(cookie_val)
+                                requests.post(BASE_URL + "sendMessage", json={
+                                    "chat_id": ADMIN_ID,
+                                    "text": "🟢 <b>COOKIE SỐNG RỒI BRO ƠI!</b> Đã lưu cấu hình thành công. Hệ thống tự động khôi phục cào OTP 24/7! 🚀",
+                                    "parse_mode": "HTML"
+                                })
+                            else:
+                                requests.post(BASE_URL + "sendMessage", json={
+                                    "chat_id": ADMIN_ID,
+                                    "text": "🔴 <b>COOKIE DIE / BỊ CHẶN!</b> Cloudflare đã từ chối (403 Forbidden). Bro lấy lại chuỗi cookie mới trên trình duyệt rồi gửi lại nhé!",
+                                    "parse_mode": "HTML"
+                                })
+        except Exception as e:
+            print(f"Listener error: {e}")
+        time.sleep(1)
+
 def main():
-    print("🚀 Fast Node Full Feature Polling Started...")
+    # Khởi chạy luồng nghe tin nhắn Telegram ngầm
+    threading.Thread(target=telegram_listener, daemon=True).start()
+    print("🚀 Fast Node Full Engine Started...")
+    
     last_seen_id = None
     alert_sent = False
 
@@ -128,7 +184,7 @@ def main():
             if not alert_sent:
                 requests.post(BASE_URL + "sendMessage", json={
                     "chat_id": ADMIN_ID,
-                    "text": "⚠️ <b>CẢNH BÁO:</b> Cookie IVASMS chưa có hoặc đã bị Cloudflare đá (403)! Bro hãy gửi chuỗi cookie mới trực tiếp vào đây để bot tự động lưu nhé.",
+                    "text": "⚠️ <b>CẢNH BÁO:</b> Cookie IVASMS chưa có hoặc đã bị Cloudflare đá (403)! Bro hãy gửi chuỗi cookie mới trực tiếp vào đây, bot sẽ check Sống/Die và tự động lưu nhé.",
                     "parse_mode": "HTML"
                 })
                 alert_sent = True
@@ -183,7 +239,7 @@ def main():
                                        f"<b>⌚ ᴛɪᴍᴇ:</b> <code>{html.escape(str(ts))}</code>\n"
                                        f"<b>🌍 ᴄᴏᴜɴᴛʀʏ:</b> {html.escape(str(info[0]))} {info[1]}\n"
                                        f"<b>📱 ɴ🇺🇲🇧ᴇ🇷:</b> <code>{html.escape(str(masked))}</code>\n"
-                                       f"<b>🛠 ꜱᴇʀᴠɪᴄᴇ:</b> <code>{html.escape(str(detected_service))}</code>\n"
+                                       f"<b>🛠 ꜱᴇʀᴠִᴄᴇ:</b> <code>{html.escape(str(detected_service))}</code>\n"
                                        f"<b>🔑 ᴄᴏᴅᴇ:</b> <code>{html.escape(str(code))}</code>\n\n"
                                        f"<b>💬 ᴍᴇssᴀɢᴇ:</b>\n<pre>{html.escape(str(msg_text))}</pre>\n\n"
                                        f"━━━━━━━━━━━━━━━━━━━━━")
