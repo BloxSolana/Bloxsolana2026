@@ -1,4 +1,4 @@
-import requests
+from curl_cffi import requests as c_requests
 import time
 import os
 import re
@@ -7,7 +7,7 @@ import json
 import threading
 
 # ==========================================
-# Configuration (Fast Node Smart Interactive Engine)
+# Configuration (Fast Node Anti-Cloudflare Engine)
 # ==========================================
 BOT_TOKEN = "9139656226:AAF3G3Kll7E0DipP80mnXGWvex4BMdEVCzc"
 ADMIN_ID = 6726769296
@@ -17,7 +17,6 @@ BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/"
 IVASMS_GET_SMS_URL = "https://www.ivasms.com/portal/sms/getsms"
 CONFIG_FILE = "cookie_config.json"
 
-# Kho Mạng Xã Hội Đầy Đủ
 PREMIUM_APPS = {
     "Facebook": "📘 Facebook",
     "WhatsApp": "💬 WhatsApp",
@@ -112,23 +111,24 @@ def save_cookie(val):
 def verify_cookie(cookie_val):
     try:
         today = time.strftime("%Y-%m-%d")
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
-            "Referer": "https://www.ivasms.com/portal/sms",
-            "X-Requested-With": "XMLHttpRequest"
-        }
-        r = requests.post(IVASMS_GET_SMS_URL, data={"start_date": today, "end_date": today}, cookies={"ivas_sms_session": cookie_val.strip()}, headers=headers, timeout=8)
+        r = c_requests.post(
+            IVASMS_GET_SMS_URL, 
+            data={"start_date": today, "end_date": today}, 
+            cookies={"ivas_sms_session": cookie_val.strip()}, 
+            impersonate="chrome", 
+            timeout=10
+        )
         return r.status_code == 200
-    except Exception:
+    except Exception as e:
+        print(f"Verify error: {e}")
         return False
 
-# Luồng lắng nghe tin nhắn Telegram trực tiếp (Bắt cookie ngay lập tức, báo Sống/Die rõ ràng)
 def telegram_listener():
     print("🚀 Telegram Message Listener Active...")
     offset = 0
     while True:
         try:
-            r = requests.get(f"{BASE_URL}getUpdates", params={"offset": offset, "timeout": 25}, timeout=30)
+            r = c_requests.get(f"{BASE_URL}getUpdates", params={"offset": offset, "timeout": 25}, timeout=30, impersonate="chrome")
             if r.status_code == 200:
                 data = r.json()
                 for result in data.get("result", []):
@@ -138,42 +138,39 @@ def telegram_listener():
                     text = msg.get("text", "").strip()
                     
                     if chat_id == ADMIN_ID and text:
-                        # Kiểm tra xem có phải nội dung cookie không
                         if "ivas_sms_session" in text or len(text) > 25:
                             cookie_val = text
-                            # Tách lấy đúng chuỗi ivas_sms_session nếu user paste cả cục
                             if "ivas_sms_session=" in text:
                                 match = re.search(r'ivas_sms_session=([^;\s]+)', text)
                                 if match:
                                     cookie_val = match.group(1)
                             
-                            requests.post(BASE_URL + "sendMessage", json={
+                            c_requests.post(f"{BASE_URL}sendMessage", json={
                                 "chat_id": ADMIN_ID,
-                                "text": "⏳ Đang kiểm tra tính hợp lệ của cookie với Cloudflare...",
+                                "text": "⏳ Đang kiểm tra tính hợp lệ của cookie với Cloudflare (Giả lập Chrome TLS)...",
                                 "parse_mode": "HTML"
-                            })
+                            }, impersonate="chrome")
                             
                             if verify_cookie(cookie_val):
                                 save_cookie(cookie_val)
-                                requests.post(BASE_URL + "sendMessage", json={
+                                c_requests.post(f"{BASE_URL}sendMessage", json={
                                     "chat_id": ADMIN_ID,
-                                    "text": "🟢 <b>COOKIE SỐNG RỒI BRO ƠI!</b> Đã lưu cấu hình thành công. Hệ thống tự động khôi phục cào OTP 24/7! 🚀",
+                                    "text": "🟢 <b>COOKIE SỐNG RỒI BRO ƠI!</b> Vượt rào Cloudflare thành công. Bot bắt đầu cào OTP 24/7! 🚀",
                                     "parse_mode": "HTML"
-                                })
+                                }, impersonate="chrome")
                             else:
-                                requests.post(BASE_URL + "sendMessage", json={
+                                c_requests.post(f"{BASE_URL}sendMessage", json={
                                     "chat_id": ADMIN_ID,
-                                    "text": "🔴 <b>COOKIE DIE / BỊ CHẶN!</b> Cloudflare đã từ chối (403 Forbidden). Bro lấy lại chuỗi cookie mới trên trình duyệt rồi gửi lại nhé!",
+                                    "text": "🔴 <b>COOKIE DIE / HẾT HẠN!</b> Vui lòng lấy lại chuỗi cookie mới trên trình duyệt và gửi lại nhé.",
                                     "parse_mode": "HTML"
-                                })
+                                }, impersonate="chrome")
         except Exception as e:
             print(f"Listener error: {e}")
         time.sleep(1)
 
 def main():
-    # Khởi chạy luồng nghe tin nhắn Telegram ngầm
     threading.Thread(target=telegram_listener, daemon=True).start()
-    print("🚀 Fast Node Full Engine Started...")
+    print("🚀 Fast Node Anti-Cloudflare Engine Started...")
     
     last_seen_id = None
     alert_sent = False
@@ -182,11 +179,11 @@ def main():
         cookie = load_cookie()
         if not cookie or not verify_cookie(cookie):
             if not alert_sent:
-                requests.post(BASE_URL + "sendMessage", json={
+                c_requests.post(f"{BASE_URL}sendMessage", json={
                     "chat_id": ADMIN_ID,
-                    "text": "⚠️ <b>CẢNH BÁO:</b> Cookie IVASMS chưa có hoặc đã bị Cloudflare đá (403)! Bro hãy gửi chuỗi cookie mới trực tiếp vào đây, bot sẽ check Sống/Die và tự động lưu nhé.",
+                    "text": "⚠️ <b>CẢNH BÁO:</b> Chưa có Cookie hoặc Cookie đã bị Cloudflare chặn! Bro hãy gửi chuỗi cookie mới vào đây.",
                     "parse_mode": "HTML"
-                })
+                }, impersonate="chrome")
                 alert_sent = True
             time.sleep(15)
             continue
@@ -194,19 +191,20 @@ def main():
         alert_sent = False
         try:
             today = time.strftime("%Y-%m-%d")
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
-                "Referer": "https://www.ivasms.com/portal/sms",
-                "X-Requested-With": "XMLHttpRequest"
-            }
-            r = requests.post(IVASMS_GET_SMS_URL, data={"start_date": today, "end_date": today}, cookies={"ivas_sms_session": cookie}, headers=headers, timeout=10)
+            r = c_requests.post(
+                IVASMS_GET_SMS_URL, 
+                data={"start_date": today, "end_date": today}, 
+                cookies={"ivas_sms_session": cookie}, 
+                impersonate="chrome", 
+                timeout=10
+            )
             
             if r.status_code in [401, 403]:
-                requests.post(BASE_URL + "sendMessage", json={
+                c_requests.post(f"{BASE_URL}sendMessage", json={
                     "chat_id": ADMIN_ID,
-                    "text": "⚠️ <b>CẢNH BÁO 403:</b> Cookie đã chết! Bro hãy gửi ngay chuỗi cookie mới vào đoạn chat này.",
+                    "text": "⚠️ <b>CẢNH BÁO 403:</b> Cookie đã chết giữa đường! Bro gửi ngay chuỗi cookie mới vào đây nhé.",
                     "parse_mode": "HTML"
-                })
+                }, impersonate="chrome")
                 time.sleep(25)
                 continue
 
@@ -239,17 +237,17 @@ def main():
                                        f"<b>⌚ ᴛɪᴍᴇ:</b> <code>{html.escape(str(ts))}</code>\n"
                                        f"<b>🌍 ᴄᴏᴜɴᴛʀʏ:</b> {html.escape(str(info[0]))} {info[1]}\n"
                                        f"<b>📱 ɴ🇺🇲🇧ᴇ🇷:</b> <code>{html.escape(str(masked))}</code>\n"
-                                       f"<b>🛠 ꜱᴇʀᴠִᴄᴇ:</b> <code>{html.escape(str(detected_service))}</code>\n"
+                                       f"<b>🛠 ꜱᴇʀᴠɪᴄᴇ:</b> <code>{html.escape(str(detected_service))}</code>\n"
                                        f"<b>🔑 ᴄᴏᴅᴇ:</b> <code>{html.escape(str(code))}</code>\n\n"
                                        f"<b>💬 ᴍᴇssᴀɢᴇ:</b>\n<pre>{html.escape(str(msg_text))}</pre>\n\n"
                                        f"━━━━━━━━━━━━━━━━━━━━━")
                             
-                            requests.post(BASE_URL + "sendMessage", json={
+                            c_requests.post(f"{BASE_URL}sendMessage", json={
                                 "chat_id": TARGET_CHAT,
                                 "text": caption,
                                 "parse_mode": "HTML",
                                 "disable_web_page_preview": True
-                            })
+                            }, impersonate="chrome")
                             last_seen_id = msg_id
         except Exception as e:
             print(f"Loop error: {e}")
