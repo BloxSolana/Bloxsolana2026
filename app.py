@@ -11,7 +11,7 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 
 # ==========================================
-# Configuration (Fast Node • MK Network OTP)
+# Configuration (Fast Node • MK Network Gateway)
 # ==========================================
 BOT_TOKEN = "9139656226:AAF3G3Kll7E0DipP80mnXGWvex4BMdEVCzc"
 ADMIN_ID = 6726769296
@@ -30,7 +30,7 @@ user_states = {}
 
 # User & Cooldown States
 user_cache = {} 
-user_active_sessions = {} # format: {request_id: user_id} or {"number": user_id}
+user_active_sessions = {} # format: {request_id: user_id}
 user_cooldowns = {} 
 
 # Force Join States
@@ -47,26 +47,177 @@ recent_traffic = []
 daily_stats = {"date": "", "numbers": 0, "otps": 0} 
 daily_user_otps = {"date": "", "users": {}}
 
-cached_services_kb = None
-cached_countries_kb = {}
-cached_leaderboard_text = ""
-
 # Admin Settings
 bot_settings = {
     "withdraw_on": True,
-    "min_withdraw": 10.0,
+    "min_withdraw": 5.0, # Default Min Withdraw $5.0 USD
     "support_link": "",
-    "w_group": "",
     "cooldown": 5,
     "num_req": 1,
-    "w_methods": ["Crypto", "Binance ID"],
-    "otp_default_rate": 0.5,
+    "w_methods": ["USDT (TON Network)"],
+    "otp_default_rate": 0.005, # Default $0.005 USD per OTP
     "otp_service_rates": {},
-    "main_channel_link": ""
+    "main_channel_link": "",
+    "refer_reward": 0.001
 }
+
+# Pending Withdrawals List
+pending_withdrawals = []
 
 BOT_DATA_FILE = "bot_data.json"
 USERS_LIST_FILE = "users_list.json"
+
+# ==========================================
+# Global Emojis Map
+# ==========================================
+GLOBAL_BODY_EMOJIS = {
+    "➖": "5870818207383686839", "🚫": "5334807341109908955", "😒": "5334763399299506604",
+    "🖥": "5334880948259427772", "🌐": "5334590977837403844", "🌟": "5337102391244263212",
+    "🕓": "5336983442125001376", "⌛": "5337172996211648018", "💬": "5337302974806922068",
+    "🔐": "5337255927735163754", "🍏": "5337132498965010628", "❔": "5336850036145823599",
+    "⚠️": "5336944168944047463", "🔥": "5337267511261960341", "💸": "5429612421977253466",
+    "📊": "5353032893096567467", "🔢": "5226929552319594190", "👤": "5352861489541714456",
+    "🚀": "5352597830089347330", "✅": "5352694861990501856", "🆔": "5226929552319594190",
+    "💳": "5190899075968441286", "🏆": "5240021484516185513", "👑": "5352838545826420397"
+}
+
+def apply_emojis(text):
+    hidden = []
+    def hide(match):
+        hidden.append(match.group(0))
+        return f"__TG_EMOJI_{len(hidden)-1}__"
+    text = re.sub(r'<tg-emoji[^>]*>.*?</tg-emoji>', hide, text)
+    for char, eid in GLOBAL_BODY_EMOJIS.items():
+        text = text.replace(char, f'<tg-emoji emoji-id="{eid}">{char}</tg-emoji>')
+    for i, h in enumerate(hidden):
+        text = text.replace(f"__TG_EMOJI_{i}__", h)
+    return text
+
+# ==========================================
+# Premium Apps & Service Keywords Setup
+# ==========================================
+PREMIUM_APPS = {
+    "Facebook": {"emoji": "📘", "id": "5429172110520003976"},
+    "WhatsApp": {"emoji": "💬", "id": "5429612632430654504"},
+    "Telegram": {"emoji": "✈️", "id": "5429136513831057777"},
+    "Instagram": {"emoji": "📸", "id": "5429478178479447442"},
+    "Google": {"emoji": "🔍", "id": "5429558795015593080"},
+    "Microsoft": {"emoji": "🪟", "id": "5979047775470358891"},
+    "TikTok": {"emoji": "🎵", "id": "5429132656950419591"},
+    "Bkash": {"emoji": "🏦", "id": "5431552076452766597"},
+    "Binance": {"emoji": "💱", "id": "5429438106434575354"},
+    "Snapchat": {"emoji": "👻", "id": "5429398137468919845"},
+    "Uber": {"emoji": "🚗", "id": "5298715455316303708"},
+    "Discord": {"emoji": "🎬", "id": "5429594374524676604"},
+    "Amazon": {"emoji": "🌟", "id": "5431358656895568355"},
+    "Viber": {"emoji": "💜", "id": "5429470576387335368"},
+    "Twitter": {"emoji": "🐦", "id": "5431899135580087595"},
+    "Netflix": {"emoji": "🎥", "id": "5431641055290235797"},
+    "Spotify": {"emoji": "🎵", "id": "5429235839244739644"},
+    "Foodpanda": {"emoji": "🐼", "id": "5336879280578138635"},
+    "Pathao": {"emoji": "🛵", "id": "5336879280578138635"},
+    "ChatGPT": {"emoji": "🤖", "id": "5429503209548847635"},
+    "Imo": {"emoji": "💭", "id": "5431378937731129128"},
+    "Other": {"emoji": "📶", "id": "5429353834881261942"}
+}
+
+SERVICE_SMS_KEYWORDS = {
+    "Facebook": ["facebook", "fb code", "fb", "meta"],
+    "WhatsApp": ["whats", "whatsapp", "whatsapp code"],
+    "Telegram": ["telegram", "tg code"],
+    "Instagram": ["instagram", "ig code"],
+    "Google": ["google", "Googl"],
+    "Microsoft": ["microsoft", "micro", "Microsof", "xbox"],
+    "TikTok": ["tiktok", "tik tok"],
+    "Bkash": ["bkash"],
+    "Binance": ["binance", "bnb"],
+    "Snapchat": ["snapchat", "snap"],
+    "Uber": ["uber"],
+    "Discord": ["discord"],
+    "Amazon": ["amazon", "aws"],
+    "Viber": ["viber"],
+    "Twitter": ["twitter", "x.com"],
+    "Netflix": ["netflix"],
+    "Spotify": ["spotify"],
+    "Foodpanda": ["foodpanda", "panda"],
+    "Pathao": ["pathao"],
+    "ChatGPT": ["openai", "chatgpt"],
+    "Imo": ["imo code", "imo"]
+}
+
+COUNTRY_CODES = {
+    "1": "🇺🇸 USA/Canada", "380": "🇺🇦 Ukraine", "48": "🇵🇱 Poland", "7": "🇰🇿 Kazakhstan",
+    "86": "🇨🇳 China", "994": "🇦🇿 Azerbaijan", "374": "🇦🇲 Armenia", "79": "🇷🇺 Russia",
+    "998": "🇺🇿 Uzbekistan", "49": "🇩🇪 Germany", "81": "🇯🇵 Japan", "90": "🇹🇷 Turkey",
+    "375": "🇧🇾 Belarus", "44": "🇬🇧 United Kingdom", "91": "🇮🇳 India", "55": "🇧🇷 Brazil",
+    "260": "🇿🇲 Zambia", "967": "🇾🇪 Yemen", "84": "🇻🇳 Vietnam", "379": "🇻🇦 Vatican City",
+    "678": "🇻🇺 Vanuatu", "598": "🇺🇾 Uruguay", "971": "🇦🇪 UAE", "256": "🇺🇬 Uganda",
+    "993": "🇹🇲 Turkmenistan", "216": "🇹🇳 Tunisia", "228": "🇹🇬 Togo", "66": "🇹🇭 Thailand",
+    "255": "🇹🇿 Tanzania", "992": "🇹🇯 Tajikistan", "41": "🇨🇭 Switzerland", "46": "🇸🇪 Sweden",
+    "268": "🇸🇿 Eswatini", "597": "🇸🇷 Suriname", "249": "🇸🇩 Sudan", "34": "🇪🇸 Spain",
+    "94": "🇱🇰 Sri Lanka", "211": "🇸🇸 South Sudan", "27": "🇿🇦 South Africa", "252": "🇸🇴 Somalia",
+    "677": "🇸🇧 Solomon Islands", "386": "🇸🇮 Slovenia", "421": "🇸🇰 Slovakia", "65": "🇸🇬 Singapore",
+    "232": "🇸🇱 Sierra Leone", "248": "🇸🇨 Seychelles", "381": "🇷🇸 Serbia", "221": "🇸🇳 Senegal",
+    "239": "🇸🇹 Sao Tome", "378": "🇸🇲 San Marino", "685": "🇼🇸 Samoa", "970": "🇵🇸 Palestine",
+    "250": "🇷🇼 Rwanda", "40": "🇷🇴 Romania", "974": "🇶🇦 Qatar", "351": "🇵🇹 Portugal",
+    "63": "🇵🇭 Philippines", "51": "🇵🇪 Peru", "595": "🇵🇾 Paraguay", "675": "🇵🇬 Papua New Guinea",
+    "507": "🇵🇦 Panama", "680": "🇵🇼 Palau", "92": "🇵🇰 Pakistan", "968": "🇴🇲 Oman",
+    "47": "🇳🇴 Norway", "234": "🇳🇬 Nigeria", "227": "🇳🇪 Niger", "64": "🇳🇿 New Zealand",
+    "31": "🇳🇱 Netherlands", "977": "🇳🇵 Nepal", "264": "🇳🇦 Namibia", "258": "🇲🇿 Mozambique",
+    "212": "🇲🇦 Morocco", "382": "🇲🇪 Montenegro", "976": "🇲🇳 Mongolia", "377": "🇲🇨 Monaco",
+    "373": "🇲🇩 Moldova", "960": "🇲🇻 Maldives", "223": "🇲🇱 Mali", "356": "🇲🇹 Malta",
+    "596": "🇲🇶 Martinique", "692": "🇲🇭 Marshall Islands", "230": "🇲🇺 Mauritius", "52": "🇲🇽 Mexico",
+    "691": "🇫🇲 Micronesia", "60": "🇲🇾 Malaysia", "254": "🇰🇪 Kenya", "261": "🇲🇬 Madagascar",
+    "389": "🇲🇰 North Macedonia", "352": "🇱🇺 Luxembourg", "370": "🇱🇹 Lithuania", "423": "🇱🇮 Liechtenstein",
+    "218": "🇱🇾 Libya", "231": "🇱🇷 Liberia", "686": "🇰🇮 Kiribati", "383": "🇽🇰 Kosovo",
+    "965": "🇰🇼 Kuwait", "996": "🇰🇬 Kyrgyzstan", "856": "🇱🇦 Laos", "371": "🇱🇻 Latvia",
+    "961": "🇱🇧 Lebanon", "266": "🇱🇸 Lesotho", "62": "🇮🇩 Indonesia", "98": "🇮🇷 Iran",
+    "964": "🇮🇶 Iraq", "353": "🇮🇪 Ireland", "972": "🇮🇱 Israel", "39": "🇮🇹 Italy",
+    "962": "🇯🇴 Jordan", "354": "🇮🇸 Iceland", "36": "🇭🇺 Hungary", "504": "🇭🇳 Honduras",
+    "509": "🇭🇹 Haiti", "592": "🇬🇾 Guyana", "245": "🇬🇼 Guinea-Bissau", "224": "🇬🇳 Guinea",
+    "502": "🇬🇹 Guatemala", "30": "🇬🇷 Greece", "233": "🇬🇭 Ghana", "995": "🇬🇪 Georgia",
+    "220": "🇬🇲 Gambia", "241": "🇬🇦 Gabon", "33": "🇫🇷 France", "358": "🇫🇮 Finland",
+    "679": "🇫🇯 Fiji", "251": "🇪🇹 Ethiopia", "670": "🇹🇱 Timor-Leste", "593": "🇪🇨 Ecuador",
+    "20": "🇪🇬 Egypt", "503": "🇸🇻 El Salvador", "372": "🇪🇪 Estonia", "253": "🇩🇯 Djibouti",
+    "45": "🇩🇰 Denmark", "357": "🇨🇾 Cyprus", "385": "🇭🇷 Croatia", "506": "🇨🇷 Costa Rica",
+    "242": "🇨🇬 Congo", "243": "🇨🇩 DR Congo", "269": "🇰🇲 Comoros", "855": "🇰🇭 Cambodia",
+    "237": "🇨🇲 Cameroon", "238": "🇨🇻 Cape Verde", "236": "🇨🇫 CAR", "235": "🇹🇩 Chad",
+    "420": "🇨🇿 Czechia", "56": "🇨🇱 Chile", "57": "🇨🇴 Colombia", "257": "🇧🇮 Burundi",
+    "267": "🇧🇼 Botswana", "387": "🇧🇦 Bosnia", "591": "🇧🇴 Bolivia", "975": "🇧🇹 Bhutan",
+    "229": "🇧🇯 Benin", "54": "🇦🇷 Argentina", "61": "🇦🇺 Australia", "43": "🇦🇹 Austria",
+    "973": "🇧🇭 Bahrain", "880": "🇧🇩 Bangladesh", "32": "🇧🇪 Belgium", "501": "🇧🇿 Belize",
+    "244": "🇦🇴 Angola", "376": "🇦🇩 Andorra", "213": "🇩🇿 Algeria", "355": "🇦🇱 Albania",
+    "93": "🇦🇫 Afghanistan", "263": "🇿🇼 Zimbabwe", "53": "🇨🇺 Cuba", "850": "🇰🇵 North Korea",
+    "58": "🇻🇪 Venezuela", "963": "🇸🇾 Syria", "95": "🇲🇲 Myanmar", "505": "🇳🇮 Nicaragua",
+    "82": "🇰🇷 South Korea", "240": "🇬🇶 Equatorial Guinea", "299": "🇬🇱 Greenland", "298": "🇫🇴 Faroe Islands",
+    "225": "🇨🇮 Ivory Coast", "673": "🇧🇳 Brunei", "359": "🇧🇬 Bulgaria", "226": "🇧🇫 Burkina Faso",
+    "291": "🇪🇷 Eritrea", "265": "🇲🇼 Malawi", "222": "🇲🇷 Mauritania", "674": "🇳🇷 Nauru",
+    "966": "🇸🇦 Saudi Arabia", "676": "🇹🇴 Tonga", "688": "🇹🇻 Tuvalu", "886": "🇹🇼 Taiwan",
+    "852": "🇭🇰 Hong Kong", "853": "🇲🇴 Macau", "297": "🇦🇼 Aruba", "599": "🇨🇼 Curacao",
+    "500": "🇫🇰 Falkland Islands", "594": "🇬🇫 French Guiana", "590": "🇬🇵 Guadeloupe", "262": "🇷🇪 Reunion",
+    "687": "🇳🇨 New Caledonia", "683": "🇳🇺 Niue", "672": "🇳🇫 Norfolk Island", "681": "🇼🇫 Wallis and Futuna",
+    "682": "🇨🇰 Cook Islands", "689": "🇵🇫 French Polynesia", "350": "🇬🇮 Gibraltar", "508": "🇵🇲 Saint Pierre"
+}
+
+def get_country_info(range_str):
+    clean_range = str(range_str or "").replace("X", "")
+    for code, name in sorted(COUNTRY_CODES.items(), key=lambda x: len(x[0]), reverse=True):
+        if clean_range.startswith(code): return code, name
+    return clean_range[:3], f"🏳️ Other (+{clean_range[:3]})"
+
+def detect_service(message_text, raw_sid=""):
+    msg_lower = str(message_text).lower()
+    for service, keywords in SERVICE_SMS_KEYWORDS.items():
+        for kw in keywords:
+            if re.search(rf'\b{re.escape(kw)}\b', msg_lower) or kw in msg_lower:
+                return service
+    for service in PREMIUM_APPS.keys():
+        if service.lower() in str(raw_sid).lower(): return service
+    return "Other"
+
+def get_service_info_html(service_name):
+    app_info = PREMIUM_APPS.get(service_name, PREMIUM_APPS["Other"])
+    return f'<tg-emoji emoji-id="{app_info["id"]}">{app_info["emoji"]}</tg-emoji> <b>{html.escape(service_name.upper())}</b>', app_info["id"]
 
 def get_mk_headers():
     return {
@@ -76,7 +227,7 @@ def get_mk_headers():
 
 def get_otp_reward(service_name):
     rates = bot_settings.get("otp_service_rates", {})
-    val = rates.get(service_name, bot_settings.get("otp_default_rate", 0.5))
+    val = rates.get(service_name, bot_settings.get("otp_default_rate", 0.005))
     return float(val)
 
 def update_daily_stat(key, amount=1):
@@ -87,7 +238,7 @@ def update_daily_stat(key, amount=1):
     daily_stats[key] = daily_stats.get(key, 0) + amount
 
 def load_local_data():
-    global recent_traffic, mk_dynamic_data, force_join_status, force_join_channels, otp_forward_groups, otp_button_link, recent_success_otps, bot_settings, user_active_sessions, daily_stats, daily_user_otps
+    global recent_traffic, mk_dynamic_data, force_join_status, force_join_channels, otp_forward_groups, otp_button_link, recent_success_otps, bot_settings, user_active_sessions, daily_stats, daily_user_otps, pending_withdrawals
     if os.path.exists(BOT_DATA_FILE):
         try:
             with open(BOT_DATA_FILE, "r") as f:
@@ -106,11 +257,12 @@ def load_local_data():
                 daily_stats = data.get("daily_stats", {"date": "", "numbers": 0, "otps": 0})
                 daily_user_otps = data.get("daily_user_otps", {"date": "", "users": {}})
                 user_active_sessions = data.get("user_active_sessions", {})
+                pending_withdrawals = data.get("pending_withdrawals", [])
         except Exception as e:
             print(f"Error loading local data: {e}")
 
 def save_local_data():
-    global recent_traffic, mk_dynamic_data, force_join_status, force_join_channels, otp_forward_groups, otp_button_link, recent_success_otps, bot_settings, user_active_sessions, daily_stats
+    global recent_traffic, mk_dynamic_data, force_join_status, force_join_channels, otp_forward_groups, otp_button_link, recent_success_otps, bot_settings, user_active_sessions, daily_stats, pending_withdrawals
     try:
         with open(BOT_DATA_FILE, "w") as f:
             json.dump({
@@ -124,7 +276,8 @@ def save_local_data():
                 "bot_settings": bot_settings,
                 "user_active_sessions": user_active_sessions,
                 "daily_stats": daily_stats,
-                "daily_user_otps": daily_user_otps
+                "daily_user_otps": daily_user_otps,
+                "pending_withdrawals": pending_withdrawals
             }, f)
     except Exception as e:
         print(f"Error saving local data: {e}")
@@ -148,8 +301,7 @@ def add_to_broadcast_list(user_id):
 def get_all_user_ids():
     global user_cache
     users = set()
-    for uid in user_cache.keys():
-        users.add(int(uid))
+    for uid in user_cache.keys(): users.add(int(uid))
     if os.path.exists(USERS_LIST_FILE):
         try:
             with open(USERS_LIST_FILE, "r") as f:
@@ -165,7 +317,7 @@ def get_bot_info():
     return ""
 
 def set_bot_commands():
-    commands = [{"command": "start", "description": "Start the gateway or refresh menu"}]
+    commands = [{"command": "start", "description": "Start or refresh the bot"}]
     try: requests.post(BASE_URL + "setMyCommands", json={"commands": commands})
     except Exception: pass
 
@@ -201,129 +353,109 @@ def is_user_joined(user_id):
         except: return False
     return True
 
-GLOBAL_BODY_EMOJIS = {
-    "➖": "5870818207383686839", "🚫": "5334807341109908955", "🌐": "5334590977837403844", 
-    "🌟": "5337102391244263212", "⌛": "5337172996211648018", "🔥": "5337267511261960341", 
-    "📊": "5353032893096567467", "👤": "5352861489541714456", "🚀": "5352597830089347330", 
-    "✅": "5352694861990501856", "🆔": "5226929552319594190", "💳": "5190899075968441286"
-}
+# ==========================================
+# Database Setup (SQLite)
+# ==========================================
+def init_sqlite():
+    conn = sqlite3.connect("bot_database.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY, 
+            first_name TEXT DEFAULT 'User', 
+            balance REAL DEFAULT 0.0, 
+            total_invites INTEGER DEFAULT 0,
+            ton_address TEXT DEFAULT ''
+        )
+    """)
+    try: cursor.execute("ALTER TABLE users ADD COLUMN ton_address TEXT DEFAULT ''")
+    except: pass
+    conn.commit()
+    conn.close()
 
-def apply_emojis(text):
-    hidden = []
-    def hide(match):
-        hidden.append(match.group(0))
-        return f"__TG_EMOJI_{len(hidden)-1}__"
-    text = re.sub(r'<tg-emoji[^>]*>.*?</tg-emoji>', hide, text)
-    for char, eid in GLOBAL_BODY_EMOJIS.items():
-        text = text.replace(char, f'<tg-emoji emoji-id="{eid}">{char}</tg-emoji>')
-    for i, h in enumerate(hidden):
-        text = text.replace(f"__TG_EMOJI_{i}__", h)
-    return text
+def get_user(user_id):
+    if user_id in user_cache: return user_cache[user_id]
+    conn = sqlite3.connect("bot_database.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT first_name, balance, total_invites, ton_address FROM users WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        user_data = {"user_id": user_id, "first_name": row[0], "balance": row[1], "total_invites": row[2], "ton_address": row[3] or ""}
+        user_cache[user_id] = user_data
+        return user_data
+    return None
 
-PREMIUM_APPS = {
-    "Facebook": {"emoji": "📘", "id": "5429172110520003976"},
-    "WhatsApp": {"emoji": "💬", "id": "5429612632430654504"},
-    "Telegram": {"emoji": "✈️", "id": "5429136513831057777"},
-    "Instagram": {"emoji": "📸", "id": "5429478178479447442"},
-    "Google": {"emoji": "🔍", "id": "5429558795015593080"},
-    "Other": {"emoji": "📶", "id": "5429353834881261942"}
-}
+def add_user(user_id, first_name="User"):
+    add_to_broadcast_list(user_id)
+    conn = sqlite3.connect("bot_database.db")
+    cursor = conn.cursor()
+    cursor.execute("INSERT OR IGNORE INTO users (user_id, first_name, balance, total_invites, ton_address) VALUES (?, ?, 0.0, 0, '')", (user_id, first_name))
+    conn.commit()
+    conn.close()
+    if user_id not in user_cache:
+        user_cache[user_id] = {"user_id": user_id, "first_name": first_name, "balance": 0.0, "total_invites": 0, "ton_address": ""}
 
-def detect_service(message_text, raw_sid=""):
-    msg_lower = str(message_text).lower()
-    for srv in ["facebook", "whatsapp", "telegram", "instagram", "google"]:
-        if srv in msg_lower:
-            return srv.title()
-    return "Other"
+def update_user_stats(user_id, balance_add, invite_add):
+    if user_id not in user_cache: get_user(user_id)
+    if user_id in user_cache:
+        user_cache[user_id]["balance"] = round(user_cache[user_id]["balance"] + float(balance_add), 4)
+        user_cache[user_id]["total_invites"] += int(invite_add)
+    conn = sqlite3.connect("bot_database.db")
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET balance = balance + ?, total_invites = total_invites + ? WHERE user_id = ?", (float(balance_add), int(invite_add), user_id))
+    conn.commit()
+    conn.close()
 
-def get_service_info_html(service_name):
-    app_info = PREMIUM_APPS.get(service_name, PREMIUM_APPS["Other"])
-    return f'<tg-emoji emoji-id="{app_info["id"]}">{app_info["emoji"]}</tg-emoji> <b>{html.escape(service_name.upper())}</b>', app_info["id"]
+def update_user_ton_address(user_id, address):
+    if user_id in user_cache: user_cache[user_id]["ton_address"] = address
+    conn = sqlite3.connect("bot_database.db")
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET ton_address = ? WHERE user_id = ?", (address, user_id))
+    conn.commit()
+    conn.close()
 
-def extract_otp_code(message_text):
-    match = re.search(r'\b(\d{3}[\s-]?\d{3,4}|\d{4,8})\b', str(message_text))
-    if match: return match.group(1)
-    return "COPY"
+def get_total_users(): return len(get_all_user_ids())
 
 # ==========================================
 # MK Network API Integration (v3)
 # ==========================================
 def fetch_access_list():
-    """Lấy danh sách các quốc gia, operator và range khả dụng từ MK Network v3"""
     try:
         res = requests.get(f"{MK_BASE_URL}/access_list", headers=get_mk_headers(), timeout=10)
         data = res.json()
         if data.get("meta", {}).get("code") == 200:
             return data.get("data", {}).get("items", [])
-    except Exception as e:
-        print(f"Error fetching access list: {e}")
+    except Exception as e: print(f"Error fetching access list: {e}")
     return []
 
 def allocate_mk_number(range_prefix):
-    """Gọi API v3 /getnum/number để cấp phát số điện thoại mới"""
     payload = {"range": str(range_prefix)}
     try:
         res = requests.post(f"{MK_BASE_URL}/getnum/number", headers=get_mk_headers(), json=payload, timeout=10)
         data = res.json()
-        if data.get("meta", {}).get("code") == 200:
-            return data.get("data", {})
-    except Exception as e:
-        print(f"Error allocating number: {e}")
+        if data.get("meta", {}).get("code") == 200: return data.get("data", {})
+    except Exception as e: print(f"Error allocating number: {e}")
     return None
 
 def check_mk_otp_batch(request_ids_list):
-    """Kiểm tra trạng thái OTP hàng loạt qua API v3 /check/status"""
-    if not request_ids_list:
-        return []
+    if not request_ids_list: return []
     payload = {"request_ids": [int(rid) for rid in request_ids_list]}
     try:
         res = requests.post(f"{MK_BASE_URL}/check/status", headers=get_mk_headers(), json=payload, timeout=10)
         data = res.json()
-        if data.get("meta", {}).get("code") == 200:
-            return data.get("data", {}).get("results", [])
-    except Exception as e:
-        print(f"Error checking OTP batch: {e}")
+        if data.get("meta", {}).get("code") == 200: return data.get("data", {}).get("results", [])
+    except Exception as e: print(f"Error checking OTP batch: {e}")
     return []
 
-def fetch_radar_feed():
-    """Lấy luồng OTP trực tiếp từ /radar endpoint"""
-    try:
-        res = requests.get(f"{MK_BASE_URL}/radar?charts=true&limit=25", headers=get_mk_headers(), timeout=10)
-        data = res.json()
-        if data.get("meta", {}).get("code") == 200:
-            return data.get("data", {})
-    except: pass
-    return {}
-
 # ==========================================
-# Background Listeners (MK Network)
+# Background Listeners
 # ==========================================
-def mk_radar_listener():
-    global recent_traffic, mk_dynamic_data
-    while True:
-        try:
-            radar_data = fetch_radar_feed()
-            feed = radar_data.get("feed", [])
-            current_time = int(time.time())
-            new_traffic = []
-            for h in feed:
-                h['local_receive_time'] = current_time
-                new_traffic.append(h)
-                
-                country = h.get("country", "Unknown")
-                range_key = country
-                if range_key not in mk_dynamic_data:
-                    mk_dynamic_data[range_key] = {"ranges": {}}
-            recent_traffic = new_traffic
-        except: pass
-        time.sleep(15)
-
 def mk_otp_checker_listener():
     global user_active_sessions, recent_success_otps
     while True:
         try:
             if user_active_sessions:
-                # Lấy danh sách request_id đang chờ xử lý
                 req_ids = list(user_active_sessions.keys())
                 results = check_mk_otp_batch(req_ids)
                 
@@ -341,26 +473,23 @@ def mk_otp_checker_listener():
                             recent_success_otps.add(sig)
                             owner_id = user_active_sessions[r_id]
                             
-                            # Thưởng điểm cho user
                             detected_service = detect_service(full_sms)
                             reward = get_otp_reward(detected_service)
                             update_user_stats(owner_id, reward, 0)
                             
-                            # Gửi tin nhắn OTP về inbox người dùng
                             user_balance = get_user(owner_id).get("balance", 0.0)
                             service_html, srv_eid = get_service_info_html(detected_service)
                             
                             inbox_text = (
                                 f"— — — — — — — — — —\n"
                                 f"<blockquote>{service_html} <code>{number}</code></blockquote>\n"
-                                f"<blockquote><tg-emoji emoji-id=\"5420323438508155202\">➕</tg-emoji> <b>REWARD</b>  ➜ {reward:.2f} PTS</blockquote>\n"
-                                f"<blockquote><tg-emoji emoji-id=\"5190899075968441286\">💳</tg-emoji> <b>BALANCE</b> ➜ {user_balance:.2f} PTS</blockquote>\n"
+                                f"<blockquote><tg-emoji emoji-id=\"5420323438508155202\">➕</tg-emoji> <b>REWARD</b>  ➜ +${reward:.4f} USD</blockquote>\n"
+                                f"<blockquote><tg-emoji emoji-id=\"5190899075968441286\">💳</tg-emoji> <b>BALANCE</b> ➜ ${user_balance:.4f} USD</blockquote>\n"
                                 f"— — — — — — — — — —"
                             )
                             markup = {"inline_keyboard": [[{"text": f"{otp_code}", "icon_custom_emoji_id": srv_eid, "copy_text": {"text": otp_code}, "style": "success"}]]}
                             send_message(owner_id, inbox_text, reply_markup=markup)
                             
-                            # Xóa khỏi danh sách chờ активных session
                             del user_active_sessions[r_id]
                             update_daily_stat("otps", 1)
                             save_local_data()
@@ -369,55 +498,8 @@ def mk_otp_checker_listener():
                         if r_id in user_active_sessions:
                             del user_active_sessions[r_id]
                             save_local_data()
-        except Exception as e:
-            print(f"OTP Checker Error: {e}")
+        except Exception as e: print(f"OTP Listener Error: {e}")
         time.sleep(10)
-
-# ==========================================
-# Database Setup (SQLite)
-# ==========================================
-def init_sqlite():
-    conn = sqlite3.connect("bot_database.db")
-    cursor = conn.cursor()
-    cursor.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, first_name TEXT DEFAULT 'User', balance REAL DEFAULT 0.0, total_invites INTEGER DEFAULT 0)")
-    conn.commit()
-    conn.close()
-
-def get_user(user_id):
-    if user_id in user_cache: return user_cache[user_id]
-    conn = sqlite3.connect("bot_database.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT first_name, balance, total_invites FROM users WHERE user_id = ?", (user_id,))
-    row = cursor.fetchone()
-    conn.close()
-    if row:
-        user_data = {"user_id": user_id, "first_name": row[0], "balance": row[1], "total_invites": row[2]}
-        user_cache[user_id] = user_data
-        return user_data
-    return None
-
-def add_user(user_id, first_name="User"):
-    add_to_broadcast_list(user_id)
-    conn = sqlite3.connect("bot_database.db")
-    cursor = conn.cursor()
-    cursor.execute("INSERT OR IGNORE INTO users (user_id, first_name, balance, total_invites) VALUES (?, ?, 0.0, 0)", (user_id, first_name))
-    conn.commit()
-    conn.close()
-    if user_id not in user_cache:
-        user_cache[user_id] = {"user_id": user_id, "first_name": first_name, "balance": 0.0, "total_invites": 0}
-
-def update_user_stats(user_id, balance_add, invite_add):
-    if user_id not in user_cache: get_user(user_id)
-    if user_id in user_cache:
-        user_cache[user_id]["balance"] = round(user_cache[user_id]["balance"] + float(balance_add), 2)
-        user_cache[user_id]["total_invites"] += int(invite_add)
-    conn = sqlite3.connect("bot_database.db")
-    cursor = conn.cursor()
-    cursor.execute("UPDATE users SET balance = balance + ?, total_invites = total_invites + ? WHERE user_id = ?", (float(balance_add), int(invite_add), user_id))
-    conn.commit()
-    conn.close()
-
-def get_total_users(): return len(get_all_user_ids())
 
 # ==========================================
 # Keyboards & Menus
@@ -435,8 +517,10 @@ def get_main_keyboard(user_id):
     return {"keyboard": keyboard_layout, "resize_keyboard": True}
 
 def get_admin_inline_keyboard():
+    pending_count = len(pending_withdrawals)
     return {
         "inline_keyboard": [
+            [{"text": f"PENDING WITHDRAWALS ({pending_count})", "callback_data": "view_pending_withdrawals", "style": "danger"}],
             [{"text": "BROADCAST", "callback_data": "broadcast_menu", "style": "primary"}],
             [{"text": "CLOSE", "callback_data": "close_panel", "style": "danger"}]
         ]
@@ -444,18 +528,18 @@ def get_admin_inline_keyboard():
 
 def get_owner_panel_text():
     return (
-        "<b>📊 OWNER ZONE (MK NETWORK) 📊</b>\n"
+        "<b>📊 OWNER PANEL (ADMIN CONTROL) 📊</b>\n"
         "━━━━━━━━━━━━━━━━━━\n"
         f"<blockquote><b>👤 TOTAL USERS » {get_total_users()}</b></blockquote>\n"
-        f"<blockquote><b>📱 TODAY NUM » {daily_stats['numbers']}</b></blockquote>\n"
-        f"<blockquote><b>💬 TODAY OTP » {daily_stats['otps']}</b></blockquote>\n"
+        f"<blockquote><b>📱 TODAY NUMBERS » {daily_stats['numbers']}</b></blockquote>\n"
+        f"<blockquote><b>💬 TODAY OTPS » {daily_stats['otps']}</b></blockquote>\n"
+        f"<blockquote><b>⏳ PENDING WITHDRAWALS » {len(pending_withdrawals)}</b></blockquote>\n"
         "━━━━━━━━━━━━━━━━━━"
     )
 
 def get_services_content():
     items = fetch_access_list()
-    if not items:
-        return "❌ <b>No active countries/ranges available on MK Network right now.</b>", None
+    if not items: return "❌ <b>No active countries/ranges available.</b>", None
     
     kb = {"inline_keyboard": []}
     row = []
@@ -470,13 +554,12 @@ def get_services_content():
             if len(row) == 2:
                 kb["inline_keyboard"].append(row)
                 row = []
-    if row:
-        kb["inline_keyboard"].append(row)
+    if row: kb["inline_keyboard"].append(row)
     kb["inline_keyboard"].append([{"text": "CLOSE", "callback_data": "close_panel", "style": "danger"}])
-    return "🌍 <b>Select Country / Range from MK Network:</b>", kb
+    return "🌍 <b>Select Country / Range:</b>", kb
 
 def get_number_allocation_content(range_prefix, user_id=None):
-    global user_active_sessions, bot_settings, otp_button_link
+    global user_active_sessions, otp_button_link
     num_data = allocate_mk_number(range_prefix)
     
     if num_data:
@@ -506,7 +589,7 @@ def get_number_allocation_content(range_prefix, user_id=None):
             ]
         }
         return msg, kb
-    return "❌ <b>Out of stock or range error. Try another option.</b>", {"inline_keyboard": [[{"text": "BACK", "callback_data": "live_number_back", "style": "danger"}]]}
+    return "❌ <b>Out of stock or range error.</b>", {"inline_keyboard": [[{"text": "BACK", "callback_data": "live_number_back", "style": "danger"}]]}
 
 # ==========================================
 # Handlers
@@ -521,24 +604,53 @@ def handle_message(message):
     add_user(user_id, first_name)
     user_data = get_user(user_id)
     
+    if user_id in user_states:
+        state = user_states[user_id].get("state")
+        msg_id = user_states[user_id].get("msg_id")
+        
+        if state == "waiting_ton_address":
+            address = text.strip()
+            if len(address) >= 30 and (address.startswith("EQ") or address.startswith("UQ") or address.startswith("0:")):
+                update_user_ton_address(user_id, address)
+                send_message(chat_id, f"✅ <b>TON USDT Address saved successfully!</b>\n\n<code>{address}</code>")
+                del user_states[user_id]
+            else:
+                send_message(chat_id, "❌ <b>Invalid TON Wallet Address!</b>\nPlease make sure it starts with <code>EQ</code>, <code>UQ</code>, or <code>0:</code> and try again.")
+            return
+
     if text.startswith("/start"):
-        send_message(chat_id, f"🔥 <b>FAST NODE (MK NETWORK GATEWAY)</b>\n\nWelcome {html.escape(str(first_name))}, choose an option below:", reply_markup=get_main_keyboard(user_id))
+        send_message(chat_id, f"🔥 <b>FAST NODE • LIVE OTP GATEWAY</b>\n\nWelcome {html.escape(str(first_name))}, choose an option from the menu:", reply_markup=get_main_keyboard(user_id))
+    
     elif text == "LIVE NUMBER":
         msg, markup = get_services_content()
         send_message(chat_id, msg, reply_markup=markup)
+        
     elif text == "WALLET":
+        ton_addr = user_data.get("ton_address", "")
+        addr_display = f"<code>{ton_addr}</code>" if ton_addr else "<i>Not Configured Yet</i>"
+        
         wallet_txt = (
             f"💰 <b>YOUR WALLET</b>\n"
             f"— — — — — — — — — —\n"
             f"👤 <b>NAME:</b> {html.escape(str(first_name))}\n"
             f"🆔 <b>ID:</b> <code>{user_id}</code>\n"
-            f"💵 <b>BALANCE: {user_data['balance']:.2f} PTS</b>\n"
+            f"💵 <b>BALANCE:</b> ${user_data['balance']:.4f} USD\n"
+            f"⚡ <b>USDT (TON):</b> {addr_display}\n"
+            f"— — — — — — — — — —\n"
+            f"📌 <b>Minimum Withdraw:</b> ${bot_settings['min_withdraw']:.2f} USD"
         )
-        send_message(chat_id, wallet_txt)
+        
+        kb = {"inline_keyboard": [
+            [{"text": "⚙️ SET TON USDT ADDRESS", "callback_data": "set_ton_address", "style": "primary"}],
+            [{"text": "💸 WITHDRAW ALL BALANCE", "callback_data": "request_withdraw", "style": "success"}]
+        ]}
+        send_message(chat_id, wallet_txt, reply_markup=kb)
+        
     elif text == "OWNER PANEL" and user_id == ADMIN_ID:
         send_message(chat_id, get_owner_panel_text(), reply_markup=get_admin_inline_keyboard())
 
 def handle_callback(callback_query):
+    global pending_withdrawals
     query_id = callback_query["id"]
     user_id = callback_query["from"]["id"]
     data = callback_query["data"]
@@ -549,11 +661,94 @@ def handle_callback(callback_query):
         msg, markup = get_services_content()
         edit_message(chat_id, message_id, msg, reply_markup=markup)
         answer_callback_query(query_id)
+        
     elif data.startswith("cnt_"):
         range_prefix = data[4:]
         msg, markup = get_number_allocation_content(range_prefix, user_id=user_id)
         edit_message(chat_id, message_id, msg, reply_markup=markup)
         answer_callback_query(query_id, "Number allocated!")
+        
+    elif data == "set_ton_address":
+        user_states[user_id] = {"state": "waiting_ton_address", "msg_id": message_id}
+        send_message(chat_id, "⚙️ <b>Please send your USDT (TON Network) wallet address now:</b>")
+        answer_callback_query(query_id)
+        
+    elif data == "request_withdraw":
+        user_data = get_user(user_id)
+        balance = user_data.get("balance", 0.0)
+        ton_addr = user_data.get("ton_address", "")
+        min_w = bot_settings.get("min_withdraw", 5.0)
+        
+        if not ton_addr:
+            answer_callback_query(query_id, "❌ Please configure your USDT TON address first!", show_alert=True)
+            return
+            
+        if balance < min_w:
+            answer_callback_query(query_id, f"❌ Insufficient balance! Minimum withdrawal is ${min_w:.2f} USD.", show_alert=True)
+            return
+            
+        amount_to_withdraw = balance
+        update_user_stats(user_id, -amount_to_withdraw, 0)
+        
+        req_item = {
+            "req_id": int(time.time()),
+            "user_id": user_id,
+            "first_name": user_data.get("first_name", "User"),
+            "amount": amount_to_withdraw,
+            "address": ton_addr,
+            "date": time.strftime("%Y-%m-%d %H:%M:%S")
+        }
+        pending_withdrawals.append(req_item)
+        save_local_data()
+        
+        answer_callback_query(query_id, "Withdrawal request submitted successfully!", show_alert=True)
+        edit_message(chat_id, message_id, f"✅ <b>WITHDRAWAL SUBMITTED!</b>\n\nAmount: ${amount_to_withdraw:.4f} USD\nAddress: <code>{ton_addr}</code>\nStatus: Pending Admin Approval")
+        
+    elif data == "view_pending_withdrawals" and user_id == ADMIN_ID:
+        if not pending_withdrawals:
+            answer_callback_query(query_id, "No pending withdrawals!", show_alert=True)
+            return
+            
+        item = pending_withdrawals[0]
+        text = (
+            f"<b>💳 PENDING WITHDRAWAL APPROVAL</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"👤 <b>User:</b> <a href='tg://user?id={item['user_id']}'>{html.escape(item['first_name'])}</a>\n"
+            f"🆔 <b>User ID:</b> <code>{item['user_id']}</code>\n"
+            f"💵 <b>Amount:</b> ${item['amount']:.4f} USD\n"
+            f"⚡ <b>TON Address:</b> <code>{item['address']}</code>\n"
+            f"📅 <b>Date:</b> {item['date']}\n"
+            f"━━━━━━━━━━━━━━━━━━"
+        )
+        kb = {"inline_keyboard": [
+            [{"text": "✅ APPROVE", "callback_data": f"app_w_{item['req_id']}", "style": "success"},
+             {"text": "❌ REJECT", "callback_data": f"rej_w_{item['req_id']}", "style": "danger"}],
+            [{"text": "CLOSE", "callback_data": "close_panel", "style": "danger"}]
+        ]}
+        send_message(chat_id, text, reply_markup=kb)
+        answer_callback_query(query_id)
+
+    elif data.startswith("app_w_") and user_id == ADMIN_ID:
+        req_id = int(data[6:])
+        item = next((x for x in pending_withdrawals if x["req_id"] == req_id), None)
+        if item:
+            pending_withdrawals.remove(item)
+            save_local_data()
+            send_message(item["user_id"], f"🎉 <b>WITHDRAWAL APPROVED!</b>\nYour payment of ${item['amount']:.4f} USD has been sent to your TON wallet:\n<code>{item['address']}</code>")
+            edit_message(chat_id, message_id, f"✅ <b>Approved withdrawal for ID {item['user_id']} (${item['amount']:.4f} USD)</b>")
+            answer_callback_query(query_id, "Approved!")
+            
+    elif data.startswith("rej_w_") and user_id == ADMIN_ID:
+        req_id = int(data[6:])
+        item = next((x for x in pending_withdrawals if x["req_id"] == req_id), None)
+        if item:
+            pending_withdrawals.remove(item)
+            update_user_stats(item["user_id"], item["amount"], 0)
+            save_local_data()
+            send_message(item["user_id"], f"❌ <b>WITHDRAWAL REJECTED!</b>\nYour request of ${item['amount']:.4f} USD was rejected and refunded back to your wallet.")
+            edit_message(chat_id, message_id, f"❌ <b>Rejected & Refunded withdrawal for ID {item['user_id']}</b>")
+            answer_callback_query(query_id, "Rejected!")
+
     elif data == "close_panel":
         delete_message(chat_id, message_id)
         answer_callback_query(query_id, "Closed")
@@ -565,7 +760,6 @@ def main():
     BOT_USERNAME = get_bot_info()
     set_bot_commands()
     
-    threading.Thread(target=mk_radar_listener, daemon=True).start()
     threading.Thread(target=mk_otp_checker_listener, daemon=True).start()
     
     print(f"🚀 Bot @{BOT_USERNAME} is running securely with MK Network v3 API!")
