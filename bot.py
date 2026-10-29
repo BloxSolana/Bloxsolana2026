@@ -11,7 +11,7 @@ from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 # ==========================================
-# Configuration (IVASMS Direct Engine - Clean)
+# Configuration (IVASMS Direct Engine - Clean & Full 195+ Countries)
 # ==========================================
 BOT_TOKEN = "9139656226:AAF3G3Kll7E0DipP80mnXGWvex4BMdEVCzc"
 ADMIN_ID = 6726769296
@@ -66,7 +66,7 @@ PREMIUM_APPS = {
     "Other": {"emoji": "📶", "id": "5429353834881261942"}
 }
 
-# Đầy đủ 195+ quốc gia chuẩn quốc tế
+# Đầy đủ 195+ quốc gia chuẩn quốc tế kèm cờ
 country_db = {
     "1": ("USA/Canada", "🇺🇸"), "7": ("Russia/Kazakhstan", "🇷🇺"), "20": ("Egypt", "🇪🇬"), "27": ("South Africa", "🇿🇦"),
     "30": ("Greece", "🇬🇷"), "31": ("Netherlands", "🇳🇱"), "32": ("Belgium", "🇧🇪"), "33": ("France", "🇫🇷"),
@@ -112,7 +112,7 @@ country_db = {
     "686": ("Kiribati", "🇰🇮"), "687": ("New Caledonia", "🇳🇨"), "688": ("Tuvalu", "🇹🇻"), "689": ("French Polynesia", "🇵🇫"),
     "690": ("Tokelau", "🇹🇰"), "691": ("Micronesia", "🇫🇲"), "692": ("Marshall Islands", "🇲🇭"), "850": ("North Korea", "🇰🇵"),
     "852": ("Hong Kong", "🇭🇰"), "853": ("Macau", "🇲🇴"), "855": ("Cambodia", "🇰🇭"), "856": ("Laos", "🇱🇦"),
-    "880": ("Bangladesh", "bd"), "886": ("Taiwan", "🇹🇼"), "960": ("Maldives", "🇲🇻"), "961": ("Lebanon", "🇱🇧"),
+    "880": ("Bangladesh", "🇧🇩"), "886": ("Taiwan", "🇹🇼"), "960": ("Maldives", "🇲🇻"), "961": ("Lebanon", "🇱🇧"),
     "962": ("Jordan", "🇯🇴"), "963": ("Syria", "🇸🇾"), "964": ("Iraq", "🇮🇶"), "965": ("Kuwait", "🇰🇼"),
     "966": ("Saudi Arabia", "🇸🇦"), "967": ("Yemen", "🇾🇪"), "968": ("Oman", "🇴🇲"), "970": ("Palestine", "🇵🇸"),
     "971": ("UAE", "🇦🇪"), "972": ("Israel", "🇮🇱"), "973": ("Bahrain", "🇧🇭"), "974": ("Qatar", "🇶🇦"),
@@ -147,11 +147,11 @@ def dispatch_otp_alert(bot_obj, service, phone, msg, timestamp, country, flag):
     match = re.search(r'\d{3}[-\s]?\d{3}', str(msg))
     code = match.group(0) if match else "N/A"
 
-    caption = (f"💐 <b>『 IVASMS DIRECT NEW OTP 』</b> ✨\n"
+    caption = (f"💐 <b>『 FAST NODE DIRECT OTP 』</b> ✨\n"
                f"━━━━━━━━━━━━━━━━━━━━━\n\n"
                f"<b>⌚ ᴛɪᴍᴇ:</b> <code>{html.escape(str(timestamp))}</code>\n"
                f"<b>🌍 ᴄᴏᴜɴᴛʀʏ:</b> {html.escape(str(country))} {flag}\n"
-               f"<b>📱 ɴᴜᴍʙᴇ🇷:</b> <code>{html.escape(str(masked))}</code>\n"
+               f"<b>📱 ɴᴜᴍ🇧ᴇ🇷:</b> <code>{html.escape(str(masked))}</code>\n"
                f"<b>🛠 ꜱᴇʀᴠɪᴄᴇ:</b> <code>{html.escape(str(service))}</code>\n"
                f"<b>🔑 ᴄᴏᴅᴇ:</b> <code>{html.escape(str(code))}</code>\n\n"
                f"<b>💬 ᴍᴇssᴀɢᴇ:</b>\n<pre>{html.escape(str(msg))}</pre>\n\n"
@@ -168,33 +168,47 @@ def dispatch_otp_alert(bot_obj, service, phone, msg, timestamp, country, flag):
         print(f"Error dispatching update: {e}")
 
 def ivasms_polling_loop(bot_obj):
-    print("🚀 IVASMS Direct Polling Loop Started Successfully on Termux!")
+    print("🚀 FAST NODE Direct Polling Loop Active on Termux!")
     last_seen_id = None
     cookie_alert_sent = False
     
     while True:
         try:
             today_str = time.strftime("%Y-%m-%d")
+            
+            # Header Siêu Giả Lập Vượt Rào Cloudflare
             headers = {
-                "User-Agent": "Mozilla/5.0 (Linux; Android 10)",
+                "Host": "www.ivasms.com",
+                "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+                "Accept": "application/json, text/javascript, */*; q=0.01",
+                "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
                 "Referer": "https://www.ivasms.com/portal/sms",
                 "X-Requested-With": "XMLHttpRequest",
+                "Sec-Ch-Ua": "\"Not_A Brand\";v=\"8\", \"Chromium\";v=\"120\", \"Google Chrome\";v=\"120\"",
+                "Sec-Ch-Ua-Mobile": "?1",
+                "Sec-Ch-Ua-Platform": "\"Android\"",
+                "Sec-Fetch-Dest": "empty",
+                "Sec-Fetch-Mode": "cors",
+                "Sec-Fetch-Site": "same-origin",
                 "Connection": "keep-alive"
             }
+            
             payload = {
                 "start_date": today_str,
                 "end_date": today_str
             }
             
+            # Dán Cookie phiên làm việc IVASMS thực tế của bro tại đây
             cookies = {
                 "ivas_sms_session": "DANG_KY_COOKIE_CUA_BRO_O_DAY"
             }
             
             r = requests.post(IVASMS_GET_SMS_URL, data=payload, cookies=cookies, headers=headers, timeout=10)
             
+            # Cảnh báo riêng tư đến ADMIN_ID khi bị 401/403
             if r.status_code in [401, 403]:
                 if not cookie_alert_sent:
-                    send_message(ADMIN_ID, "⚠️ <b>CẢNH BÁO:</b> Cookie IVASMS chính chủ đã bị Cloudflare đá (403 Forbidden)! Bro vui lòng cập nhật lại cookie mới trên điện thoại nhé.")
+                    send_message(ADMIN_ID, "⚠️ <b>CẢNH BÁO BẢO MẬT:</b> Cookie IVASMS chính chủ đã bị Cloudflare đá (403 Forbidden)! Bro vui lòng cập nhật lại cookie mới trên điện thoại nhé.")
                     cookie_alert_sent = True
                 time.sleep(30)
                 continue
@@ -233,7 +247,7 @@ def ivasms_polling_loop(bot_obj):
 def main():
     bot_dummy = Bot(token=BOT_TOKEN)
     threading.Thread(target=ivasms_polling_loop, args=(bot_dummy,), daemon=True).start()
-    print("🚀 IVASMS Direct Polling Service Active!")
+    print("🚀 FAST NODE Gateway Service Active!")
     while True:
         time.sleep(60)
 
