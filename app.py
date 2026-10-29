@@ -30,7 +30,7 @@ user_states = {}
 
 # User & Cooldown States
 user_cache = {} 
-user_active_sessions = {} # format: {request_id: user_id}
+user_active_sessions = {} 
 user_cooldowns = {} 
 
 # Force Join States
@@ -50,18 +50,17 @@ daily_user_otps = {"date": "", "users": {}}
 # Admin Settings
 bot_settings = {
     "withdraw_on": True,
-    "min_withdraw": 5.0, # Default Min Withdraw $5.0 USD
+    "min_withdraw": 5.0, 
     "support_link": "",
     "cooldown": 5,
     "num_req": 1,
     "w_methods": ["USDT (TON Network)"],
-    "otp_default_rate": 0.005, # Default $0.005 USD per OTP
+    "otp_default_rate": 0.005, 
     "otp_service_rates": {},
     "main_channel_link": "",
     "refer_reward": 0.001
 }
 
-# Pending Withdrawals List
 pending_withdrawals = []
 
 BOT_DATA_FILE = "bot_data.json"
@@ -93,9 +92,6 @@ def apply_emojis(text):
         text = text.replace(f"__TG_EMOJI_{i}__", h)
     return text
 
-# ==========================================
-# Premium Apps & Service Keywords Setup
-# ==========================================
 PREMIUM_APPS = {
     "Facebook": {"emoji": "📘", "id": "5429172110520003976"},
     "WhatsApp": {"emoji": "💬", "id": "5429612632430654504"},
@@ -144,66 +140,6 @@ SERVICE_SMS_KEYWORDS = {
     "ChatGPT": ["openai", "chatgpt"],
     "Imo": ["imo code", "imo"]
 }
-
-COUNTRY_CODES = {
-    "1": "🇺🇸 USA/Canada", "380": "🇺🇦 Ukraine", "48": "🇵🇱 Poland", "7": "🇰🇿 Kazakhstan",
-    "86": "🇨🇳 China", "994": "🇦🇿 Azerbaijan", "374": "🇦🇲 Armenia", "79": "🇷🇺 Russia",
-    "998": "🇺🇿 Uzbekistan", "49": "🇩🇪 Germany", "81": "🇯🇵 Japan", "90": "🇹🇷 Turkey",
-    "375": "🇧🇾 Belarus", "44": "🇬🇧 United Kingdom", "91": "🇮🇳 India", "55": "🇧🇷 Brazil",
-    "260": "🇿🇲 Zambia", "967": "🇾🇪 Yemen", "84": "🇻🇳 Vietnam", "379": "🇻🇦 Vatican City",
-    "678": "🇻🇺 Vanuatu", "598": "🇺🇾 Uruguay", "971": "🇦🇪 UAE", "256": "🇺🇬 Uganda",
-    "993": "🇹🇲 Turkmenistan", "216": "🇹🇳 Tunisia", "228": "🇹🇬 Togo", "66": "🇹🇭 Thailand",
-    "255": "🇹🇿 Tanzania", "992": "🇹🇯 Tajikistan", "41": "🇨🇭 Switzerland", "46": "🇸🇪 Sweden",
-    "268": "🇸🇿 Eswatini", "597": "🇸🇷 Suriname", "249": "🇸🇩 Sudan", "34": "🇪🇸 Spain",
-    "94": "🇱🇰 Sri Lanka", "211": "🇸🇸 South Sudan", "27": "🇿🇦 South Africa", "252": "🇸🇴 Somalia",
-    "677": "🇸🇧 Solomon Islands", "386": "🇸🇮 Slovenia", "421": "🇸🇰 Slovakia", "65": "🇸🇬 Singapore",
-    "232": "🇸🇱 Sierra Leone", "248": "🇸🇨 Seychelles", "381": "🇷🇸 Serbia", "221": "🇸🇳 Senegal",
-    "239": "🇸🇹 Sao Tome", "378": "🇸🇲 San Marino", "685": "🇼🇸 Samoa", "970": "🇵🇸 Palestine",
-    "250": "🇷🇼 Rwanda", "40": "🇷🇴 Romania", "974": "🇶🇦 Qatar", "351": "🇵🇹 Portugal",
-    "63": "🇵🇭 Philippines", "51": "🇵🇪 Peru", "595": "🇵🇾 Paraguay", "675": "🇵🇬 Papua New Guinea",
-    "507": "🇵🇦 Panama", "680": "🇵🇼 Palau", "92": "🇵🇰 Pakistan", "968": "🇴🇲 Oman",
-    "47": "🇳🇴 Norway", "234": "🇳🇬 Nigeria", "227": "🇳🇪 Niger", "64": "🇳🇿 New Zealand",
-    "31": "🇳🇱 Netherlands", "977": "🇳🇵 Nepal", "264": "🇳🇦 Namibia", "258": "🇲🇿 Mozambique",
-    "212": "🇲🇦 Morocco", "382": "🇲🇪 Montenegro", "976": "🇲🇳 Mongolia", "377": "🇲🇨 Monaco",
-    "373": "🇲🇩 Moldova", "960": "🇲🇻 Maldives", "223": "🇲🇱 Mali", "356": "🇲🇹 Malta",
-    "596": "🇲🇶 Martinique", "692": "🇲🇭 Marshall Islands", "230": "🇲🇺 Mauritius", "52": "🇲🇽 Mexico",
-    "691": "🇫🇲 Micronesia", "60": "🇲🇾 Malaysia", "254": "🇰🇪 Kenya", "261": "🇲🇬 Madagascar",
-    "389": "🇲🇰 North Macedonia", "352": "🇱🇺 Luxembourg", "370": "🇱🇹 Lithuania", "423": "🇱🇮 Liechtenstein",
-    "218": "🇱🇾 Libya", "231": "🇱🇷 Liberia", "686": "🇰🇮 Kiribati", "383": "🇽🇰 Kosovo",
-    "965": "🇰🇼 Kuwait", "996": "🇰🇬 Kyrgyzstan", "856": "🇱🇦 Laos", "371": "🇱🇻 Latvia",
-    "961": "🇱🇧 Lebanon", "266": "🇱🇸 Lesotho", "62": "🇮🇩 Indonesia", "98": "🇮🇷 Iran",
-    "964": "🇮🇶 Iraq", "353": "🇮🇪 Ireland", "972": "🇮🇱 Israel", "39": "🇮🇹 Italy",
-    "962": "🇯🇴 Jordan", "354": "🇮🇸 Iceland", "36": "🇭🇺 Hungary", "504": "🇭🇳 Honduras",
-    "509": "🇭🇹 Haiti", "592": "🇬🇾 Guyana", "245": "🇬🇼 Guinea-Bissau", "224": "🇬🇳 Guinea",
-    "502": "🇬🇹 Guatemala", "30": "🇬🇷 Greece", "233": "🇬🇭 Ghana", "995": "🇬🇪 Georgia",
-    "220": "🇬🇲 Gambia", "241": "🇬🇦 Gabon", "33": "🇫🇷 France", "358": "🇫🇮 Finland",
-    "679": "🇫🇯 Fiji", "251": "🇪🇹 Ethiopia", "670": "🇹🇱 Timor-Leste", "593": "🇪🇨 Ecuador",
-    "20": "🇪🇬 Egypt", "503": "🇸🇻 El Salvador", "372": "🇪🇪 Estonia", "253": "🇩🇯 Djibouti",
-    "45": "🇩🇰 Denmark", "357": "🇨🇾 Cyprus", "385": "🇭🇷 Croatia", "506": "🇨🇷 Costa Rica",
-    "242": "🇨🇬 Congo", "243": "🇨🇩 DR Congo", "269": "🇰🇲 Comoros", "855": "🇰🇭 Cambodia",
-    "237": "🇨🇲 Cameroon", "238": "🇨🇻 Cape Verde", "236": "🇨🇫 CAR", "235": "🇹🇩 Chad",
-    "420": "🇨🇿 Czechia", "56": "🇨🇱 Chile", "57": "🇨🇴 Colombia", "257": "🇧🇮 Burundi",
-    "267": "🇧🇼 Botswana", "387": "🇧🇦 Bosnia", "591": "🇧🇴 Bolivia", "975": "🇧🇹 Bhutan",
-    "229": "🇧🇯 Benin", "54": "🇦🇷 Argentina", "61": "🇦🇺 Australia", "43": "🇦🇹 Austria",
-    "973": "🇧🇭 Bahrain", "880": "🇧🇩 Bangladesh", "32": "🇧🇪 Belgium", "501": "🇧🇿 Belize",
-    "244": "🇦🇴 Angola", "376": "🇦🇩 Andorra", "213": "🇩🇿 Algeria", "355": "🇦🇱 Albania",
-    "93": "🇦🇫 Afghanistan", "263": "🇿🇼 Zimbabwe", "53": "🇨🇺 Cuba", "850": "🇰🇵 North Korea",
-    "58": "🇻🇪 Venezuela", "963": "🇸🇾 Syria", "95": "🇲🇲 Myanmar", "505": "🇳🇮 Nicaragua",
-    "82": "🇰🇷 South Korea", "240": "🇬🇶 Equatorial Guinea", "299": "🇬🇱 Greenland", "298": "🇫🇴 Faroe Islands",
-    "225": "🇨🇮 Ivory Coast", "673": "🇧🇳 Brunei", "359": "🇧🇬 Bulgaria", "226": "🇧🇫 Burkina Faso",
-    "291": "🇪🇷 Eritrea", "265": "🇲🇼 Malawi", "222": "🇲🇷 Mauritania", "674": "🇳🇷 Nauru",
-    "966": "🇸🇦 Saudi Arabia", "676": "🇹🇴 Tonga", "688": "🇹🇻 Tuvalu", "886": "🇹🇼 Taiwan",
-    "852": "🇭🇰 Hong Kong", "853": "🇲🇴 Macau", "297": "🇦🇼 Aruba", "599": "🇨🇼 Curacao",
-    "500": "🇫🇰 Falkland Islands", "594": "🇬🇫 French Guiana", "590": "🇬🇵 Guadeloupe", "262": "🇷🇪 Reunion",
-    "687": "🇳🇨 New Caledonia", "683": "🇳🇺 Niue", "672": "🇳🇫 Norfolk Island", "681": "🇼🇫 Wallis and Futuna",
-    "682": "🇨🇰 Cook Islands", "689": "🇵🇫 French Polynesia", "350": "🇬🇮 Gibraltar", "508": "🇵🇲 Saint Pierre"
-}
-
-def get_country_info(range_str):
-    clean_range = str(range_str or "").replace("X", "")
-    for code, name in sorted(COUNTRY_CODES.items(), key=lambda x: len(x[0]), reverse=True):
-        if clean_range.startswith(code): return code, name
-    return clean_range[:3], f"🏳️ Other (+{clean_range[:3]})"
 
 def detect_service(message_text, raw_sid=""):
     msg_lower = str(message_text).lower()
@@ -258,8 +194,7 @@ def load_local_data():
                 daily_user_otps = data.get("daily_user_otps", {"date": "", "users": {}})
                 user_active_sessions = data.get("user_active_sessions", {})
                 pending_withdrawals = data.get("pending_withdrawals", [])
-        except Exception as e:
-            print(f"Error loading local data: {e}")
+        except Exception as e: print(f"Error loading local data: {e}")
 
 def save_local_data():
     global recent_traffic, mk_dynamic_data, force_join_status, force_join_channels, otp_forward_groups, otp_button_link, recent_success_otps, bot_settings, user_active_sessions, daily_stats, pending_withdrawals
@@ -279,8 +214,7 @@ def save_local_data():
                 "daily_user_otps": daily_user_otps,
                 "pending_withdrawals": pending_withdrawals
             }, f)
-    except Exception as e:
-        print(f"Error saving local data: {e}")
+    except Exception as e: print(f"Error saving local data: {e}")
 
 cached_user_list = set()
 
@@ -340,6 +274,12 @@ def answer_callback_query(callback_query_id, text="", show_alert=False):
 def delete_message(chat_id, message_id):
     payload = {"chat_id": chat_id, "message_id": message_id}
     requests.post(BASE_URL + "deleteMessage", json=payload)
+
+def copy_message(chat_id, from_chat_id, message_id, reply_markup=None):
+    payload = {"chat_id": chat_id, "from_chat_id": from_chat_id, "message_id": message_id}
+    if reply_markup: payload["reply_markup"] = reply_markup
+    try: return requests.post(BASE_URL + "copyMessage", json=payload).json()
+    except Exception: return None
 
 def is_user_joined(user_id):
     if not force_join_status or not force_join_channels: return True
@@ -418,14 +358,15 @@ def update_user_ton_address(user_id, address):
 def get_total_users(): return len(get_all_user_ids())
 
 # ==========================================
-# MK Network API Integration (v3)
+# MK Network API Integration (v3) - SAFE
 # ==========================================
 def fetch_access_list():
     try:
         res = requests.get(f"{MK_BASE_URL}/access_list", headers=get_mk_headers(), timeout=10)
-        data = res.json()
-        if data.get("meta", {}).get("code") == 200:
-            return data.get("data", {}).get("items", [])
+        if res.status_code == 200:
+            data = res.json()
+            if isinstance(data, dict) and data.get("meta", {}).get("code") == 200:
+                return data.get("data", {}).get("items", []) or []
     except Exception as e: print(f"Error fetching access list: {e}")
     return []
 
@@ -433,8 +374,10 @@ def allocate_mk_number(range_prefix):
     payload = {"range": str(range_prefix)}
     try:
         res = requests.post(f"{MK_BASE_URL}/getnum/number", headers=get_mk_headers(), json=payload, timeout=10)
-        data = res.json()
-        if data.get("meta", {}).get("code") == 200: return data.get("data", {})
+        if res.status_code == 200:
+            data = res.json()
+            if isinstance(data, dict) and data.get("meta", {}).get("code") == 200: 
+                return data.get("data", {}) or {}
     except Exception as e: print(f"Error allocating number: {e}")
     return None
 
@@ -443,8 +386,10 @@ def check_mk_otp_batch(request_ids_list):
     payload = {"request_ids": [int(rid) for rid in request_ids_list]}
     try:
         res = requests.post(f"{MK_BASE_URL}/check/status", headers=get_mk_headers(), json=payload, timeout=10)
-        data = res.json()
-        if data.get("meta", {}).get("code") == 200: return data.get("data", {}).get("results", [])
+        if res.status_code == 200:
+            data = res.json()
+            if isinstance(data, dict) and data.get("meta", {}).get("code") == 200: 
+                return data.get("data", {}).get("results", []) or []
     except Exception as e: print(f"Error checking OTP batch: {e}")
     return []
 
@@ -460,6 +405,7 @@ def mk_otp_checker_listener():
                 results = check_mk_otp_batch(req_ids)
                 
                 for res in results:
+                    if not isinstance(res, dict): continue
                     r_id = res.get("request_id")
                     status = res.get("status")
                     
@@ -539,18 +485,20 @@ def get_owner_panel_text():
 
 def get_services_content():
     items = fetch_access_list()
-    if not items: return "❌ <b>No active countries/ranges available.</b>", None
+    if not items: 
+        return "❌ <b>No active countries/ranges available right now. Please try again later.</b>", {"inline_keyboard": [[{"text": "CLOSE", "callback_data": "close_panel", "style": "danger"}]]}
     
     kb = {"inline_keyboard": []}
     row = []
     seen_countries = set()
     
     for item in items[:12]:
+        if not isinstance(item, dict): continue
         country = item.get("country")
         range_prefix = item.get("range")
-        if country not in seen_countries:
+        if country and range_prefix and country not in seen_countries:
             seen_countries.add(country)
-            row.append({"text": country, "callback_data": f"cnt_{range_prefix[:10]}", "style": "primary"})
+            row.append({"text": str(country), "callback_data": f"cnt_{str(range_prefix)[:10]}", "style": "primary"})
             if len(row) == 2:
                 kb["inline_keyboard"].append(row)
                 row = []
@@ -562,7 +510,7 @@ def get_number_allocation_content(range_prefix, user_id=None):
     global user_active_sessions, otp_button_link
     num_data = allocate_mk_number(range_prefix)
     
-    if num_data:
+    if num_data and isinstance(num_data, dict):
         req_id = num_data.get("request_id")
         full_number = num_data.get("full_number", "")
         country = num_data.get("country", "Unknown")
@@ -591,6 +539,20 @@ def get_number_allocation_content(range_prefix, user_id=None):
         return msg, kb
     return "❌ <b>Out of stock or range error.</b>", {"inline_keyboard": [[{"text": "BACK", "callback_data": "live_number_back", "style": "danger"}]]}
 
+def broadcast_worker(from_chat_id, message_id, target_msg_id):
+    users = get_all_user_ids() 
+    success_count = 0
+    for uid in users:
+        try:
+            res = copy_message(uid, from_chat_id, message_id)
+            if res and res.get("ok"): success_count += 1
+            time.sleep(0.05) 
+        except: pass
+        
+    send_message(from_chat_id, f"✅ <b>Broadcast Completed!</b>\nSuccessfully sent to {success_count} users out of {len(users)}.")
+    if target_msg_id:
+        edit_message(from_chat_id, target_msg_id, get_owner_panel_text(), reply_markup=get_admin_inline_keyboard())
+
 # ==========================================
 # Handlers
 # ==========================================
@@ -600,22 +562,30 @@ def handle_message(message):
     user_id = message["from"]["id"]
     text = message.get("text", "")
     first_name = message["from"].get("first_name", "User")
+    message_id = message["message_id"]
     
     add_user(user_id, first_name)
     user_data = get_user(user_id)
     
     if user_id in user_states:
-        state = user_states[user_id].get("state")
-        msg_id = user_states[user_id].get("msg_id")
+        state_data = user_states[user_id]
+        state = state_data.get("state")
+        msg_id = state_data.get("msg_id")
         
         if state == "waiting_ton_address":
             address = text.strip()
             if len(address) >= 30 and (address.startswith("EQ") or address.startswith("UQ") or address.startswith("0:")):
                 update_user_ton_address(user_id, address)
-                send_message(chat_id, f"✅ <b>TON USDT Address saved successfully!</b>\n\n<code>{address}</code>")
+                send_message(chat_id, f"✅ <b>TON USDT Address saved successfully!</b>\n\n<code>{address}</code>", reply_markup=get_main_keyboard(user_id))
                 del user_states[user_id]
             else:
                 send_message(chat_id, "❌ <b>Invalid TON Wallet Address!</b>\nPlease make sure it starts with <code>EQ</code>, <code>UQ</code>, or <code>0:</code> and try again.")
+            return
+            
+        elif state == "waiting_broadcast":
+            if msg_id: edit_message(chat_id, msg_id, "⏳ <b>Broadcasting message to all users...</b>")
+            threading.Thread(target=broadcast_worker, args=(chat_id, message_id, msg_id), daemon=True).start()
+            del user_states[user_id]
             return
 
     if text.startswith("/start"):
@@ -623,7 +593,8 @@ def handle_message(message):
     
     elif text == "LIVE NUMBER":
         msg, markup = get_services_content()
-        send_message(chat_id, msg, reply_markup=markup)
+        if markup: send_message(chat_id, msg, reply_markup=markup)
+        else: send_message(chat_id, msg)
         
     elif text == "WALLET":
         ton_addr = user_data.get("ton_address", "")
@@ -659,7 +630,8 @@ def handle_callback(callback_query):
     
     if data == "live_number_back":
         msg, markup = get_services_content()
-        edit_message(chat_id, message_id, msg, reply_markup=markup)
+        if markup: edit_message(chat_id, message_id, msg, reply_markup=markup)
+        else: edit_message(chat_id, message_id, msg)
         answer_callback_query(query_id)
         
     elif data.startswith("cnt_"):
@@ -670,7 +642,7 @@ def handle_callback(callback_query):
         
     elif data == "set_ton_address":
         user_states[user_id] = {"state": "waiting_ton_address", "msg_id": message_id}
-        send_message(chat_id, "⚙️ <b>Please send your USDT (TON Network) wallet address now:</b>")
+        edit_message(chat_id, message_id, "⚙️ <b>Please send your USDT (TON Network) wallet address now:</b>")
         answer_callback_query(query_id)
         
     elif data == "request_withdraw":
@@ -704,6 +676,11 @@ def handle_callback(callback_query):
         answer_callback_query(query_id, "Withdrawal request submitted successfully!", show_alert=True)
         edit_message(chat_id, message_id, f"✅ <b>WITHDRAWAL SUBMITTED!</b>\n\nAmount: ${amount_to_withdraw:.4f} USD\nAddress: <code>{ton_addr}</code>\nStatus: Pending Admin Approval")
         
+    elif data == "broadcast_menu" and user_id == ADMIN_ID:
+        user_states[user_id] = {"state": "waiting_broadcast", "msg_id": message_id}
+        edit_message(chat_id, message_id, "📣 <b>BROADCAST SYSTEM</b>\n\nSend any text, photo, video, or audio message you want to broadcast to all users.")
+        answer_callback_query(query_id, "Send your broadcast content now!")
+
     elif data == "view_pending_withdrawals" and user_id == ADMIN_ID:
         if not pending_withdrawals:
             answer_callback_query(query_id, "No pending withdrawals!", show_alert=True)
