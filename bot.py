@@ -1,7 +1,6 @@
 import asyncio
 import requests
 import random
-import sqlite3
 import os
 import re
 import html
@@ -12,7 +11,7 @@ from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Updater, CommandHandler, MessageHandler, CallbackQueryHandler, Filters, CallbackContext
 
 # ==========================================
-# Configuration (Fast Node Dynamic Engine)
+# Configuration (Fast Node Dynamic Engine v2)
 # ==========================================
 BOT_TOKEN = "9139656226:AAF3G3Kll7E0DipP80mnXGWvex4BMdEVCzc"
 ADMIN_ID = 6726769296
@@ -22,7 +21,6 @@ BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/"
 IVASMS_GET_SMS_URL = "https://www.ivasms.com/portal/sms/getsms"
 CONFIG_FILE = "cookie_config.json"
 
-# Quản lý trạng thái nhập cookie động của Admin
 admin_state = {"waiting_for_cookie": False}
 
 def load_cookie():
@@ -33,11 +31,11 @@ def load_cookie():
                 return data.get("ivas_sms_session", "")
         except Exception:
             pass
-    return "DANG_KY_COOKIE_CUA_BRO_O_DAY"
+    return ""
 
 def save_cookie(cookie_val):
     with open(CONFIG_FILE, "w") as f:
-        json.dump({"ivas_sms_session": cookie_val}, f)
+        json.dump({"ivas_sms_session": cookie_val.strip()}, f)
 
 GLOBAL_BODY_EMOJIS = {
     "➖": "5870818207383686839", "🚫": "5334807341109908955", "🌐": "5334590977837403844",
@@ -143,34 +141,7 @@ def send_message(chat_id, text, reply_markup=None, parse_mode="HTML"):
     try: return requests.post(BASE_URL + "sendMessage", json=payload).json()
     except Exception: return None
 
-def dispatch_otp_alert(service, phone, msg, timestamp, country, flag):
-    clean_phone = str(phone).replace("+", "")
-    masked = clean_phone[:6] + "****" + clean_phone[-3:] if len(clean_phone) > 7 else clean_phone
-    match = re.search(r'\d{3}[-\s]?\d{3}', str(msg))
-    code = match.group(0) if match else "N/A"
-
-    caption = (f"💐 <b>『 FAST NODE DIRECT OTP 』</b> ✨\n"
-               f"━━━━━━━━━━━━━━━━━━━━━\n\n"
-               f"<b>⌚ ᴛɪᴍᴇ:</b> <code>{html.escape(str(timestamp))}</code>\n"
-               f"<b>🌍 ᴄᴏᴜɴᴛʀʏ:</b> {html.escape(str(country))} {flag}\n"
-               f"<b>📱 ɴ🇺🇲🇧ᴇ🇷:</b> <code>{html.escape(str(masked))}</code>\n"
-               f"<b>🛠 ꜱᴇʀᴠɪᴄᴇ:</b> <code>{html.escape(str(service))}</code>\n"
-               f"<b>🔑 ᴄᴏᴅᴇ:</b> <code>{html.escape(str(code))}</code>\n\n"
-               f"<b>💬 ᴍᴇssᴀɢᴇ:</b>\n<pre>{html.escape(str(msg))}</pre>\n\n"
-               f"━━━━━━━━━━━━━━━━━━━━━")
-    
-    try:
-        requests.post(BASE_URL + "sendMessage", json={
-            "chat_id": TARGET_CHAT,
-            "text": apply_emojis(caption),
-            "parse_mode": "HTML",
-            "disable_web_page_preview": True
-        })
-    except Exception as e: 
-        print(f"Error dispatching update: {e}")
-
 def verify_cookie(cookie_val):
-    """Kiểm tra xem cookie có sống hay không bằng cách gọi request thử"""
     try:
         today_str = time.strftime("%Y-%m-%d")
         headers = {
@@ -191,18 +162,19 @@ def verify_cookie(cookie_val):
     return False
 
 def ivasms_polling_loop():
-    print("🚀 FAST NODE Direct Polling Loop Active on Termux!")
+    print("🚀 FAST NODE Polling Engine Started!")
     last_seen_id = None
-    cookie_alert_sent = False
     
+    # Vừa khởi động lên, nếu chưa có cookie hoặc cookie chết -> Ép gửi cảnh báo kèm nút bấm ngay lập tức cho Admin!
+    current_cookie = load_cookie()
+    if not current_cookie or not verify_cookie(current_cookie):
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("➕ Thêm Cookie Mới", callback_data="add_new_cookie")]])
+        send_message(ADMIN_ID, "⚠️ <b>CẢNH BÁO HỆ THỐNG:</b> Chưa có Cookie hoặc Cookie hiện tại đã tẻo! Bro bấm nút bên dưới để cập nhật ngay nhé.", reply_markup=keyboard)
+
     while True:
         current_cookie = load_cookie()
-        if not current_cookie or current_cookie == "DANG_KY_COOKIE_CUA_BRO_O_DAY":
-            if not cookie_alert_sent:
-                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("➕ Thêm Cookie Mới", callback_data="add_new_cookie")]])
-                send_message(ADMIN_ID, "⚠️ <b>CHƯA CÓ COOKIE:</b> Hệ thống chưa nhận được cookie chính chủ của bro. Vui lòng bấm nút bên dưới để thêm cookie nhé!", reply_markup=keyboard)
-                cookie_alert_sent = True
-            time.sleep(10)
+        if not current_cookie or not verify_cookie(current_cookie):
+            time.sleep(15)
             continue
 
         try:
@@ -211,15 +183,8 @@ def ivasms_polling_loop():
                 "Host": "www.ivasms.com",
                 "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
                 "Accept": "application/json, text/javascript, */*; q=0.01",
-                "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
                 "Referer": "https://www.ivasms.com/portal/sms",
                 "X-Requested-With": "XMLHttpRequest",
-                "Sec-Ch-Ua": "\"Not_A Brand\";v=\"8\", \"Chromium\";v=\"120\", \"Google Chrome\";v=\"120\"",
-                "Sec-Ch-Ua-Mobile": "?1",
-                "Sec-Ch-Ua-Platform": "\"Android\"",
-                "Sec-Fetch-Dest": "empty",
-                "Sec-Fetch-Mode": "cors",
-                "Sec-Fetch-Site": "same-origin",
                 "Connection": "keep-alive"
             }
             payload = {"start_date": today_str, "end_date": today_str}
@@ -228,15 +193,12 @@ def ivasms_polling_loop():
             r = requests.post(IVASMS_GET_SMS_URL, data=payload, cookies=cookies, headers=headers, timeout=10)
             
             if r.status_code in [401, 403]:
-                if not cookie_alert_sent:
-                    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("➕ Thêm Cookie Mới", callback_data="add_new_cookie")]])
-                    send_message(ADMIN_ID, "⚠️ <b>CẢNH BÁO BẢO MẬT:</b> Cookie IVASMS đã bị Cloudflare đá (403 Forbidden)! Bro bấm nút bên dưới để cập nhật lại cookie mới ngay nhé.", reply_markup=keyboard)
-                    cookie_alert_sent = True
+                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("➕ Thêm Cookie Mới", callback_data="add_new_cookie")]])
+                send_message(ADMIN_ID, "⚠️ <b>CẢNH BÁO BẢO MẬT:</b> Cookie IVASMS đã bị Cloudflare đá (403 Forbidden)! Bro bấm nút bên dưới để cập nhật lại ngay.", reply_markup=keyboard)
                 time.sleep(30)
                 continue
             
             if r.status_code == 200:
-                cookie_alert_sent = False 
                 try:
                     res_json = r.json()
                     sms_list = res_json.get("data", []) if isinstance(res_json, dict) else res_json
@@ -256,7 +218,26 @@ def ivasms_polling_loop():
                                         break
                                 
                                 detected_srv = detect_service(message_text)
-                                dispatch_otp_alert(detected_srv, phone, message_text, ts, info[0], info[1])
+                                clean_phone = str(phone).replace("+", "")
+                                masked = clean_phone[:6] + "****" + clean_phone[-3:] if len(clean_phone) > 7 else clean_phone
+                                match = re.search(r'\d{3}[-\s]?\d{3}', str(message_text))
+                                code = match.group(0) if match else "N/A"
+
+                                caption = (f"💐 <b>『 FAST NODE DIRECT OTP 』</b> ✨\n"
+                                           f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+                                           f"<b>⌚ ᴛɪᴍᴇ:</b> <code>{html.escape(str(ts))}</code>\n"
+                                           f"<b>🌍 ᴄᴏᴜɴᴛʀʏ:</b> {html.escape(str(info[0]))} {info[1]}\n"
+                                           f"<b>📱 ɴᴜᴍ🇧ᴇ🇷:</b> <code>{html.escape(str(masked))}</code>\n"
+                                           f"<b>🛠 ꜱᴇʀᴠɪᴄᴇ:</b> <code>{html.escape(str(detected_srv))}</code>\n"
+                                           f"<b>🔑 ᴄᴏᴅᴇ:</b> <code>{html.escape(str(code))}</code>\n\n"
+                                           f"<b>💬 ᴍᴇssᴀɢᴇ:</b>\n<pre>{html.escape(str(message_text))}</pre>\n\n"
+                                           f"━━━━━━━━━━━━━━━━━━━━━")
+                                requests.post(BASE_URL + "sendMessage", json={
+                                    "chat_id": TARGET_CHAT,
+                                    "text": apply_emojis(caption),
+                                    "parse_mode": "HTML",
+                                    "disable_web_page_preview": True
+                                })
                                 last_seen_id = msg_id
                 except Exception:
                     pass
@@ -265,7 +246,6 @@ def ivasms_polling_loop():
             
         time.sleep(3)
 
-# Xử lý tương tác Telegram Bot (Nút bấm & Tin nhắn nhập cookie)
 def button_callback(update: Update, context: CallbackContext):
     query = update.callback_query
     query.answer()
@@ -273,7 +253,7 @@ def button_callback(update: Update, context: CallbackContext):
         return
     if query.data == "add_new_cookie":
         admin_state["waiting_for_cookie"] = True
-        query.message.reply_text("📥 Bro hãy gửi chuỗi giá trị cookie (`ivas_sms_session`) mới vào đây để hệ thống tự check và cập nhật nhé:")
+        query.message.reply_text("📥 <b>ĐÃ KÍCH HOẠT CHẾ ĐỘ NHẬP COOKIE:</b>\nBro hãy paste trực tiếp chuỗi giá trị cookie mới (`ivas_sms_session=...` hoặc chuỗi dài) vào đây cho tui nhé:", parse_mode="HTML")
 
 def handle_admin_message(update: Update, context: CallbackContext):
     global admin_state
@@ -283,14 +263,14 @@ def handle_admin_message(update: Update, context: CallbackContext):
     
     if admin_state.get("waiting_for_cookie"):
         new_cookie = update.message.text.strip()
-        send_message(ADMIN_ID, "⏳ Đang kiểm tra tính hợp lệ của cookie...")
+        send_message(ADMIN_ID, "⏳ Đang kiểm tra tính hợp lệ của cookie với Cloudflare...")
         
         if verify_cookie(new_cookie):
             save_cookie(new_cookie)
             admin_state["waiting_for_cookie"] = False
-            send_message(ADMIN_ID, "✅ <b>THÀNH CÔNG!</b> Cookie mới đã hoạt động mượt mà. Hệ thống tự động khôi phục quét OTP bình thường! 🚀")
+            send_message(ADMIN_ID, "✅ <b>THÀNH CÔNG RỰC RỠ!</b> Cookie mới đã vượt rào thành công. Hệ thống tự động khôi phục quét OTP 24/7! 🚀")
         else:
-            send_message(ADMIN_ID, "❌ <b>THẤT BẠI:</b> Cookie này không hợp lệ hoặc đã bị Cloudflare từ chối. Bro kiểm tra lại và gửi lại chuỗi cookie chính xác nhé!")
+            send_message(ADMIN_ID, "❌ <b>THẤT BẠI:</b> Cookie này vẫn bị Cloudflare từ chối (403). Bro kiểm tra lại chuỗi cookie trên trình duyệt rồi gửi lại nhé!")
 
 def start_command(update: Update, context: CallbackContext):
     text = (
@@ -306,10 +286,8 @@ def start_command(update: Update, context: CallbackContext):
     update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 def main():
-    # Khởi động vòng lặp cào số ngầm
     threading.Thread(target=ivasms_polling_loop, daemon=True).start()
     
-    # Khởi động Telegram Bot Handler nhận lệnh & nút bấm
     updater = Updater(BOT_TOKEN, use_context=True)
     dp = updater.dispatcher
     dp.add_handler(CommandHandler("start", start_command))
@@ -317,7 +295,7 @@ def main():
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_admin_message))
     
     updater.start_polling()
-    print("🚀 Telegram Bot Client Handler Active!")
+    print("🚀 Fast Node Telegram Bot Active & Listening!")
     updater.idle()
 
 if __name__ == "__main__":
