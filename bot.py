@@ -7,8 +7,7 @@ import os
 import re
 import html
 import threading
-import firebase_admin
-from firebase_admin import credentials, firestore
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
 # ==========================================
 # Configuration (Fast Node • MK Network Gateway)
@@ -23,25 +22,10 @@ MK_BASE_URL = "https://mknetworkbd.com/api/v3/public"
 MK_API_KEY = "badacaa33d287233567a49db"
 
 # Global states
-current_db_mode = "sqlite"
-db_firebase = None 
-waiting_for_firebase = False
 user_states = {}
-
-# User & Cooldown States
 user_cache = {} 
 user_active_sessions = {} 
-user_cooldowns = {} 
-
-# Force Join States
-force_join_status = False
-force_join_channels = []
-
-# OTP Forwarding States
-otp_forward_groups = []
-otp_button_link = "https://t.me/FastNodeOTP_bot"
 recent_success_otps = set()
-
 recent_traffic = []
 daily_stats = {"date": "", "numbers": 0, "otps": 0} 
 daily_user_otps = {"date": "", "users": {}}
@@ -85,9 +69,6 @@ def apply_emojis(text):
         text = text.replace(f"__TG_EMOJI_{i}__", h)
     return text
 
-# ==========================================
-# Premium Apps & Service Keywords Setup (FULL)
-# ==========================================
 PREMIUM_APPS = {
     "Facebook": {"emoji": "📘", "id": "5429172110520003976"},
     "WhatsApp": {"emoji": "💬", "id": "5429612632430654504"},
@@ -137,6 +118,18 @@ SERVICE_SMS_KEYWORDS = {
     "Imo": ["imo code", "imo"]
 }
 
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"Bot is alive 24/7!")
+
+def start_health_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    server.serve_forever()
+
 def detect_service(message_text, raw_sid=""):
     msg_lower = str(message_text).lower()
     for service, keywords in SERVICE_SMS_KEYWORDS.items():
@@ -170,21 +163,14 @@ def update_daily_stat(key, amount=1):
     daily_stats[key] = daily_stats.get(key, 0) + amount
 
 def load_local_data():
-    global recent_traffic, force_join_status, force_join_channels, otp_forward_groups, otp_button_link, recent_success_otps, bot_settings, user_active_sessions, daily_stats, daily_user_otps, pending_withdrawals
+    global recent_traffic, bot_settings, user_active_sessions, daily_stats, daily_user_otps, pending_withdrawals
     if os.path.exists(BOT_DATA_FILE):
         try:
             with open(BOT_DATA_FILE, "r") as f:
                 data = json.load(f)
                 recent_traffic = data.get("recent_traffic", [])
-                force_join_status = data.get("force_join_status", False)
-                force_join_channels = data.get("force_join_channels", [])
-                otp_forward_groups = data.get("otp_forward_groups", [])
-                otp_button_link = data.get("otp_button_link", "https://t.me/FastNodeOTP_bot")
-                recent_success_otps = set(data.get("recent_success_otps", []))
-                
                 loaded_settings = data.get("bot_settings", {})
                 for k, v in loaded_settings.items(): bot_settings[k] = v
-                
                 daily_stats = data.get("daily_stats", {"date": "", "numbers": 0, "otps": 0})
                 daily_user_otps = data.get("daily_user_otps", {"date": "", "users": {}})
                 user_active_sessions = data.get("user_active_sessions", {})
@@ -192,16 +178,10 @@ def load_local_data():
         except Exception as e: print(f"Error loading local data: {e}")
 
 def save_local_data():
-    global recent_traffic, force_join_status, force_join_channels, otp_forward_groups, otp_button_link, recent_success_otps, bot_settings, user_active_sessions, daily_stats, pending_withdrawals, daily_user_otps
     try:
         with open(BOT_DATA_FILE, "w") as f:
             json.dump({
                 "recent_traffic": recent_traffic, 
-                "force_join_status": force_join_status,
-                "force_join_channels": force_join_channels,
-                "otp_forward_groups": otp_forward_groups,
-                "otp_button_link": otp_button_link,
-                "recent_success_otps": list(recent_success_otps),
                 "bot_settings": bot_settings,
                 "user_active_sessions": user_active_sessions,
                 "daily_stats": daily_stats,
@@ -216,18 +196,15 @@ def add_to_broadcast_list(user_id):
     global cached_user_list
     if not cached_user_list and os.path.exists(USERS_LIST_FILE):
         try:
-            with open(USERS_LIST_FILE, "r") as f:
-                cached_user_list = set(json.load(f))
+            with open(USERS_LIST_FILE, "r") as f: cached_user_list = set(json.load(f))
         except: pass
     if user_id not in cached_user_list:
         cached_user_list.add(user_id)
         try:
-            with open(USERS_LIST_FILE, "w") as f:
-                json.dump(list(cached_user_list), f)
+            with open(USERS_LIST_FILE, "w") as f: json.dump(list(cached_user_list), f)
         except: pass
 
 def get_all_user_ids():
-    global user_cache
     users = set()
     for uid in user_cache.keys(): users.add(int(uid))
     if os.path.exists(USERS_LIST_FILE):
@@ -253,13 +230,13 @@ def send_message(chat_id, text, reply_markup=None, parse_mode="HTML"):
     payload = {"chat_id": chat_id, "text": apply_emojis(text), "parse_mode": parse_mode}
     if reply_markup: payload["reply_markup"] = reply_markup
     try: return requests.post(BASE_URL + "sendMessage", json=payload).json()
-    except Exception as e: return None
+    except Exception: return None
 
 def edit_message(chat_id, message_id, text, reply_markup=None, parse_mode="HTML"):
     payload = {"chat_id": chat_id, "message_id": message_id, "text": apply_emojis(text), "parse_mode": parse_mode}
     if reply_markup: payload["reply_markup"] = reply_markup
     try: requests.post(BASE_URL + "editMessageText", json=payload)
-    except Exception as e: pass
+    except Exception: pass
 
 def answer_callback_query(callback_query_id, text="", show_alert=False):
     payload = {"callback_query_id": callback_query_id, "text": text, "show_alert": show_alert}
@@ -268,17 +245,8 @@ def answer_callback_query(callback_query_id, text="", show_alert=False):
 def delete_message(chat_id, message_id):
     payload = {"chat_id": chat_id, "message_id": message_id}
     try: requests.post(BASE_URL + "deleteMessage", json=payload)
-    except Exception as e: pass
+    except Exception: pass
 
-def copy_message(chat_id, from_chat_id, message_id, reply_markup=None):
-    payload = {"chat_id": chat_id, "from_chat_id": from_chat_id, "message_id": message_id}
-    if reply_markup: payload["reply_markup"] = reply_markup
-    try: return requests.post(BASE_URL + "copyMessage", json=payload).json()
-    except Exception as e: return None
-
-# ==========================================
-# Database Setup (SQLite)
-# ==========================================
 def init_sqlite():
     conn = sqlite3.connect("bot_database.db")
     cursor = conn.cursor()
@@ -288,11 +256,10 @@ def init_sqlite():
             first_name TEXT DEFAULT 'User', 
             balance REAL DEFAULT 0.0, 
             total_invites INTEGER DEFAULT 0,
-            ton_address TEXT DEFAULT ''
+            ton_address TEXT DEFAULT '',
+            joined_date TEXT DEFAULT ''
         )
     """)
-    try: cursor.execute("ALTER TABLE users ADD COLUMN ton_address TEXT DEFAULT ''")
-    except: pass
     conn.commit()
     conn.close()
 
@@ -300,24 +267,28 @@ def get_user(user_id):
     if user_id in user_cache: return user_cache[user_id]
     conn = sqlite3.connect("bot_database.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT first_name, balance, total_invites, ton_address FROM users WHERE user_id = ?", (user_id,))
+    cursor.execute("SELECT first_name, balance, total_invites, ton_address, joined_date FROM users WHERE user_id = ?", (user_id,))
     row = cursor.fetchone()
     conn.close()
     if row:
-        user_data = {"user_id": user_id, "first_name": row[0], "balance": row[1], "total_invites": row[2], "ton_address": row[3] or ""}
+        user_data = {"user_id": user_id, "first_name": row[0], "balance": row[1], "total_invites": row[2], "ton_address": row[3] or "", "joined_date": row[4] or ""}
         user_cache[user_id] = user_data
         return user_data
     return None
 
 def add_user(user_id, first_name="User"):
     add_to_broadcast_list(user_id)
+    now_str = time.strftime("%Y-%m-%d %H:%M:%S")
     conn = sqlite3.connect("bot_database.db")
     cursor = conn.cursor()
-    cursor.execute("INSERT OR IGNORE INTO users (user_id, first_name, balance, total_invites, ton_address) VALUES (?, ?, 0.0, 0, '')", (user_id, first_name))
-    conn.commit()
+    cursor.execute("SELECT user_id, joined_date FROM users WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    if not row:
+        cursor.execute("INSERT INTO users (user_id, first_name, balance, total_invites, ton_address, joined_date) VALUES (?, ?, 0.0, 0, '', ?)", (user_id, first_name, now_str))
+        conn.commit()
     conn.close()
     if user_id not in user_cache:
-        user_cache[user_id] = {"user_id": user_id, "first_name": first_name, "balance": 0.0, "total_invites": 0, "ton_address": ""}
+        user_cache[user_id] = {"user_id": user_id, "first_name": first_name, "balance": 0.0, "total_invites": 0, "ton_address": "", "joined_date": row[1] if row and row[1] else now_str}
 
 def update_user_stats(user_id, balance_add, invite_add):
     if user_id not in user_cache: get_user(user_id)
@@ -340,9 +311,6 @@ def update_user_ton_address(user_id, address):
 
 def get_total_users(): return len(get_all_user_ids())
 
-# ==========================================
-# MK Network API Integration (v3) - BULLETPROOF
-# ==========================================
 def fetch_access_list():
     try:
         res = requests.get(f"{MK_BASE_URL}/access_list", headers=get_mk_headers(), timeout=10)
@@ -350,9 +318,8 @@ def fetch_access_list():
             data = res.json()
             if isinstance(data, dict):
                 items = data.get("data", {}).get("items") or data.get("data") or data.get("items")
-                if isinstance(items, list):
-                    return items
-    except Exception as e: print(f"Error fetching access list: {e}")
+                if isinstance(items, list): return items
+    except Exception: pass
     return []
 
 def allocate_mk_number(range_prefix):
@@ -361,9 +328,8 @@ def allocate_mk_number(range_prefix):
         res = requests.post(f"{MK_BASE_URL}/getnum/number", headers=get_mk_headers(), json=payload, timeout=10)
         if res.status_code == 200:
             data = res.json()
-            if isinstance(data, dict):
-                return data.get("data", {}) or data
-    except Exception as e: print(f"Error allocating number: {e}")
+            if isinstance(data, dict): return data.get("data", {}) or data
+    except Exception: pass
     return None
 
 def check_mk_otp_batch(request_ids_list):
@@ -373,14 +339,10 @@ def check_mk_otp_batch(request_ids_list):
         res = requests.post(f"{MK_BASE_URL}/check/status", headers=get_mk_headers(), json=payload, timeout=10)
         if res.status_code == 200:
             data = res.json()
-            if isinstance(data, dict):
-                return data.get("data", {}).get("results", []) or data.get("results", []) or []
-    except Exception as e: print(f"Error checking OTP batch: {e}")
+            if isinstance(data, dict): return data.get("data", {}).get("results", []) or data.get("results", []) or []
+    except Exception: pass
     return []
 
-# ==========================================
-# Background Listeners
-# ==========================================
 def mk_otp_checker_listener():
     global user_active_sessions, recent_success_otps
     while True:
@@ -398,12 +360,11 @@ def mk_otp_checker_listener():
                         otp_code = res.get("otp_code")
                         full_sms = res.get("full_sms", "")
                         number = res.get("number", "")
-                        
                         sig = f"{number}_{otp_code}"
+                        
                         if sig not in recent_success_otps and r_id in user_active_sessions:
                             recent_success_otps.add(sig)
                             owner_id = user_active_sessions[r_id]
-                            
                             detected_service = detect_service(full_sms)
                             reward = get_otp_reward(detected_service)
                             update_user_stats(owner_id, reward, 0)
@@ -420,7 +381,6 @@ def mk_otp_checker_listener():
                             )
                             markup = {"inline_keyboard": [[{"text": f"{otp_code}", "icon_custom_emoji_id": srv_eid, "copy_text": {"text": otp_code}, "style": "success"}]]}
                             send_message(owner_id, inbox_text, reply_markup=markup)
-                            
                             del user_active_sessions[r_id]
                             update_daily_stat("otps", 1)
                             save_local_data()
@@ -429,12 +389,9 @@ def mk_otp_checker_listener():
                         if r_id in user_active_sessions:
                             del user_active_sessions[r_id]
                             save_local_data()
-        except Exception as e: print(f"OTP Listener Error: {e}")
+        except Exception: pass
         time.sleep(10)
 
-# ==========================================
-# Keyboards & Menus
-# ==========================================
 def get_main_keyboard(user_id):
     keyboard_layout = [
         [{"text": "LIVE NUMBER", "icon_custom_emoji_id": "5456259593082522998", "style": "danger"},
@@ -448,11 +405,10 @@ def get_main_keyboard(user_id):
     return {"keyboard": keyboard_layout, "resize_keyboard": True}
 
 def get_admin_inline_keyboard():
-    pending_count = len(pending_withdrawals)
     return {
         "inline_keyboard": [
-            [{"text": f"PENDING WITHDRAWALS ({pending_count})", "callback_data": "view_pending_withdrawals", "style": "danger"}],
-            [{"text": "BROADCAST", "callback_data": "broadcast_menu", "style": "primary"}],
+            [{"text": "👥 CHECK ALL USERS", "callback_data": "admin_user_list", "style": "primary"}],
+            [{"text": f"PENDING WITHDRAWALS ({len(pending_withdrawals)})", "callback_data": "view_pending_withdrawals", "style": "danger"}],
             [{"text": "CLOSE", "callback_data": "close_panel", "style": "danger"}]
         ]
     }
@@ -469,65 +425,55 @@ def get_owner_panel_text():
     )
 
 def get_services_content():
-    try:
-        items = fetch_access_list()
-        if not items: 
-            return "⚠️ <b>MK Network API chưa trả về danh sách quốc gia (Kho số đang trống hoặc lỗi kết nối). Vui lòng thử lại sau!</b>", {"inline_keyboard": [[{"text": "CLOSE", "callback_data": "close_panel", "style": "danger"}]]}
-        
-        kb = {"inline_keyboard": []}
-        row = []
-        
-        for item in items:
-            if not isinstance(item, dict): continue
-            country = item.get("country") or item.get("name") or "Unknown"
-            range_prefix = item.get("range") or item.get("code") or ""
-            count = item.get("count") or item.get("total") or ""
-            
-            btn_text = f"{country} ({count})" if count else f"{country}"
-            row.append({"text": str(btn_text), "callback_data": f"cnt_{str(range_prefix)}", "style": "primary"})
-            if len(row) == 2:
-                kb["inline_keyboard"].append(row)
-                row = []
-        if row: kb["inline_keyboard"].append(row)
-        kb["inline_keyboard"].append([{"text": "CLOSE", "callback_data": "close_panel", "style": "danger"}])
-        return "🌍 <b>Select Country / Range:</b>", kb
-    except Exception as e:
-        return f"❌ <b>Lỗi hiển thị danh sách:</b> <code>{html.escape(str(e))}</code>", None
+    items = fetch_access_list()
+    if not items: 
+        return "⚠️ <b>MK Network API chưa trả về danh sách quốc gia. Vui lòng thử lại sau!</b>", {"inline_keyboard": [[{"text": "CLOSE", "callback_data": "close_panel", "style": "danger"}]]}
+    
+    kb = {"inline_keyboard": []}
+    row = []
+    for item in items:
+        if not isinstance(item, dict): continue
+        country = item.get("country") or item.get("name") or "Unknown"
+        range_prefix = item.get("range") or item.get("code") or ""
+        count = item.get("count") or item.get("total") or ""
+        btn_text = f"{country} ({count})" if count else f"{country}"
+        row.append({"text": str(btn_text), "callback_data": f"cnt_{str(range_prefix)}", "style": "primary"})
+        if len(row) == 2:
+            kb["inline_keyboard"].append(row)
+            row = []
+    if row: kb["inline_keyboard"].append(row)
+    kb["inline_keyboard"].append([{"text": "CLOSE", "callback_data": "close_panel", "style": "danger"}])
+    return "🌍 <b>Select Country / Range:</b>", kb
 
 def get_number_allocation_content(range_prefix, user_id=None):
-    global user_active_sessions, otp_button_link
-    try:
-        num_data = allocate_mk_number(range_prefix)
+    num_data = allocate_mk_number(range_prefix)
+    if num_data and isinstance(num_data, dict):
+        req_id = num_data.get("request_id") or num_data.get("id")
+        full_number = num_data.get("full_number", "") or num_data.get("number", "")
+        country = num_data.get("country", "Unknown")
         
-        if num_data and isinstance(num_data, dict):
-            req_id = num_data.get("request_id") or num_data.get("id")
-            full_number = num_data.get("full_number", "") or num_data.get("number", "")
-            country = num_data.get("country", "Unknown")
+        if user_id and req_id:
+            user_active_sessions[req_id] = user_id
+            save_local_data()
             
-            if user_id and req_id:
-                user_active_sessions[req_id] = user_id
-                save_local_data()
-                
-            update_daily_stat("numbers", 1)
-            clean_num = str(full_number).lstrip('+')
-            
-            msg = (
-                f"━━━━━━━━━━━━━━━\n"
-                f"⌛ <b>ACTIVE NUMBER (15M)</b>\n"
-                f"— — — — — — — — — —\n"
-                f"🌐 <b>Country:</b> {country}\n"
-                f"━━━━━━━━━━━━━━━"
-            )
-            kb = {
-                "inline_keyboard": [
-                    [{"text": f"+{clean_num}", "copy_text": {"text": f"+{clean_num}"}, "style": "primary"}],
-                    [{"text": "OTP Group", "url": otp_button_link, "style": "success"}],
-                    [{"text": "BACK", "callback_data": "live_number_back", "style": "danger"}]
-                ]
-            }
-            return msg, kb
-    except Exception as e:
-        print(f"Allocation error: {e}")
+        update_daily_stat("numbers", 1)
+        clean_num = str(full_number).lstrip('+')
+        
+        msg = (
+            f"━━━━━━━━━━━━━━━\n"
+            f"⌛ <b>ACTIVE NUMBER (15M)</b>\n"
+            f"— — — — — — — — — —\n"
+            f"🌐 <b>Country:</b> {country}\n"
+            f"━━━━━━━━━━━━━━━"
+        )
+        kb = {
+            "inline_keyboard": [
+                [{"text": f"+{clean_num}", "copy_text": {"text": f"+{clean_num}"}, "style": "primary"}],
+                [{"text": "OTP Group", "url": "https://t.me/FastNodeOTP_bot", "style": "success"}],
+                [{"text": "BACK", "callback_data": "live_number_back", "style": "danger"}]
+            ]
+        }
+        return msg, kb
     return "❌ <b>Out of stock or API error. Please try another range.</b>", {"inline_keyboard": [[{"text": "BACK", "callback_data": "live_number_back", "style": "danger"}]]}
 
 def get_leaderboard_text():
@@ -535,13 +481,11 @@ def get_leaderboard_text():
     user_scores = []
     for uid in users:
         u = get_user(uid)
-        if u:
-            user_scores.append((u.get("first_name", "User"), u.get("balance", 0.0)))
+        if u: user_scores.append((u.get("first_name", "User"), u.get("balance", 0.0)))
     user_scores.sort(key=lambda x: x[1], reverse=True)
     
     lb_msg = "🏆 <b>TOP 5 LEADERBOARD (BALANCE)</b>\n━━━━━━━━━━━━━━━━━\n"
-    if not user_scores:
-        lb_msg += "<i>No users on leaderboard yet.</i>\n"
+    if not user_scores: lb_msg += "<i>No users on leaderboard yet.</i>\n"
     else:
         for idx, (name, bal) in enumerate(user_scores[:5]):
             medal = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"][idx]
@@ -549,23 +493,6 @@ def get_leaderboard_text():
     lb_msg += "━━━━━━━━━━━━━━━━━"
     return lb_msg
 
-def broadcast_worker(from_chat_id, message_id, target_msg_id):
-    users = get_all_user_ids() 
-    success_count = 0
-    for uid in users:
-        try:
-            res = copy_message(uid, from_chat_id, message_id)
-            if res and res.get("ok"): success_count += 1
-            time.sleep(0.05) 
-        except: pass
-        
-    send_message(from_chat_id, f"✅ <b>Broadcast Completed!</b>\nSuccessfully sent to {success_count} users out of {len(users)}.")
-    if target_msg_id:
-        edit_message(from_chat_id, target_msg_id, get_owner_panel_text(), reply_markup=get_admin_inline_keyboard())
-
-# ==========================================
-# Handlers
-# ==========================================
 def handle_message(message):
     if message.get("chat", {}).get("type") != "private": return
     chat_id = message["chat"]["id"]
@@ -584,7 +511,6 @@ def handle_message(message):
         
         if state == "waiting_ton_address":
             address = text.strip()
-            # Xóa tin nhắn nhập của người dùng để gọn khung chat
             delete_message(chat_id, message_id)
             if msg_id: delete_message(chat_id, msg_id)
             
@@ -595,80 +521,35 @@ def handle_message(message):
             else:
                 send_message(chat_id, "❌ <b>Invalid TON Wallet Address!</b>\nPlease make sure it starts with <code>EQ</code>, <code>UQ</code>, or <code>0:</code> and try again.")
             return
-            
-        elif state == "waiting_broadcast":
-            delete_message(chat_id, message_id)
-            if msg_id: edit_message(chat_id, msg_id, "⏳ <b>Broadcasting message to all users...</b>")
-            threading.Thread(target=broadcast_worker, args=(chat_id, message_id, msg_id), daemon=True).start()
-            del user_states[user_id]
-            return
 
     if text.startswith("/start"):
-        parts = text.split()
-        if len(parts) > 1:
-            try:
-                inviter_id = int(parts[1])
-                if inviter_id != user_id and get_user(inviter_id):
-                    ref_reward = bot_settings.get("refer_reward", 0.001)
-                    update_user_stats(inviter_id, ref_reward, 1)
-                    send_message(inviter_id, f"🎉 <b>New Referral!</b>\nSomeone joined using your link. You received ${ref_reward:.4f} USD.")
-            except: pass
         send_message(chat_id, f"🔥 <b>FAST NODE • LIVE OTP GATEWAY</b>\n\nWelcome {html.escape(str(first_name))}, choose an option from the menu:", reply_markup=get_main_keyboard(user_id))
-    
     elif text == "LIVE NUMBER":
-        try:
-            msg, markup = get_services_content()
-            if markup: send_message(chat_id, msg, reply_markup=markup)
-            else: send_message(chat_id, msg)
-        except Exception as e:
-            send_message(chat_id, f"❌ <b>Lỗi hệ thống:</b> <code>{html.escape(str(e))}</code>")
-
+        msg, markup = get_services_content()
+        send_message(chat_id, msg, reply_markup=markup)
     elif text == "LIVE TRAFFIC":
-        traffic_text = "📈 <b>LIVE TRAFFIC MONITOR</b>\n━━━━━━━━━━━━━━━━━━\n<i>All systems operating normally via MK Network v3 API.</i>\n━━━━━━━━━━━━━━━━━━"
-        send_message(chat_id, traffic_text)
-
+        send_message(chat_id, "📈 <b>LIVE TRAFFIC MONITOR</b>\n━━━━━━━━━━━━━━━━━━\n<i>All systems operating normally via MK Network v3 API.</i>\n━━━━━━━━━━━━━━━━━━")
     elif text == "INVITE FRIEND":
         invite_link = f"https://t.me/{BOT_USERNAME}?start={user_id}"
-        ref_reward = bot_settings.get("refer_reward", 0.001)
-        msg = (
-            f"👥 <b>REFERRAL PROGRAM</b>\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"🔗 <b>Your Link:</b>\n<code>{invite_link}</code>\n"
-            f"🎁 <b>Per Invite:</b> ${ref_reward:.4f} USD\n"
-            f"📊 <b>Total Invites:</b> {user_data['total_invites']}\n"
-            f"━━━━━━━━━━━━━━━━━━"
-        )
-        send_message(chat_id, msg, reply_markup={"inline_keyboard": [[{"text": "COPY LINK", "copy_text": {"text": invite_link}, "style": "success"}]]})
-
+        send_message(chat_id, f"👥 <b>REFERRAL PROGRAM</b>\n━━━━━━━━━━━━━━━━━━\n🔗 <b>Your Link:</b>\n<code>{invite_link}</code>\n🎁 <b>Per Invite:</b> $0.0010 USD\n📊 <b>Total Invites:</b> {user_data['total_invites']}\n━━━━━━━━━━━━━━━━━━", reply_markup={"inline_keyboard": [[{"text": "COPY LINK", "copy_text": {"text": invite_link}, "style": "success"}]]})
     elif text == "LEADERBOARD":
         send_message(chat_id, get_leaderboard_text())
-        
     elif text == "WALLET":
         ton_addr = user_data.get("ton_address", "")
         addr_display = f"<code>{ton_addr}</code>" if ton_addr else "<i>Not Configured Yet</i>"
-        
         wallet_txt = (
-            f"💰 <b>YOUR WALLET</b>\n"
-            f"— — — — — — — — — —\n"
+            f"💰 <b>YOUR WALLET</b>\n— — — — — — — — — —\n"
             f"👤 <b>NAME:</b> {html.escape(str(first_name))}\n"
             f"🆔 <b>ID:</b> <code>{user_id}</code>\n"
             f"💵 <b>BALANCE:</b> ${user_data['balance']:.4f} USD\n"
-            f"⚡ <b>USDT (TON):</b> {addr_display}\n"
-            f"— — — — — — — — — —\n"
-            f"📌 <b>Minimum Withdraw:</b> ${bot_settings['min_withdraw']:.2f} USD"
+            f"⚡ <b>USDT (TON):</b> {addr_display}\n— — — — — — — — — —\n"
+            f"📌 <b>Minimum Withdraw:</b> $5.00 USD"
         )
-        
-        kb = {"inline_keyboard": [
-            [{"text": "⚙️ SET TON USDT ADDRESS", "callback_data": "set_ton_address", "style": "primary"}],
-            [{"text": "💸 WITHDRAW ALL BALANCE", "callback_data": "request_withdraw", "style": "success"}]
-        ]}
-        send_message(chat_id, wallet_txt, reply_markup=kb)
-        
+        send_message(chat_id, wallet_txt, reply_markup={"inline_keyboard": [[{"text": "⚙️ SET TON USDT ADDRESS", "callback_data": "set_ton_address", "style": "primary"}], [{"text": "💸 WITHDRAW ALL BALANCE", "callback_data": "request_withdraw", "style": "success"}]]})
     elif text == "OWNER PANEL" and user_id == ADMIN_ID:
         send_message(chat_id, get_owner_panel_text(), reply_markup=get_admin_inline_keyboard())
 
 def handle_callback(callback_query):
-    global pending_withdrawals
     query_id = callback_query["id"]
     user_id = callback_query["from"]["id"]
     data = callback_query["data"]
@@ -676,113 +557,49 @@ def handle_callback(callback_query):
     message_id = callback_query["message"]["message_id"]
     
     if data == "live_number_back":
-        try:
-            msg, markup = get_services_content()
-            if markup: edit_message(chat_id, message_id, msg, reply_markup=markup)
-            else: edit_message(chat_id, message_id, msg)
-        except Exception as e:
-            edit_message(chat_id, message_id, f"❌ <b>Lỗi:</b> {e}")
+        msg, markup = get_services_content()
+        edit_message(chat_id, message_id, msg, reply_markup=markup)
         answer_callback_query(query_id)
-        
     elif data.startswith("cnt_"):
         range_prefix = data[4:]
         msg, markup = get_number_allocation_content(range_prefix, user_id=user_id)
         edit_message(chat_id, message_id, msg, reply_markup=markup)
         answer_callback_query(query_id, "Number allocated!")
+    elif data == "admin_user_list" and user_id == ADMIN_ID:
+        conn = sqlite3.connect("bot_database.db")
+        cursor = conn.cursor()
+        cursor.execute("SELECT user_id, first_name, balance, total_invites, joined_date FROM users ORDER BY joined_date DESC")
+        rows = cursor.fetchall()
+        conn.close()
         
+        msg = f"👥 <b>REGISTERED USERS DIRECTORY ({len(rows)})</b>\n━━━━━━━━━━━━━━━━━━\n"
+        if not rows:
+            msg += "<i>No users registered yet.</i>"
+        else:
+            for r in rows:
+                uid, fname, bal, inv, jdate = r
+                safe_name = html.escape(str(fname))
+                jdate_fmt = jdate if jdate else "Unknown"
+                msg += f"👤 <a href=\"tg://user?id={uid}\">{safe_name}</a>\n" \
+                       f" ├ 🆔 ID: <code>{uid}</code>\n" \
+                       f" ├ 💵 Bal: <b>${bal:.4f}</b> | Inv: <b>{inv}</b>\n" \
+                       f" └ 📅 Joined: <code>{jdate_fmt}</code>\n\n"
+        
+        kb = {"inline_keyboard": [[{"text": "« BACK TO PANEL", "callback_data": "back_to_owner_panel", "style": "primary"}]]}
+        edit_message(chat_id, message_id, msg, reply_markup=kb)
+        answer_callback_query(query_id)
+    elif data == "back_to_owner_panel" and user_id == ADMIN_ID:
+        edit_message(chat_id, message_id, get_owner_panel_text(), reply_markup=get_admin_inline_keyboard())
+        answer_callback_query(query_id)
     elif data == "set_ton_address":
         user_states[user_id] = {"state": "waiting_ton_address", "msg_id": message_id}
-        kb_cancel = {"inline_keyboard": [[{"text": "❌ CANCEL / BACK", "callback_data": "cancel_ton_address", "style": "danger"}]]}
-        edit_message(chat_id, message_id, "⚙️ <b>Please send your USDT (TON Network) wallet address now:</b>", reply_markup=kb_cancel)
+        edit_message(chat_id, message_id, "⚙️ <b>Please send your USDT (TON Network) wallet address now:</b>", reply_markup={"inline_keyboard": [[{"text": "❌ CANCEL / BACK", "callback_data": "cancel_ton_address", "style": "danger"}]]})
         answer_callback_query(query_id)
-
     elif data == "cancel_ton_address":
         if user_id in user_states: del user_states[user_id]
         delete_message(chat_id, message_id)
         send_message(chat_id, "❌ <b>Setup cancelled.</b>", reply_markup=get_main_keyboard(user_id))
         answer_callback_query(query_id, "Cancelled")
-        
-    elif data == "request_withdraw":
-        user_data = get_user(user_id)
-        balance = user_data.get("balance", 0.0)
-        ton_addr = user_data.get("ton_address", "")
-        min_w = bot_settings.get("min_withdraw", 5.0)
-        
-        if not ton_addr:
-            answer_callback_query(query_id, "❌ Please configure your USDT TON address first!", show_alert=True)
-            return
-            
-        if balance < min_w:
-            answer_callback_query(query_id, f"❌ Insufficient balance! Minimum withdrawal is ${min_w:.2f} USD.", show_alert=True)
-            return
-            
-        amount_to_withdraw = balance
-        update_user_stats(user_id, -amount_to_withdraw, 0)
-        
-        req_item = {
-            "req_id": int(time.time()),
-            "user_id": user_id,
-            "first_name": user_data.get("first_name", "User"),
-            "amount": amount_to_withdraw,
-            "address": ton_addr,
-            "date": time.strftime("%Y-%m-%d %H:%M:%S")
-        }
-        pending_withdrawals.append(req_item)
-        save_local_data()
-        
-        answer_callback_query(query_id, "Withdrawal request submitted successfully!", show_alert=True)
-        edit_message(chat_id, message_id, f"✅ <b>WITHDRAWAL SUBMITTED!</b>\n\nAmount: ${amount_to_withdraw:.4f} USD\nAddress: <code>{ton_addr}</code>\nStatus: Pending Admin Approval")
-        
-    elif data == "broadcast_menu" and user_id == ADMIN_ID:
-        user_states[user_id] = {"state": "waiting_broadcast", "msg_id": message_id}
-        edit_message(chat_id, message_id, "📣 <b>BROADCAST SYSTEM</b>\n\nSend any text, photo, video, or audio message you want to broadcast to all users.")
-        answer_callback_query(query_id, "Send your broadcast content now!")
-
-    elif data == "view_pending_withdrawals" and user_id == ADMIN_ID:
-        if not pending_withdrawals:
-            answer_callback_query(query_id, "No pending withdrawals!", show_alert=True)
-            return
-            
-        item = pending_withdrawals[0]
-        text = (
-            f"<b>💳 PENDING WITHDRAWAL APPROVAL</b>\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"👤 <b>User:</b> <a href='tg://user?id={item['user_id']}'>{html.escape(item['first_name'])}</a>\n"
-            f"🆔 <b>User ID:</b> <code>{item['user_id']}</code>\n"
-            f"💵 <b>Amount:</b> ${item['amount']:.4f} USD\n"
-            f"⚡ <b>TON Address:</b> <code>{item['address']}</code>\n"
-            f"📅 <b>Date:</b> {item['date']}\n"
-            f"━━━━━━━━━━━━━━━━━━"
-        )
-        kb = {"inline_keyboard": [
-            [{"text": "✅ APPROVE", "callback_data": f"app_w_{item['req_id']}", "style": "success"},
-             {"text": "❌ REJECT", "callback_data": f"rej_w_{item['req_id']}", "style": "danger"}],
-            [{"text": "CLOSE", "callback_data": "close_panel", "style": "danger"}]
-        ]}
-        send_message(chat_id, text, reply_markup=kb)
-        answer_callback_query(query_id)
-
-    elif data.startswith("app_w_") and user_id == ADMIN_ID:
-        req_id = int(data[6:])
-        item = next((x for x in pending_withdrawals if x["req_id"] == req_id), None)
-        if item:
-            pending_withdrawals.remove(item)
-            save_local_data()
-            send_message(item["user_id"], f"🎉 <b>WITHDRAWAL APPROVED!</b>\nYour payment of ${item['amount']:.4f} USD has been sent to your TON wallet:\n<code>{item['address']}</code>")
-            edit_message(chat_id, message_id, f"✅ <b>Approved withdrawal for ID {item['user_id']} (${item['amount']:.4f} USD)</b>")
-            answer_callback_query(query_id, "Approved!")
-            
-    elif data.startswith("rej_w_") and user_id == ADMIN_ID:
-        req_id = int(data[6:])
-        item = next((x for x in pending_withdrawals if x["req_id"] == req_id), None)
-        if item:
-            pending_withdrawals.remove(item)
-            update_user_stats(item["user_id"], item["amount"], 0)
-            save_local_data()
-            send_message(item["user_id"], f"❌ <b>WITHDRAWAL REJECTED!</b>\nYour request of ${item['amount']:.4f} USD was rejected and refunded back to your wallet.")
-            edit_message(chat_id, message_id, f"❌ <b>Rejected & Refunded withdrawal for ID {item['user_id']}</b>")
-            answer_callback_query(query_id, "Rejected!")
-
     elif data == "close_panel":
         delete_message(chat_id, message_id)
         answer_callback_query(query_id, "Closed")
@@ -794,10 +611,10 @@ def main():
     BOT_USERNAME = get_bot_info()
     set_bot_commands()
     
+    threading.Thread(target=start_health_server, daemon=True).start()
     threading.Thread(target=mk_otp_checker_listener, daemon=True).start()
     
-    print(f"🚀 Bot @{BOT_USERNAME} is running securely with MK Network v3 API!")
-    
+    print(f"🚀 Bot @{BOT_USERNAME} is running securely!")
     offset = None
     while True:
         try:
