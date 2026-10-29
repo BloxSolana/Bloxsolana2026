@@ -4,10 +4,9 @@ import os
 import re
 import html
 import json
-import threading
 
 # ==========================================
-# Configuration (Fast Node Smart Cookie Extractor)
+# Configuration (Fast Node Direct Engine)
 # ==========================================
 BOT_TOKEN = "9139656226:AAF3G3Kll7E0DipP80mnXGWvex4BMdEVCzc"
 ADMIN_ID = 6726769296
@@ -99,102 +98,23 @@ def load_cookie():
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r") as f:
-                return json.load(f).get("ivas_sms_session", "")
+                data = json.load(f)
+                return data.get("ivas_sms_session", "").strip()
         except Exception:
             pass
     return ""
 
-def save_cookie(val):
-    with open(CONFIG_FILE, "w") as f:
-        json.dump({"ivas_sms_session": val.strip()}, f)
-
-def extract_ivas_session(raw_text):
-    """Tự động quét và trích xuất đúng chuỗi ivas_sms_session từ đống text dài"""
-    match = re.search(r'ivas_sms_session=([^;\s]+)', raw_text)
-    if match:
-        return match.group(1).strip()
-    # Nếu user gửi nguyên một chuỗi dài mà ko có chữ ivas_sms_session= phía trước
-    clean = raw_text.replace(";", "").strip()
-    if len(clean) > 20:
-        return clean
-    return ""
-
-def verify_cookie(cookie_val):
-    try:
-        today = time.strftime("%Y-%m-%d")
-        r = c_requests.post(
-            IVASMS_GET_SMS_URL, 
-            data={"start_date": today, "end_date": today}, 
-            cookies={"ivas_sms_session": cookie_val.strip()}, 
-            impersonate="chrome", 
-            timeout=10
-        )
-        return r.status_code == 200
-    except Exception as e:
-        print(f"Verify error: {e}")
-        return False
-
-def telegram_listener():
-    print("🚀 Telegram Smart Listener Active...")
-    offset = 0
-    while True:
-        try:
-            r = c_requests.get(f"{BASE_URL}getUpdates", params={"offset": offset, "timeout": 25}, timeout=30, impersonate="chrome")
-            if r.status_code == 200:
-                data = r.json()
-                for result in data.get("result", []):
-                    offset = result["update_id"] + 1
-                    msg = result.get("message", {})
-                    chat_id = msg.get("chat", {}).get("id")
-                    text = msg.get("text", "").strip()
-                    
-                    if chat_id == ADMIN_ID and text:
-                        extracted = extract_ivas_session(text)
-                        if extracted:
-                            c_requests.post(f"{BASE_URL}sendMessage", json={
-                                "chat_id": ADMIN_ID,
-                                "text": "⏳ Đang trích xuất và kiểm tra chuỗi <code>ivas_sms_session</code> với Cloudflare...",
-                                "parse_mode": "HTML"
-                            }, impersonate="chrome")
-                            
-                            if verify_cookie(extracted):
-                                save_cookie(extracted)
-                                c_requests.post(f"{BASE_URL}sendMessage", json={
-                                    "chat_id": ADMIN_ID,
-                                    "text": "🟢 <b>COOKIE SỐNG RỒI BRO ƠI!</b> Đã lưu thành công. Bot bắt đầu quét OTP 24/7! 🚀",
-                                    "parse_mode": "HTML"
-                                }, impersonate="chrome")
-                            else:
-                                c_requests.post(f"{BASE_URL}sendMessage", json={
-                                    "chat_id": ADMIN_ID,
-                                    "text": "🔴 <b>COOKIE DIE / BỊ CHẶN!</b> Cloudflare từ chối (403). Bro lấy lại cookie mới trên trình duyệt gửi lại nhé.",
-                                    "parse_mode": "HTML"
-                                }, impersonate="chrome")
-        except Exception as e:
-            print(f"Listener error: {e}")
-        time.sleep(1)
-
 def main():
-    threading.Thread(target=telegram_listener, daemon=True).start()
-    print("🚀 Fast Node Smart Engine Started...")
-    
+    print("🚀 Fast Node Direct Polling Engine Started...")
     last_seen_id = None
-    alert_sent = False
 
     while True:
         cookie = load_cookie()
-        if not cookie or not verify_cookie(cookie):
-            if not alert_sent:
-                c_requests.post(f"{BASE_URL}sendMessage", json={
-                    "chat_id": ADMIN_ID,
-                    "text": "⚠️ <b>CẢNH BÁO:</b> Chưa có Cookie hoặc Cookie đã tẻo! Bro hãy paste chuỗi cookie vào đây, bot tự tách lấy ivas_sms_session và test Sống/Die nhé.",
-                    "parse_mode": "HTML"
-                }, impersonate="chrome")
-                alert_sent = True
-            time.sleep(15)
+        if not cookie:
+            print("⚠️ Chưa tìm thấy cookie trong file cookie_config.json!")
+            time.sleep(10)
             continue
 
-        alert_sent = False
         try:
             today = time.strftime("%Y-%m-%d")
             r = c_requests.post(
@@ -206,12 +126,13 @@ def main():
             )
             
             if r.status_code in [401, 403]:
+                print("⚠️ Cảnh báo: Cookie đã bị Cloudflare chặn (403)! Vui lòng cập nhật lại file cookie_config.json.")
                 c_requests.post(f"{BASE_URL}sendMessage", json={
                     "chat_id": ADMIN_ID,
-                    "text": "⚠️ <b>CẢNH BÁO 403:</b> Cookie đã chết! Bro gửi ngay chuỗi cookie mới vào đây nhé.",
+                    "text": "⚠️ <b>CẢNH BÁO 403:</b> Cookie IVASMS đã bị Cloudflare đá! Bro vui lòng cập nhật lại file `cookie_config.json` trên Termux nhé.",
                     "parse_mode": "HTML"
                 }, impersonate="chrome")
-                time.sleep(25)
+                time.sleep(30)
                 continue
 
             if r.status_code == 200:
