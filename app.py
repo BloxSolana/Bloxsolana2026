@@ -42,7 +42,6 @@ otp_forward_groups = []
 otp_button_link = "https://t.me/FastNodeOTP_bot"
 recent_success_otps = set()
 
-mk_dynamic_data = {} 
 recent_traffic = []
 daily_stats = {"date": "", "numbers": 0, "otps": 0} 
 daily_user_otps = {"date": "", "users": {}}
@@ -66,18 +65,12 @@ pending_withdrawals = []
 BOT_DATA_FILE = "bot_data.json"
 USERS_LIST_FILE = "users_list.json"
 
-# ==========================================
-# Global Emojis Map
-# ==========================================
 GLOBAL_BODY_EMOJIS = {
-    "➖": "5870818207383686839", "🚫": "5334807341109908955", "😒": "5334763399299506604",
-    "🖥": "5334880948259427772", "🌐": "5334590977837403844", "🌟": "5337102391244263212",
-    "🕓": "5336983442125001376", "⌛": "5337172996211648018", "💬": "5337302974806922068",
-    "🔐": "5337255927735163754", "🍏": "5337132498965010628", "❔": "5336850036145823599",
-    "⚠️": "5336944168944047463", "🔥": "5337267511261960341", "💸": "5429612421977253466",
-    "📊": "5353032893096567467", "🔢": "5226929552319594190", "👤": "5352861489541714456",
-    "🚀": "5352597830089347330", "✅": "5352694861990501856", "🆔": "5226929552319594190",
-    "💳": "5190899075968441286", "🏆": "5240021484516185513", "👑": "5352838545826420397"
+    "➖": "5870818207383686839", "🚫": "5334807341109908955", "🌐": "5334590977837403844",
+    "🌟": "5337102391244263212", "⌛": "5337172996211648018", "💬": "5337302974806922068",
+    "🔥": "5337267511261960341", "💸": "5429612421977253466", "📊": "5353032893096567467", 
+    "👤": "5352861489541714456", "🚀": "5352597830089347330", "✅": "5352694861990501856", 
+    "🆔": "5226929552319594190", "💳": "5190899075968441286", "🏆": "5240021484516185513"
 }
 
 def apply_emojis(text):
@@ -92,6 +85,9 @@ def apply_emojis(text):
         text = text.replace(f"__TG_EMOJI_{i}__", h)
     return text
 
+# ==========================================
+# Premium Apps & Service Keywords Setup (FULL)
+# ==========================================
 PREMIUM_APPS = {
     "Facebook": {"emoji": "📘", "id": "5429172110520003976"},
     "WhatsApp": {"emoji": "💬", "id": "5429612632430654504"},
@@ -174,13 +170,12 @@ def update_daily_stat(key, amount=1):
     daily_stats[key] = daily_stats.get(key, 0) + amount
 
 def load_local_data():
-    global recent_traffic, mk_dynamic_data, force_join_status, force_join_channels, otp_forward_groups, otp_button_link, recent_success_otps, bot_settings, user_active_sessions, daily_stats, daily_user_otps, pending_withdrawals
+    global recent_traffic, force_join_status, force_join_channels, otp_forward_groups, otp_button_link, recent_success_otps, bot_settings, user_active_sessions, daily_stats, daily_user_otps, pending_withdrawals
     if os.path.exists(BOT_DATA_FILE):
         try:
             with open(BOT_DATA_FILE, "r") as f:
                 data = json.load(f)
                 recent_traffic = data.get("recent_traffic", [])
-                mk_dynamic_data = data.get("mk_dynamic_data", {})
                 force_join_status = data.get("force_join_status", False)
                 force_join_channels = data.get("force_join_channels", [])
                 otp_forward_groups = data.get("otp_forward_groups", [])
@@ -197,12 +192,11 @@ def load_local_data():
         except Exception as e: print(f"Error loading local data: {e}")
 
 def save_local_data():
-    global recent_traffic, mk_dynamic_data, force_join_status, force_join_channels, otp_forward_groups, otp_button_link, recent_success_otps, bot_settings, user_active_sessions, daily_stats, pending_withdrawals
+    global recent_traffic, force_join_status, force_join_channels, otp_forward_groups, otp_button_link, recent_success_otps, bot_settings, user_active_sessions, daily_stats, pending_withdrawals, daily_user_otps
     try:
         with open(BOT_DATA_FILE, "w") as f:
             json.dump({
                 "recent_traffic": recent_traffic, 
-                "mk_dynamic_data": mk_dynamic_data,
                 "force_join_status": force_join_status,
                 "force_join_channels": force_join_channels,
                 "otp_forward_groups": otp_forward_groups,
@@ -259,15 +253,13 @@ def send_message(chat_id, text, reply_markup=None, parse_mode="HTML"):
     payload = {"chat_id": chat_id, "text": apply_emojis(text), "parse_mode": parse_mode}
     if reply_markup: payload["reply_markup"] = reply_markup
     try: return requests.post(BASE_URL + "sendMessage", json=payload).json()
-    except Exception as e:
-        print(f"Send message error: {e}")
-        return None
+    except Exception as e: return None
 
 def edit_message(chat_id, message_id, text, reply_markup=None, parse_mode="HTML"):
     payload = {"chat_id": chat_id, "message_id": message_id, "text": apply_emojis(text), "parse_mode": parse_mode}
     if reply_markup: payload["reply_markup"] = reply_markup
     try: requests.post(BASE_URL + "editMessageText", json=payload)
-    except Exception as e: print(f"Edit message error: {e}")
+    except Exception as e: pass
 
 def answer_callback_query(callback_query_id, text="", show_alert=False):
     payload = {"callback_query_id": callback_query_id, "text": text, "show_alert": show_alert}
@@ -281,19 +273,7 @@ def copy_message(chat_id, from_chat_id, message_id, reply_markup=None):
     payload = {"chat_id": chat_id, "from_chat_id": from_chat_id, "message_id": message_id}
     if reply_markup: payload["reply_markup"] = reply_markup
     try: return requests.post(BASE_URL + "copyMessage", json=payload).json()
-    except Exception: return None
-
-def is_user_joined(user_id):
-    if not force_join_status or not force_join_channels: return True
-    if user_id == ADMIN_ID: return True
-    for ch in force_join_channels:
-        try:
-            res = requests.get(BASE_URL + "getChatMember", params={"chat_id": ch["id"], "user_id": user_id}).json()
-            if res.get("ok"):
-                if res["result"]["status"] in ["left", "kicked"]: return False
-            else: return False
-        except: return False
-    return True
+    except Exception as e: return None
 
 # ==========================================
 # Database Setup (SQLite)
@@ -368,7 +348,6 @@ def fetch_access_list():
         if res.status_code == 200:
             data = res.json()
             if isinstance(data, dict):
-                # Hỗ trợ cả 2 định dạng trả về phổ biến của API v3
                 items = data.get("data", {}).get("items") or data.get("data") or data.get("items")
                 if isinstance(items, list):
                     return items
@@ -496,23 +475,23 @@ def get_services_content():
         
         kb = {"inline_keyboard": []}
         row = []
-        seen_countries = set()
         
-        for item in items[:12]:
+        for item in items:
             if not isinstance(item, dict): continue
             country = item.get("country") or item.get("name") or "Unknown"
             range_prefix = item.get("range") or item.get("code") or ""
-            if country and country not in seen_countries:
-                seen_countries.add(country)
-                row.append({"text": str(country), "callback_data": f"cnt_{str(range_prefix)[:10]}", "style": "primary"})
-                if len(row) == 2:
-                    kb["inline_keyboard"].append(row)
-                    row = []
+            count = item.get("count") or item.get("total") or ""
+            
+            btn_text = f"{country} ({count})" if count else f"{country}"
+            row.append({"text": str(btn_text), "callback_data": f"cnt_{str(range_prefix)}", "style": "primary"})
+            if len(row) == 2:
+                kb["inline_keyboard"].append(row)
+                row = []
         if row: kb["inline_keyboard"].append(row)
         kb["inline_keyboard"].append([{"text": "CLOSE", "callback_data": "close_panel", "style": "danger"}])
         return "🌍 <b>Select Country / Range:</b>", kb
     except Exception as e:
-        return f"❌ <b>Lỗi kết nối API:</b> <code>{html.escape(str(e))}</code>", None
+        return f"❌ <b>Lỗi hiển thị danh sách:</b> <code>{html.escape(str(e))}</code>", None
 
 def get_number_allocation_content(range_prefix, user_id=None):
     global user_active_sessions, otp_button_link
@@ -549,6 +528,25 @@ def get_number_allocation_content(range_prefix, user_id=None):
     except Exception as e:
         print(f"Allocation error: {e}")
     return "❌ <b>Out of stock or API error. Please try another range.</b>", {"inline_keyboard": [[{"text": "BACK", "callback_data": "live_number_back", "style": "danger"}]]}
+
+def get_leaderboard_text():
+    users = get_all_user_ids()
+    user_scores = []
+    for uid in users:
+        u = get_user(uid)
+        if u:
+            user_scores.append((u.get("first_name", "User"), u.get("balance", 0.0)))
+    user_scores.sort(key=lambda x: x[1], reverse=True)
+    
+    lb_msg = "🏆 <b>TOP 5 LEADERBOARD (BALANCE)</b>\n━━━━━━━━━━━━━━━━━\n"
+    if not user_scores:
+        lb_msg += "<i>No users on leaderboard yet.</i>\n"
+    else:
+        for idx, (name, bal) in enumerate(user_scores[:5]):
+            medal = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"][idx]
+            lb_msg += f"{medal} <b>{html.escape(str(name))}</b> — ${bal:.4f} USD\n"
+    lb_msg += "━━━━━━━━━━━━━━━━━"
+    return lb_msg
 
 def broadcast_worker(from_chat_id, message_id, target_msg_id):
     users = get_all_user_ids() 
@@ -600,6 +598,15 @@ def handle_message(message):
             return
 
     if text.startswith("/start"):
+        parts = text.split()
+        if len(parts) > 1:
+            try:
+                inviter_id = int(parts[1])
+                if inviter_id != user_id and get_user(inviter_id):
+                    ref_reward = bot_settings.get("refer_reward", 0.001)
+                    update_user_stats(inviter_id, ref_reward, 1)
+                    send_message(inviter_id, f"🎉 <b>New Referral!</b>\nSomeone joined using your link. You received ${ref_reward:.4f} USD.")
+            except: pass
         send_message(chat_id, f"🔥 <b>FAST NODE • LIVE OTP GATEWAY</b>\n\nWelcome {html.escape(str(first_name))}, choose an option from the menu:", reply_markup=get_main_keyboard(user_id))
     
     elif text == "LIVE NUMBER":
@@ -609,6 +616,26 @@ def handle_message(message):
             else: send_message(chat_id, msg)
         except Exception as e:
             send_message(chat_id, f"❌ <b>Lỗi hệ thống:</b> <code>{html.escape(str(e))}</code>")
+
+    elif text == "LIVE TRAFFIC":
+        traffic_text = "📈 <b>LIVE TRAFFIC MONITOR</b>\n━━━━━━━━━━━━━━━━━━\n<i>All systems operating normally via MK Network v3 API.</i>\n━━━━━━━━━━━━━━━━━━"
+        send_message(chat_id, traffic_text)
+
+    elif text == "INVITE FRIEND":
+        invite_link = f"https://t.me/{BOT_USERNAME}?start={user_id}"
+        ref_reward = bot_settings.get("refer_reward", 0.001)
+        msg = (
+            f"👥 <b>REFERRAL PROGRAM</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"🔗 <b>Your Link:</b>\n<code>{invite_link}</code>\n"
+            f"🎁 <b>Per Invite:</b> ${ref_reward:.4f} USD\n"
+            f"📊 <b>Total Invites:</b> {user_data['total_invites']}\n"
+            f"━━━━━━━━━━━━━━━━━━"
+        )
+        send_message(chat_id, msg, reply_markup={"inline_keyboard": [[{"text": "COPY LINK", "copy_text": {"text": invite_link}, "style": "success"}]]})
+
+    elif text == "LEADERBOARD":
+        send_message(chat_id, get_leaderboard_text())
         
     elif text == "WALLET":
         ton_addr = user_data.get("ton_address", "")
