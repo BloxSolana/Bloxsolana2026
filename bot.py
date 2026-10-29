@@ -11,7 +11,7 @@ from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 # ==========================================
-# Configuration (IVASMS Direct Engine)
+# Configuration (IVASMS Direct Engine - Clean)
 # ==========================================
 BOT_TOKEN = "9139656226:AAF3G3Kll7E0DipP80mnXGWvex4BMdEVCzc"
 ADMIN_ID = 6726769296
@@ -48,7 +48,7 @@ def apply_emojis(text):
         text = text.replace(f"__TG_EMOJI_{i}__", h)
     return text
 
-# Kho Mạng xã hội & Ứng dụng đầy đủ cho anh em đăng ký mọi thể loại
+# Kho Mạng xã hội & Ứng dụng đầy đủ
 PREMIUM_APPS = {
     "Facebook": {"emoji": "📘", "id": "5429172110520003976"},
     "WhatsApp": {"emoji": "💬", "id": "5429612632430654504"},
@@ -66,7 +66,7 @@ PREMIUM_APPS = {
     "Other": {"emoji": "📶", "id": "5429353834881261942"}
 }
 
-# Đầy đủ 195+ quốc gia chuẩn quốc tế kèm cờ
+# Đầy đủ 195+ quốc gia chuẩn quốc tế
 country_db = {
     "1": ("USA/Canada", "🇺🇸"), "7": ("Russia/Kazakhstan", "🇷🇺"), "20": ("Egypt", "🇪🇬"), "27": ("South Africa", "🇿🇦"),
     "30": ("Greece", "🇬🇷"), "31": ("Netherlands", "🇳🇱"), "32": ("Belgium", "🇧🇪"), "33": ("France", "🇫🇷"),
@@ -112,7 +112,7 @@ country_db = {
     "686": ("Kiribati", "🇰🇮"), "687": ("New Caledonia", "🇳🇨"), "688": ("Tuvalu", "🇹🇻"), "689": ("French Polynesia", "🇵🇫"),
     "690": ("Tokelau", "🇹🇰"), "691": ("Micronesia", "🇫🇲"), "692": ("Marshall Islands", "🇲🇭"), "850": ("North Korea", "🇰🇵"),
     "852": ("Hong Kong", "🇭🇰"), "853": ("Macau", "🇲🇴"), "855": ("Cambodia", "🇰🇭"), "856": ("Laos", "🇱🇦"),
-    "880": ("Bangladesh", "🇧🇩"), "886": ("Taiwan", "🇹🇼"), "960": ("Maldives", "🇲🇻"), "961": ("Lebanon", "🇱🇧"),
+    "880": ("Bangladesh", "bd"), "886": ("Taiwan", "🇹🇼"), "960": ("Maldives", "🇲🇻"), "961": ("Lebanon", "🇱🇧"),
     "962": ("Jordan", "🇯🇴"), "963": ("Syria", "🇸🇾"), "964": ("Iraq", "🇮🇶"), "965": ("Kuwait", "🇰🇼"),
     "966": ("Saudi Arabia", "🇸🇦"), "967": ("Yemen", "🇾🇪"), "968": ("Oman", "🇴🇲"), "970": ("Palestine", "🇵🇸"),
     "971": ("UAE", "🇦🇪"), "972": ("Israel", "🇮🇱"), "973": ("Bahrain", "🇧🇭"), "974": ("Qatar", "🇶🇦"),
@@ -147,7 +147,7 @@ def dispatch_otp_alert(bot_obj, service, phone, msg, timestamp, country, flag):
     match = re.search(r'\d{3}[-\s]?\d{3}', str(msg))
     code = match.group(0) if match else "N/A"
 
-    caption = (f"💐 <b>『 IVASMS NEW OTP RECEIVED 』</b> ✨\n"
+    caption = (f"💐 <b>『 IVASMS DIRECT NEW OTP 』</b> ✨\n"
                f"━━━━━━━━━━━━━━━━━━━━━\n\n"
                f"<b>⌚ ᴛɪᴍᴇ:</b> <code>{html.escape(str(timestamp))}</code>\n"
                f"<b>🌍 ᴄᴏᴜɴᴛʀʏ:</b> {html.escape(str(country))} {flag}\n"
@@ -186,17 +186,15 @@ def ivasms_polling_loop(bot_obj):
                 "end_date": today_str
             }
             
-            # Gán chuỗi cookie của bro vào đây
             cookies = {
                 "ivas_sms_session": "DANG_KY_COOKIE_CUA_BRO_O_DAY"
             }
             
             r = requests.post(IVASMS_GET_SMS_URL, data=payload, cookies=cookies, headers=headers, timeout=10)
             
-            # Cơ chế phát hiện Cookie chết (401/403) lập tức hú còi báo động qua Telegram cá nhân
             if r.status_code in [401, 403]:
                 if not cookie_alert_sent:
-                    send_message(ADMIN_ID, "⚠️ <b>CẢNH BÁO:</b> Cookie IVASMS đã bị Cloudflare đá (403 Forbidden)! Bro vui lòng cập nhật lại cookie mới trên điện thoại nhé.")
+                    send_message(ADMIN_ID, "⚠️ <b>CẢNH BÁO:</b> Cookie IVASMS chính chủ đã bị Cloudflare đá (403 Forbidden)! Bro vui lòng cập nhật lại cookie mới trên điện thoại nhé.")
                     cookie_alert_sent = True
                 time.sleep(30)
                 continue
@@ -235,7 +233,7 @@ def ivasms_polling_loop(bot_obj):
 def main():
     bot_dummy = Bot(token=BOT_TOKEN)
     threading.Thread(target=ivasms_polling_loop, args=(bot_dummy,), daemon=True).start()
-    print("🚀 Termux Background Polling Service Active!")
+    print("🚀 IVASMS Direct Polling Service Active!")
     while True:
         time.sleep(60)
 
