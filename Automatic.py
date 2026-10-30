@@ -166,6 +166,12 @@ def send_welcome(message):
         except:
             pass
 
+    # Xóa tin nhắn lệnh /start của user cho sạch khung chat
+    try:
+        bot.delete_message(message.chat.id, message.message_id)
+    except:
+        pass
+
     welcome_text = (
         "🔥 <b>FAST NODE • IVAS OTP GATEWAY PORTAL</b>\n\n"
         "Welcome to the ultimate real-time secure OTP platform!"
