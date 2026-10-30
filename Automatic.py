@@ -91,13 +91,7 @@ def detect_country_by_phone(phone_str):
             return f"{name} {flag}"
     return "Unknown 🌐"
 
-# --- BẮT SỰ KIỆN /START ---
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
-    welcome_text = (
-        "🔥 <b>FAST NODE • IVAS OTP GATEWAY</b>\n\n"
-        "Welcome, choose an option from the menu:"
-    )
+def get_main_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=2)
     kb.add(
         InlineKeyboardButton("LIVE NUMBER (195+)", callback_data="menu_live_number"),
@@ -110,12 +104,23 @@ def send_welcome(message):
     kb.add(
         InlineKeyboardButton("OWNER PANEL", callback_data="menu_owner")
     )
-    bot.send_message(message.chat.id, welcome_text, parse_mode="HTML", reply_markup=kb)
+    return kb
 
-# --- XỬ LÝ CLICK NÚT MENU & WIZARD ---
+# --- BẮT SỰ KIỆN /START ---
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    welcome_text = (
+        "🔥 <b>FAST NODE • IVAS OTP GATEWAY</b>\n\n"
+        "Welcome, choose an option from the menu:"
+    )
+    bot.send_message(message.chat.id, welcome_text, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
+
+# --- XỬ LÝ CLICK NÚT MENU & WIZARD (CÓ TỰ ĐỘNG DỌN DẸP TIN NHẮN RÁC) ---
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
     user_id = call.from_user.id
+    chat_id = call.message.chat.id
+    message_id = call.message.message_id
     
     if call.data == "menu_live_number":
         if not inventory_numbers:
@@ -127,7 +132,7 @@ def handle_callback(call):
         
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("🔙 BACK TO MENU", callback_data="menu_back"))
-        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=text, parse_mode="HTML", reply_markup=kb)
+        bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, parse_mode="HTML", reply_markup=kb)
 
     elif call.data == "menu_live_traffic":
         traffic_text = (
@@ -137,7 +142,7 @@ def handle_callback(call):
         )
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("🔙 BACK TO MENU", callback_data="menu_back"))
-        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=traffic_text, parse_mode="HTML", reply_markup=kb)
+        bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=traffic_text, parse_mode="HTML", reply_markup=kb)
 
     elif call.data == "menu_create_config":
         admin_state[user_id] = "waiting_for_ws"
@@ -148,7 +153,7 @@ def handle_callback(call):
         )
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("❌ CANCEL", callback_data="menu_back"))
-        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=text, parse_mode="HTML", reply_markup=kb)
+        bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, parse_mode="HTML", reply_markup=kb)
 
     elif call.data == "menu_my_configs":
         cfg = user_configs.get(user_id)
@@ -167,7 +172,7 @@ def handle_callback(call):
         kb.add(InlineKeyboardButton("🔄 REFRESH", callback_data="config_refresh"),
                InlineKeyboardButton("❌ DELETE", callback_data="config_delete"))
         kb.add(InlineKeyboardButton("🔙 BACK TO MENU", callback_data="menu_back"))
-        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=text, parse_mode="HTML", reply_markup=kb)
+        bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, parse_mode="HTML", reply_markup=kb)
 
     elif call.data == "config_refresh":
         bot.answer_callback_query(call.id, "Đang kết nối lại Real-time WebSocket...")
@@ -192,7 +197,7 @@ def handle_callback(call):
             InlineKeyboardButton("📊 Stock Report (Xem kho tổng)", callback_data="admin_stock"),
             InlineKeyboardButton("🔙 BACK TO MENU", callback_data="menu_back")
         )
-        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=owner_text, parse_mode="HTML", reply_markup=kb)
+        bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=owner_text, parse_mode="HTML", reply_markup=kb)
 
     elif call.data == "admin_add_mode":
         if user_id not in ADMIN_IDS:
@@ -201,8 +206,8 @@ def handle_callback(call):
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("❌ HỦY BỎ", callback_data="menu_owner"))
         bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
+            chat_id=chat_id,
+            message_id=message_id,
             text="📥 <b>CHẾ ĐỘ THÊM SỐ THỦ CÔNG ĐÃ BẬT</b>\n\n"
                  "Hãy gửi ngay danh sách số điện thoại của bro vào khung chat (có hoặc không có dấu <code>+</code>).\n\n"
                  "Bot sẽ tự động nhận diện đầu số thuộc 195+ quốc gia và phân loại chuẩn xác vào kho!",
@@ -226,7 +231,7 @@ def handle_callback(call):
         
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("🔙 QUAY LẠI PANEL", callback_data="menu_owner"))
-        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=report, parse_mode="HTML", reply_markup=kb)
+        bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=report, parse_mode="HTML", reply_markup=kb)
 
     elif call.data == "menu_back":
         admin_state.pop(user_id, None)
@@ -234,19 +239,7 @@ def handle_callback(call):
             "🔥 <b>FAST NODE • IVAS OTP GATEWAY</b>\n\n"
             "Welcome, choose an option from the menu:"
         )
-        kb = InlineKeyboardMarkup(row_width=2)
-        kb.add(
-            InlineKeyboardButton("LIVE NUMBER (195+)", callback_data="menu_live_number"),
-            InlineKeyboardButton("LIVE TRAFFIC", callback_data="menu_live_traffic")
-        )
-        kb.add(
-            InlineKeyboardButton("CREATE CONFIG (WSS)", callback_data="menu_create_config"),
-            InlineKeyboardButton("MY CONFIGS", callback_data="menu_my_configs")
-        )
-        kb.add(
-            InlineKeyboardButton("OWNER PANEL", callback_data="menu_owner")
-        )
-        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=welcome_text, parse_mode="HTML", reply_markup=kb)
+        bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=welcome_text, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
 
 # --- HỆ THỐNG LỆNH IVAS QUẢN LÝ TÀI KHOẢN ---
 @bot.message_handler(commands=['addaccountivas', 'addivas'])
@@ -269,13 +262,14 @@ def cmd_list_ivas(message):
         text += f"• User: <code>{acc['username']}</code> | Email: <code>{acc['email']}</code>{default_tag}\n"
     bot.reply_to(message, text, parse_mode="HTML")
 
-# --- SMART PARSER & LẮNG NGHE TIN NHẮN CHỜ XỬ LÝ ---
+# --- SMART PARSER & LẮNG NGHE TIN NHẮN CHỜ XỬ LÝ (TỰ ĐỘNG XÓA TIN NHẮN RÁC SAU KHI HOÀN TẤT) ---
 @bot.message_handler(func=lambda message: True)
 def handle_all_messages(message):
     user_id = message.from_user.id
     current_state = admin_state.get(user_id)
+    chat_id = message.chat.id
     
-    # 1. Xử lý Wizard WSS / Cookie / cURL cực kỳ thông minh (Bất chấp chuỗi siêu dài)
+    # 1. Xử lý Wizard WSS / Cookie / cURL cực kỳ thông minh
     if current_state == "waiting_for_ws":
         text_input = message.text.strip()
         
@@ -304,6 +298,12 @@ def handle_all_messages(message):
             }
             admin_state.pop(user_id, None)
             
+            # Tự động dọn dẹp tin nhắn rác của người dùng gửi lên để giữ sạch khung chat
+            try:
+                bot.delete_message(chat_id, message.message_id)
+            except:
+                pass
+            
             success_msg = (
                 f"✅ <b>URL / Cookie parsed successfully!</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━\n"
@@ -315,7 +315,7 @@ def handle_all_messages(message):
             kb = InlineKeyboardMarkup()
             kb.add(InlineKeyboardButton("⚙️ MY CONFIGS", callback_data="menu_my_configs"),
                    InlineKeyboardButton("🏠 MAIN MENU", callback_data="menu_back"))
-            bot.reply_to(message, success_msg, parse_mode="HTML", reply_markup=kb)
+            bot.send_message(chat_id, success_msg, parse_mode="HTML", reply_markup=kb)
         else:
             bot.reply_to(message, "⚠️ Chuỗi dữ liệu quá ngắn hoặc không đúng định dạng WSS/Cookie. Vui lòng thử lại.", parse_mode="HTML")
         return
@@ -345,6 +345,11 @@ def handle_all_messages(message):
 
         admin_state.pop(user_id, None)
 
+        try:
+            bot.delete_message(chat_id, message.message_id)
+        except:
+            pass
+
         if total_added > 0:
             result_msg = f"✅ <b>Thêm thành công {total_added} số vào kho (195+ Quốc gia)!</b>\n━━━━━━━━━━━━━━━━━━━━━\n"
             for c_name, count in added_counts.items():
@@ -354,7 +359,7 @@ def handle_all_messages(message):
 
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("👑 VỀ OWNER PANEL", callback_data="menu_owner"))
-        bot.reply_to(message, result_msg, parse_mode="HTML", reply_markup=kb)
+        bot.send_message(chat_id, result_msg, parse_mode="HTML", reply_markup=kb)
 
 # --- LỆNH /STOCK ---
 @bot.message_handler(commands=['stock'])
