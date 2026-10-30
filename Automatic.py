@@ -26,22 +26,20 @@ inventory_numbers = {}     # Kho chứa số toàn cầu
 admin_state = {}           # Trạng thái chờ nhập của Admin
 user_configs = {}          # Cấu hình WSS
 
-# Thống kê Top Applications Access & Top Ranges (Tự reset sau 24h)
+# Dữ liệu tài khoản người dùng mô phỏng (Balance $, Ref, Lịch sử rút)
+user_wallets = {}          # {user_id: {"balance": 0.0, "ref_count": 0, "ref_earnings": 0.0, "ref_code": "..."}}
+withdrawal_requests = []   # Danh sách đơn rút tiền chờ duyệt
+
+# Thống kê Top Applications Access (Bắt đầu từ 0, Real-time +1 khi có OTP)
 app_stats = {
-    "WhatsApp": 23961, "ClickBank": 10036, "Apple": 8077, "Shopee": 8059, "Facebook": 6523,
-    "TikTok": 6598, "AUTHMSG": 5115, "TALAPH": 4989, "Uber": 4185, "SPayLaterPH": 1992,
-    "Telegram": 4500, "Google": 3800, "Instagram": 3400, "Discord": 2100, "Zalo": 1800
+    "WhatsApp": 0, "ClickBank": 0, "Apple": 0, "Shopee": 0, "Facebook": 0,
+    "TikTok": 0, "AUTHMSG": 0, "TALAPH": 0, "Uber": 0, "SPayLaterPH": 0,
+    "Telegram": 0, "Google": 0, "Instagram": 0, "Discord": 0, "Zalo": 0
 }
-top_ranges_data = [
-    {"country": "Indonesia", "range": "149072", "flag": "🇮🇩"},
-    {"country": "Indonesia", "range": "52520", "flag": "🇮🇩"},
-    {"country": "Indonesia", "range": "77749", "flag": "🇮🇩"},
-    {"country": "Indonesia", "range": "168111", "flag": "🇮🇩"},
-    {"country": "Mozambique", "range": "1671", "flag": "🇲🇿"}
-]
+top_ranges_data = []       # Top Ranges thực tế từ hệ thống
 last_reset_time = time.time()
 
-# --- COMPLETE OFFICIAL ISO COUNTRY DATABASE (Chuẩn 195+ Quốc gia) ---
+# --- COMPLETE OFFICIAL ISO COUNTRY DATABASE (195+ Quốc gia) ---
 country_db = {
     "1": ("USA/Canada", "🇺🇸"), "93": ("Afghanistan", "🇦🇫"), "355": ("Albania", "🇦🇱"), "213": ("Algeria", "🇩🇿"), 
     "376": ("Andorra", "🇦🇩"), "244": ("Angola", "🇦🇴"), "1264": ("Anguilla", "🇦🇮"), "1268": ("Antigua & Barbuda", "🇦🇬"),
@@ -94,7 +92,7 @@ country_db = {
     "676": ("Tonga", "🇹🇴"), "1868": ("Trinidad & Tobago", "🇹🇹"), "216": ("Tunisia", "🇹🇳"), "90": ("Turkey", "🇹🇷"),
     "993": ("Turkmenistan", "🇹🇲"), "1649": ("Turks & Caicos", "🇹🇨"), "688": ("Tuvalu", "🇹🇻"), "256": ("Uganda", "🇺🇬"),
     "380": ("Ukraine", "🇺🇦"), "971": ("UAE", "🇦🇪"), "44": ("United Kingdom", "🇬🇧"), "598": ("Uruguay", "🇺🇾"),
-    "998": ("Uzbekistan", "UZ"), "678": ("Vanuatu", "🇻🇺"), "379": ("Vatican City", "🇻🇦"), "58": ("Venezuela", "🇻🇪"),
+    "998": ("Uzbekistan", "🇺🇿"), "678": ("Vanuatu", "🇻🇺"), "379": ("Vatican City", "🇻🇦"), "58": ("Venezuela", "🇻🇪"),
     "84": ("Vietnam", "🇻🇳"), "1284": ("Virgin Islands (UK)", "🇻🇬"), "1340": ("Virgin Islands (US)", "🇻🇮"),
     "967": ("Yemen", "🇾🇪"), "260": ("Zambia", "🇿🇲"), "263": ("Zimbabwe", "🇿🇼")
 }
@@ -113,90 +111,54 @@ def detect_country_info(phone_str):
             return cname, flag, f"{cname} {flag}"
     return "Unknown", "🌐", "Unknown 🌐"
 
-# --- HÀM THÔNG MINH NHẬN DIỆN PLATFORM / SERVICE TỪ NỘI DUNG TIN NHẮN (Chuẩn code của bro) ---
 def parse_service_name(msg_text):
     text_upper = str(msg_text).upper()
-    service_name = "Other Service"
-    
-    if "WHATSAPP" in text_upper:
-        service_name = "WhatsApp"
-    elif "TELEGRAM" in text_upper:
-        service_name = "Telegram"
-    elif "FACEBOOK" in text_upper or "MA FACEBOOK" in text_upper or "FB" in text_upper:
-        service_name = "Facebook"
-    elif "TIKTOK" in text_upper:
-        service_name = "TikTok"
-    elif "SHOPEE" in text_upper:
-        service_name = "Shopee"
-    elif "PAYPAL" in text_upper:
-        service_name = "PayPal"
-    elif "UBER" in text_upper:
-        service_name = "Uber"
-    elif "APPLE" in text_upper or "ICLOUD" in text_upper:
-        service_name = "Apple"
-    elif "YANGO" in text_upper:
-        service_name = "Yango"
-    elif "MICROSOFT" in text_upper or "MS" in text_upper:
-        service_name = "Microsoft"
-    elif "AUTHMSG" in text_upper:
-        service_name = "AUTHMSG"
-    elif "TENCENT" in text_upper:
-        service_name = "Tencent"
-    elif "AMAZON" in text_upper:
-        service_name = "Amazon"
-    elif "LALAMOVE" in text_upper:
-        service_name = "Lalamove"
-    elif "PTAK" in text_upper:
-        service_name = "PTAK"
-    elif "NETFLIX" in text_upper:
-        service_name = "Netflix"
-    elif "MELBET" in text_upper:
-        service_name = "Melbet"
-    elif "TWVERIFY" in text_upper or "TWITTER" in text_upper or "X.COM" in text_upper:
-        service_name = "TWverify"
-    elif "MSVERIFY" in text_upper:
-        service_name = "MSVERIFY"
-    elif "NCSOFT" in text_upper:
-        service_name = "NCSOFT"
-    elif "GOOGLE" in text_upper or "G-" in text_upper:
-        service_name = "Google"
-    elif "INSTAGRAM" in text_upper or "IG" in text_upper:
-        service_name = "Instagram"
-    elif "DISCORD" in text_upper:
-        service_name = "Discord"
-    elif "ZALO" in text_upper:
-        service_name = "Zalo"
-    elif "VERIFY" in text_upper:
-        service_name = "VERIFY"
-        
-    return service_name
+    if "WHATSAPP" in text_upper: return "WhatsApp"
+    elif "TELEGRAM" in text_upper: return "Telegram"
+    elif "FACEBOOK" in text_upper or "FB" in text_upper: return "Facebook"
+    elif "TIKTOK" in text_upper: return "TikTok"
+    elif "SHOPEE" in text_upper: return "Shopee"
+    elif "PAYPAL" in text_upper: return "PayPal"
+    elif "UBER" in text_upper: return "Uber"
+    elif "APPLE" in text_upper or "ICLOUD" in text_upper: return "Apple"
+    elif "GOOGLE" in text_upper or "G-" in text_upper: return "Google"
+    elif "INSTAGRAM" in text_upper or "IG" in text_upper: return "Instagram"
+    elif "DISCORD" in text_upper: return "Discord"
+    elif "ZALO" in text_upper: return "Zalo"
+    return "AUTHMSG"
 
 def get_menu_keyboard(user_id):
     kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(
-        InlineKeyboardButton("🚀 MỞ GIAO DIỆN WEB APP", web_app=WebAppInfo(url=WEBAPP_URL))
-    )
-    kb.add(
-        InlineKeyboardButton("📦 KHO SỐ (195+)", callback_data="menu_live_number"),
-        InlineKeyboardButton("📈 TRẠNG THÁI", callback_data="menu_live_traffic")
-    )
+    kb.add(InlineKeyboardButton("🚀 OPEN WEB APP PORTAL", web_app=WebAppInfo(url=WEBAPP_URL)))
+    kb.add(InlineKeyboardButton("📦 LIVE STOCK (195+)", callback_data="menu_live_number"))
     if user_id in ADMIN_IDS:
-        kb.add(
-            InlineKeyboardButton("⚙️ TẠO WSS CONFIG", callback_data="menu_create_config"),
-            InlineKeyboardButton("📂 CẤU HÌNH CỦA TÔI", callback_data="menu_my_configs")
-        )
-        kb.add(
-            InlineKeyboardButton("👑 BẢNG ĐIỀU KHIỂN (OWNER)", callback_data="menu_owner")
-        )
+        kb.add(InlineKeyboardButton("👑 DUYỆT RÚT TIỀN (ADMIN)", callback_data="admin_withdrawals"))
+        kb.add(InlineKeyboardButton("⚙️ TẠO WSS CONFIG", callback_data="menu_create_config"))
     return kb
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
+    uid = message.from_user.id
+    if uid not in user_wallets:
+        user_wallets[uid] = {"balance": 0.0, "ref_count": 0, "ref_earnings": 0.0, "ref_code": f"FAST{uid}"}
+    
+    # Kiểm tra xem có ref không
+    args = message.text.split()
+    if len(args) > 1 and args[1].startswith("ref"):
+        try:
+            ref_id = int(args[1].replace("ref", ""))
+            if ref_id in user_wallets and ref_id != uid:
+                user_wallets[ref_id]["ref_count"] += 1
+                user_wallets[ref_id]["balance"] += 0.50 # Thưởng ref $0.5
+                user_wallets[ref_id]["ref_earnings"] += 0.50
+        except:
+            pass
+
     welcome_text = (
-        "🔥 <b>FAST NODE • IVAS OTP GATEWAY</b>\n\n"
-        "Chào mừng bạn đến với hệ thống quản lý OTP & Stock số 195+ quốc gia!"
+        "🔥 <b>FAST NODE • IVAS OTP GATEWAY PORTAL</b>\n\n"
+        "Welcome to the ultimate real-time secure OTP platform!"
     )
-    bot.send_message(message.chat.id, welcome_text, parse_mode="HTML", reply_markup=get_menu_keyboard(message.from_user.id))
+    bot.send_message(message.chat.id, welcome_text, parse_mode="HTML", reply_markup=get_menu_keyboard(uid))
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
@@ -206,143 +168,44 @@ def handle_callback(call):
     
     if call.data == "menu_live_number":
         available_total = sum(1 for data in inventory_numbers.values() for item in data["numbers"] if not item.get("locked_by"))
-        text = f"🌍 <b>KHO SỐ KHẢ DỤNG (195+ Quốc Gia):</b>\n\n📦 Tổng số lượng số: <code>{available_total}</code> số.\nHãy mở Web App để chọn số!"
+        text = f"🌍 <b>LIVE STOCK (195+ Countries):</b>\n\n📦 Available numbers: <code>{available_total}</code>\nOpen Web App to get numbers!"
         kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("🔙 QUAY LẠI MENU", callback_data="menu_back"))
+        kb.add(InlineKeyboardButton("🔙 BACK", callback_data="menu_back"))
         bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, parse_mode="HTML", reply_markup=kb)
 
-    elif call.data == "menu_live_traffic":
-        traffic_text = (
-            "📈 <b>GIÁM SÁT LƯU LƯỢNG TRỰC TIẾP</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━━\n"
-            "Hệ thống hoạt động bình thường qua Fast Node Gateway API."
-        )
-        kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("🔙 QUAY LẠI MENU", callback_data="menu_back"))
-        bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=traffic_text, parse_mode="HTML", reply_markup=kb)
-
-    elif call.data == "menu_create_config":
+    elif call.data == "admin_withdrawals":
         if user_id not in ADMIN_IDS:
-            bot.answer_callback_query(call.id, "⛔ Bạn không có quyền này!", show_alert=True)
+            bot.answer_callback_query(call.id, "⛔ Access denied!", show_alert=True)
             return
-        admin_state[user_id] = "waiting_for_ws"
-        text = (
-            "🔮 <b>Cài đặt cấu hình WSS / Cookie</b>\n\n"
-            "🔗 Gửi URL WebSocket hoặc cURL/Cookie vào đây để trích xuất token tự động."
-        )
-        kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("❌ HỦY", callback_data="menu_back"))
-        bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, parse_mode="HTML", reply_markup=kb)
-
-    elif call.data == "menu_my_configs":
-        if user_id not in ADMIN_IDS:
-            return
-        cfg = user_configs.get(user_id)
-        if not cfg:
-            text = "⚙️ Bạn chưa có cấu hình WSS nào. Hãy bấm 'Tạo WSS Config' để thiết lập!"
+        if not withdrawal_requests:
+            text = "📂 <b>Không có đơn rút tiền nào đang chờ duyệt!</b>"
         else:
-            text = (
-                f"⚙️ <b>Cấu hình hiện tại:</b>\n"
-                f"━━━━━━━━━━━━━━━━━━━━━\n"
-                f"🌐 <b>WSS:</b> <code>{cfg.get('ws_url', 'N/A')}</code>\n"
-                f"🔑 <b>Token:</b> <code>{cfg.get('token', 'N/A')[:15]}...</code>\n"
-                f"💰 <b>Số dư:</b> <code>250,000 VND</code>\n"
-            )
+            text = f"📂 <b>DANH SÁCH ĐƠN RÚT TIỀN ({len(withdrawal_requests)} đơn):</b>\n\n"
+            for idx, req in enumerate(withdrawal_requests):
+                text += f"🆔 <b>STT {idx+1}</b> | User ID: <code>{req['user_id']}</code>\n👤 Tên: {req['name']}\n💵 Số tiền: <b>${req['amount']}</b>\n📬 Ví TON: <code>{req['address']}</code>\n⏰ Lúc: {req['time']}\n━━━━━━━━━━━━━━━━━━━━━\n"
+        
         kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("🔄 LÀM MỚI", callback_data="config_refresh"),
-               InlineKeyboardButton("❌ XÓA", callback_data="config_delete"))
-        kb.add(InlineKeyboardButton("🔙 QUAY LẠI MENU", callback_data="menu_back"))
+        if withdrawal_requests:
+            kb.add(InlineKeyboardButton("✅ DUYỆT ĐƠN ĐẦU TIÊN", callback_data="approve_first_wd"))
+        kb.add(InlineKeyboardButton("🔙 QUAY LẠI", callback_data="menu_back"))
         bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, parse_mode="HTML", reply_markup=kb)
 
-    elif call.data == "config_refresh":
-        bot.answer_callback_query(call.id, "Đang làm mới kết nối...")
-
-    elif call.data == "config_delete":
-        user_configs.pop(user_id, None)
-        bot.answer_callback_query(call.id, "Đã xóa cấu hình!")
-        handle_callback(type('obj', (object,), {'from_user': call.from_user, 'message': call.message, 'data': 'menu_back'})())
-
-    elif call.data == "menu_owner":
-        if user_id not in ADMIN_IDS:
-            bot.answer_callback_query(call.id, "⛔ Bạn không có quyền Owner!", show_alert=True)
-            return
-        owner_text = "👑 <b>BẢNG ĐIỀU KHIỂN OWNER</b>\n\nChọn chức năng quản lý:"
-        kb = InlineKeyboardMarkup(row_width=1)
-        kb.add(
-            InlineKeyboardButton("➕ Thêm số hàng loạt", callback_data="admin_add_mode"),
-            InlineKeyboardButton("📊 Báo cáo kho tổng", callback_data="admin_stock"),
-            InlineKeyboardButton("🔙 QUAY LẠI MENU", callback_data="menu_back")
-        )
-        bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=owner_text, parse_mode="HTML", reply_markup=kb)
-
-    elif call.data == "admin_add_mode":
-        if user_id not in ADMIN_IDS:
-            return
-        admin_state[user_id] = "waiting_for_numbers"
-        kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("❌ HỦY", callback_data="menu_owner"))
-        bot.edit_message_text(chat_id=chat_id, message_id=message_id, text="📥 Gửi danh sách số điện thoại vào đây để phân loại tự động vào 195+ quốc gia.", parse_mode="HTML", reply_markup=kb)
-
-    elif call.data == "admin_stock":
-        if user_id not in ADMIN_IDS:
-            return
-        report = "📊 <b>BÁO CÁO KHO TỔNG</b>\n━━━━━━━━━━━━━━━━━━━━━\n\n"
-        total_all = 0
-        for key, data in inventory_numbers.items():
-            count = sum(1 for item in data["numbers"] if not item.get("locked_by"))
-            if count > 0:
-                total_all += count
-                report += f"🌍 <b>{key}</b>: <code>{count}</code> số\n"
-        report += f"\n🔥 Tổng số khả dụng: <code>{total_all}</code> số"
-        kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("🔙 QUAY LẠI", callback_data="menu_owner"))
-        bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=report, parse_mode="HTML", reply_markup=kb)
+    elif call.data == "approve_first_wd":
+        if user_id not in ADMIN_IDS: return
+        if withdrawal_requests:
+            req = withdrawal_requests.pop(0)
+            bot.send_message(req['user_id'], f"🎉 <b>Đơn rút ${req['amount']} USDT (TON) của bạn đã được Admin phê duyệt và thanh toán thành công!</b>", parse_mode="HTML")
+            bot.answer_callback_query(call.id, f"Đã duyệt đơn rút của user {req['user_id']} thành công!")
+        handle_callback(type('obj', (object,), {'from_user': call.from_user, 'message': call.message, 'data': 'admin_withdrawals'})())
 
     elif call.data == "menu_back":
-        admin_state.pop(user_id, None)
-        welcome_text = "🔥 <b>FAST NODE • IVAS OTP GATEWAY</b>\n\nChào mừng bạn đến với hệ thống!"
+        welcome_text = "🔥 <b>FAST NODE • IVAS OTP GATEWAY PORTAL</b>\n\nWelcome to the ultimate real-time secure OTP platform!"
         bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=welcome_text, parse_mode="HTML", reply_markup=get_menu_keyboard(user_id))
-
-@bot.message_handler(func=lambda message: True)
-def handle_all_messages(message):
-    user_id = message.from_user.id
-    current_state = admin_state.get(user_id)
-    chat_id = message.chat.id
-    
-    if current_state == "waiting_for_ws" and user_id in ADMIN_IDS:
-        text_input = message.text.strip()
-        ws_match = re.search(r'(wss?://[^\s\'"]+)', text_input)
-        token_match = re.search(r'(?:token=|access_token=|key=)([a-zA-Z0-9_\-\.]+)', text_input)
-        user_configs[user_id] = {
-            "ws_url": ws_match.group(1) if ws_match else "Custom Session",
-            "token": token_match.group(1) if token_match else text_input[:20],
-            "balance": "250,000 VND"
-        }
-        admin_state.pop(user_id, None)
-        bot.send_message(chat_id, "✅ Cấu hình thành công!", parse_mode="HTML")
-        return
-
-    if user_id in ADMIN_IDS and current_state == "waiting_for_numbers":
-        phones = re.split(r'[\s,\n]+', message.text)
-        total_added = 0
-        for phone in phones:
-            cleaned = phone.replace("+", "").strip()
-            if cleaned.isdigit() and len(cleaned) >= 5:
-                _, _, full_key = detect_country_info(cleaned)
-                if full_key not in inventory_numbers:
-                    cname, flag = detect_country_info(cleaned)[:2]
-                    inventory_numbers[full_key] = {"flag": flag, "name": cname, "numbers": []}
-                if cleaned not in [i["phone"] for i in inventory_numbers[full_key]["numbers"]]:
-                    inventory_numbers[full_key]["numbers"].append({"phone": cleaned, "expires": 0, "locked_by": None})
-                    total_added += 1
-        admin_state.pop(user_id, None)
-        bot.send_message(chat_id, f"✅ Thêm thành công {total_added} số vào kho!", parse_mode="HTML")
 
 @bot.message_handler(commands=['thue'])
 def handle_rent_number(message):
     parts = message.text.split()
-    if len(parts) < 2:
-        return
+    if len(parts) < 2: return
     phone_to_rent = parts[1].replace("+", "").strip()
     user_id = message.chat.id
     user_rentals[phone_to_rent] = user_id
@@ -353,16 +216,18 @@ def handle_rent_number(message):
                 item["expires"] = time.time() + 900
                 item["locked_by"] = user_id
                 break
-    bot.reply_to(message, f"✅ Đã thuê số <code>{phone_to_rent}</code> trong 15 phút. OTP sẽ bắn riêng về inbox bạn!", parse_mode="HTML")
+    bot.reply_to(message, f"✅ Successfully rented number <code>{phone_to_rent}</code> for 15 minutes! OTP will be delivered here privately.", parse_mode="HTML")
+
+# API nhận yêu cầu rút tiền từ WebApp
+@bot.message_handler(func=lambda msg: False) # Placeholder cho routing nếu cần
+def dummy(): pass
 
 def background_cleanup_and_wss():
     global last_reset_time, app_stats
     while True:
         current_time = time.time()
-        # Reset thống kê OTP Top Applications sau mỗi 24 giờ (86400 giây)
         if current_time - last_reset_time > 86400:
-            for k in app_stats:
-                app_stats[k] = random.randint(100, 1500)
+            for k in app_stats: app_stats[k] = 0
             last_reset_time = current_time
 
         for key, data in inventory_numbers.items():
@@ -373,18 +238,33 @@ def background_cleanup_and_wss():
         time.sleep(30)
 
 async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test=False):
-    global app_stats
+    global app_stats, top_ranges_data
     clean_phone = str(phone).replace("+", "")
     masked = clean_phone[:6] + "****" + clean_phone[-3:] if len(clean_phone) > 7 else clean_phone
     match = re.search(r'\d{3}[-\s]?\d{3}|\d{4,8}', str(msg))
     code = match.group(0) if match else "N/A"
 
-    # Tự động nhận diện dịch vụ chuẩn xác qua bộ điều kiện của bro
     detected_service = parse_service_name(f"{service} {msg}")
     if detected_service in app_stats:
         app_stats[detected_service] += 1
     else:
-        app_stats["AUTHMSG"] = app_stats.get("AUTHMSG", 0) + 1
+        app_stats["AUTHMSG"] += 1
+
+    # Cập nhật Top Ranges thực tế
+    range_prefix = clean_phone[:5]
+    existing_range = next((r for r in top_ranges_data if r['range'] == range_prefix), None)
+    if existing_range:
+        existing_range['count'] += 1
+    else:
+        top_ranges_data.append({"country": country, "range": range_prefix, "flag": flag, "count": 1})
+    top_ranges_data.sort(key=lambda x: x['count'], reverse=True)
+    if len(top_ranges_data) > 5: top_ranges_data = top_ranges_data[:5]
+
+    # Cộng $0.008 vào ví user nếu có người thuê số này
+    if clean_phone in user_rentals:
+        owner_id = user_rentals[clean_phone]
+        if owner_id in user_wallets:
+            user_wallets[owner_id]["balance"] += 0.008
 
     header = "🧪 <b>『 ꜰᴇ ꜱᴇɴᴅ ᴏᴛᴘ 』</b> 🧪" if is_test else "💐 <b>『 ɴᴇᴡ ᴏᴛᴘ ʀᴇᴄᴇɪᴠᴇᴅ 』</b> ✨"
     caption = (f"{header}\n"
@@ -409,16 +289,14 @@ async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test
     
     try:
         await asyncio.to_thread(bot.send_message, chat_id=TARGET_CHAT, text=caption, parse_mode="HTML", reply_markup=kb, disable_web_page_preview=True)
-    except Exception as e: 
-        print(f"Lỗi gửi tin nhắn vào Group: {e}")
+    except Exception as e: pass
 
     if clean_phone in user_rentals:
         owner_id = user_rentals[clean_phone]
-        private_caption = f"🔔 <b>[PRIVATE EXCLUSIVE OTP FOR YOUR NUMBER]</b>\n\n" + caption
+        private_caption = f"🔔 <b>[PRIVATE EXCLUSIVE OTP ($0.008 EARNED)]</b>\n\n" + caption
         try:
             await asyncio.to_thread(bot.send_message, chat_id=owner_id, text=private_caption, parse_mode="HTML", reply_markup=kb, disable_web_page_preview=True)
-        except Exception as e:
-            print(f"Lỗi gửi riêng user {owner_id}: {e}")
+        except Exception as e: pass
 
 def websocket_worker():
     def on_message(ws, message):
@@ -426,12 +304,11 @@ def websocket_worker():
             data = json.loads(message)
             phone = data.get("phone", "84939168914")
             service = data.get("service", "WhatsApp")
-            msg = data.get("message", "Your WhatsApp verification code is 790-937")
+            msg = data.get("message", "Your verification code is 790-937")
             timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
             cname, flag, _ = detect_country_info(phone)
             asyncio.run(dispatch_update(service, phone, msg, timestamp, cname, flag, is_test=False))
-        except:
-            pass
+        except: pass
     def on_error(ws, error): pass
     def on_close(ws, c, m): time.sleep(10)
     def on_open(ws): print("🟢 WebSocket Connected!")
@@ -443,11 +320,10 @@ def websocket_worker():
                 try:
                     wsapp = websocket.WebSocketApp(ws_url, on_open=on_open, on_message=on_message, on_error=on_error, on_close=on_close)
                     wsapp.run_forever()
-                except:
-                    pass
+                except: pass
         time.sleep(15)
 
-# --- FLASK SERVER & WEB APP (IVAS SMS DASHBOARD DESIGN STYLE) ---
+# --- FLASK SERVER & WEB APP (HAMBURGER MENU 3 GẠCH, DASHBOARD, WITHDRAW TON, REFERRAL) ---
 app = Flask(__name__)
 
 @app.route('/')
@@ -455,9 +331,7 @@ def home():
     countries_data = []
     for key, data in inventory_numbers.items():
         available_numbers = [{"phone": item["phone"], "expires": item["expires"]} for item in data["numbers"] if not item.get("locked_by")]
-        countries_data.append({
-            "key": key, "name": data["name"], "flag": data["flag"], "numbers": available_numbers
-        })
+        countries_data.append({"key": key, "name": data["name"], "flag": data["flag"], "numbers": available_numbers})
     
     return render_template_string("""
     <!DOCTYPE html>
@@ -465,24 +339,33 @@ def home():
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>IVAS SMS Portal • Dashboard</title>
+        <title>Fast Node • Portal Dashboard</title>
         <script src="https://telegram.org/js/telegram-web-app.js"></script>
         <style>
-            :root { --bg: #0f172a; --card: #1e293b; --orange-bar: #f59e0b; --border: #334155; --text: #f8fafc; --muted: #94a3b8; --green: #22c55e; }
-            body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 10px; }
-            .top-bar { background: var(--orange-bar); color: #000; padding: 10px 14px; border-radius: 8px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+            :root { --bg: #0f172a; --card: #1e293b; --orange-bar: #f59e0b; --border: #334155; --text: #f8fafc; --muted: #94a3b8; --green: #22c55e; --red: #ef4444; }
+            body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 0; }
             
-            .sidebar-menu { background: var(--card); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 12px; overflow: hidden; }
-            .sidebar-header { padding: 12px 16px; background: #273548; font-weight: bold; display: flex; justify-content: space-between; align-items: center; cursor: pointer; color: #38bdf8; }
-            .sidebar-dropdown { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; background: #131c2e; padding: 0 16px; }
-            .sidebar-dropdown.open { max-height: 350px; padding: 10px 16px; }
-            .menu-item { display: block; width: 100%; background: transparent; border: none; color: var(--text); padding: 10px; text-align: left; font-weight: bold; font-size: 14px; cursor: pointer; border-bottom: 1px solid var(--border); }
-            .menu-item:hover { color: #38bdf8; }
+            /* Top Header with Hamburger 3 Gạch */
+            .top-bar { background: var(--orange-bar); color: #000; padding: 12px 16px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; }
+            .hamburger-btn { background: none; border: none; font-size: 20px; cursor: pointer; color: #000; font-weight: bold; }
+            
+            /* Sidebar Drawer Menu */
+            .sidebar { position: fixed; top: 0; left: -260px; width: 250px; height: 100%; background: #131c2e; border-right: 1px solid var(--border); transition: 0.3s ease; z-index: 1000; padding-top: 20px; box-shadow: 4px 0 15px rgba(0,0,0,0.5); }
+            .sidebar.open { left: 0; }
+            .sidebar-header { padding: 0 16px 15px 16px; border-bottom: 1px solid var(--border); font-size: 16px; font-weight: bold; color: #38bdf8; display: flex; justify-content: space-between; align-items: center; }
+            .menu-link { display: block; padding: 14px 16px; color: var(--text); text-decoration: none; font-weight: bold; font-size: 14px; border-bottom: 1px solid var(--border); cursor: pointer; transition: 0.2s; }
+            .menu-link:hover { background: #1e293b; color: #38bdf8; }
 
-            .dashboard-section { display: grid; grid-template-columns: 2fr 1fr; gap: 10px; margin-bottom: 12px; }
-            @media(max-width: 600px) { .dashboard-section { grid-template-columns: 1fr; } }
+            .content-container { padding: 12px; }
 
-            .widget-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+            /* Views Sections */
+            .view-section { display: none; }
+            .view-section.active { display: block; }
+
+            .dashboard-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 10px; margin-bottom: 12px; }
+            @media(max-width: 600px) { .dashboard-grid { grid-template-columns: 1fr; } }
+
+            .widget-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 12px; }
             .widget-title { font-size: 14px; font-weight: bold; color: #f59e0b; margin-bottom: 10px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
 
             .apps-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
@@ -496,71 +379,128 @@ def home():
             .country-pill:hover { border-color: #38bdf8; }
 
             .number-item { display: flex; justify-content: space-between; align-items: center; background: #131c2e; border: 1px solid var(--border); padding: 8px; border-radius: 6px; margin-bottom: 6px; font-size: 13px; }
-            .btn { background: var(--green); color: white; border: none; border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: bold; cursor: pointer; }
-            .btn-red { background: #ef4444; }
+            .btn { background: var(--green); color: white; border: none; border-radius: 6px; padding: 8px 14px; font-size: 13px; font-weight: bold; cursor: pointer; width: 100%; margin-top: 8px; }
+            .btn-red { background: var(--red); }
             .btn-gray { background: #475569; }
+
+            /* Withdraw & Ref Styles */
+            .input-box { width: 100%; padding: 10px; background: #0f172a; border: 1px solid var(--border); border-radius: 8px; color: white; margin-bottom: 10px; box-sizing: border-box; font-size: 14px; }
+            .warning-box { background: rgba(239, 68, 68, 0.1); border: 1px solid var(--red); padding: 10px; border-radius: 8px; font-size: 12px; color: #fca5a5; margin-bottom: 10px; line-height: 1.4; }
         </style>
     </head>
     <body>
-        <div class="container">
-            <div class="top-bar">
-                <span>IVAS SMS • Portal Dashboard</span>
-                <span>Balance: 250,000 VND</span>
+        <!-- Top Bar with Hamburger Menu -->
+        <div class="top-bar">
+            <div style="display:flex; align-items:center; gap:10px;">
+                <button class="hamburger-btn" onclick="toggleSidebar()">☰</button>
+                <span>Fast Node • Portal</span>
+            </div>
+            <span id="headerBalance">Balance: $0.00</span>
+        </div>
+
+        <!-- Sidebar Drawer -->
+        <div class="sidebar" id="sidebarDrawer">
+            <div class="sidebar-header">
+                <span>📁 Menu</span>
+                <span style="cursor:pointer; font-size:18px;" onclick="toggleSidebar()">✕</span>
+            </div>
+            <a class="menu-link" onclick="switchView('dashboardView')">📊 Dashboard</a>
+            <a class="menu-link" onclick="switchView('getNumberView')">🌍 Get Number (195+)</a>
+            <a class="menu-link" onclick="switchView('withdrawView')">💸 Withdraw (TON USDT)</a>
+            <a class="menu-link" onclick="switchView('referralView')">👥 Referral Program</a>
+            <a class="menu-link" onclick="window.open('https://t.me/LIVEOTPIVAS', '_blank')">📢 Official Channel</a>
+            <a class="menu-link" style="color:var(--red);" onclick="exitApp()">❌ Exit App</a>
+        </div>
+
+        <div class="content-container">
+            
+            <!-- VIEW 1: DASHBOARD -->
+            <div id="dashboardView" class="view-section active">
+                <div class="dashboard-grid">
+                    <div class="widget-card">
+                        <div class="widget-title">Top Applications Access (Real-time & 24h Reset)</div>
+                        <div class="apps-grid" id="appsGrid"></div>
+                    </div>
+                    <div class="widget-card">
+                        <div class="widget-title">🔥 Top Ranges (Real-time Active)</div>
+                        <div id="topRangesContainer">
+                            <p style="font-size:11px; color:var(--muted); text-align:center;">No active ranges yet.</p>
+                        </div>
+                    </div>
+                </div>
             </div>
 
-            <div class="sidebar-menu">
-                <div class="sidebar-header" onclick="toggleSidebar()">
-                    <span>📁 Dashboard Navigation</span>
-                    <span id="arrowIcon">▼</span>
+            <!-- VIEW 2: GET NUMBER (195+ COUNTRIES) -->
+            <div id="getNumberView" class="view-section">
+                <div class="widget-card" id="marketplaceSection">
+                    <div class="widget-title">Get Number • 195+ Countries Marketplace</div>
+                    <div class="grid-countries" id="countryGrid"></div>
                 </div>
-                <div class="sidebar-dropdown" id="sidebarDropdown">
-                    <button class="menu-item" onclick="scrollToSection('dashboardSection')">📊 Dashboard</button>
-                    <button class="menu-item" onclick="scrollToSection('clientActiveSection')">📥 Client Active SMS</button>
-                    <button class="menu-item" onclick="scrollToSection('marketplaceSection')">🌍 Get Number (195+)</button>
-                    <button class="menu-item" onclick="window.open('https://t.me/LIVEOTPIVAS', '_blank')">📢 Official Channel</button>
-                    <button class="menu-item btn-red" style="color:#ef4444;" onclick="exitApp()">❌ Exit App</button>
+
+                <div class="widget-card" id="detailCard" style="display:none;">
+                    <h3 id="detailTitleText" style="color:#38bdf8; font-size:14px; margin-bottom:8px;">Number Details</h3>
+                    <div id="numberListContainer"></div>
+                    <div style="display:flex; gap:6px; margin-top:10px;">
+                        <button class="btn btn-gray" onclick="goBackToGrid()">🔙 Back</button>
+                        <button class="btn" onclick="location.reload()">🔄 Refresh</button>
+                    </div>
                 </div>
             </div>
 
-            <div class="dashboard-section" id="dashboardSection">
+            <!-- VIEW 3: WITHDRAW -->
+            <div id="withdrawView" class="view-section">
                 <div class="widget-card">
-                    <div class="widget-title">Top Applications Access (24h Auto-Reset)</div>
-                    <div class="apps-grid" id="appsGrid"></div>
+                    <div class="widget-title">💸 Withdraw USDT (TON Network)</div>
+                    <div class="warning-box">
+                        <b>⚠️ IMPORTANT RULES & REGULATIONS:</b><br>
+                        • Minimum withdrawal amount: <b>$5.00</b>.<br>
+                        • Only enter a valid <b>TON network USDT address</b> (must start with EQ or UQ).<br>
+                        • <b>WARNING:</b> If you enter an incorrect address or wrong network (ERC20/TRC20), your funds will be permanently lost! Double check before confirming.
+                    </div>
+                    <div style="font-size: 13px; margin-bottom: 6px; color: var(--muted);">Your Available Balance: <b id="withdrawBalance" style="color:var(--green);">$0.00</b></div>
+                    <input type="number" id="withdrawAmount" class="input-box" placeholder="Enter amount to withdraw (Min $5)">
+                    <input type="text" id="tonAddress" class="input-box" placeholder="Enter TON USDT Address (EQ... / UQ...)">
+                    <button class="btn" onclick="requestWithdraw()">Submit Withdrawal Request</button>
                 </div>
+            </div>
+
+            <!-- VIEW 4: REFERRAL PROGRAM -->
+            <div id="referralView" class="view-section">
                 <div class="widget-card">
-                    <div class="widget-title">🔥 Top Ranges (80%+ OTP Rate)</div>
-                    <div id="topRangesContainer"></div>
+                    <div class="widget-title">👥 Referral Program & Earnings</div>
+                    <p style="font-size: 13px; color: var(--muted); line-height: 1.4;">
+                        Invite your friends using your personal referral link. Earn <b>$0.50</b> for every active user who joins through your link!
+                    </p>
+                    <div style="margin: 12px 0;">
+                        <label style="font-size: 12px; color: var(--muted);">Your Referral Link:</label>
+                        <input type="text" id="refLinkInput" class="input-box" readonly style="background:#0f172a; color:#38bdf8; margin-top:4px;">
+                    </div>
+                    <div style="display: flex; gap: 10px; margin-top: 10px;">
+                        <div class="widget-card" style="flex:1; text-align:center; margin:0;">
+                            <div style="font-size: 11px; color: var(--muted);">Invited Friends</div>
+                            <div id="refCountDisplay" style="font-size: 18px; font-weight: bold; color: #38bdf8; margin-top: 4px;">0</div>
+                        </div>
+                        <div class="widget-card" style="flex:1; text-align:center; margin:0;">
+                            <div style="font-size: 11px; color: var(--muted);">Total Earned</div>
+                            <div id="refEarningsDisplay" style="font-size: 18px; font-weight: bold; color: var(--green); margin-top: 4px;">$0.00</div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <div class="widget-card" id="clientActiveSection" style="margin-bottom: 12px;">
-                <div class="widget-title" style="display:flex; justify-content:space-between; align-items:center;">
-                    <span>Client Active SMS & Numbers</span>
-                    <button class="btn" onclick="toggleClientDropdown()">▼ Toggle Live Feed</button>
-                </div>
-                <div id="clientDropdownContent" style="max-height:0; overflow:hidden; transition:max-height 0.3s;">
-                    <p style="font-size:12px; color:var(--muted); text-align:center;">Real-time incoming OTP sessions active for rented numbers.</p>
-                </div>
-            </div>
-
-            <div class="widget-card" id="marketplaceSection">
-                <div class="widget-title">Get Number • 195+ Countries Marketplace</div>
-                <div class="grid-countries" id="countryGrid"></div>
-            </div>
-
-            <div class="widget-card" id="detailCard" style="display:none; margin-top: 12px;">
-                <h3 id="detailTitleText" style="color:#38bdf8; font-size:14px; margin-bottom:8px;">Number Details</h3>
-                <div id="numberListContainer"></div>
-                <div style="display:flex; gap:6px; margin-top:10px;">
-                    <button class="btn btn-gray" onclick="goBackToGrid()">🔙 Back</button>
-                    <button class="btn" onclick="location.reload()">🔄 Refresh</button>
-                </div>
-            </div>
         </div>
 
         <script>
             let tg = window.Telegram.WebApp;
             tg.expand();
+
+            let userBalance = 0.00;
+            let refCount = 0;
+            let refEarnings = 0.00;
+            let userTgId = tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : "123456";
+
+            // Set referral link
+            document.getElementById('refLinkInput').value = `https://t.me/FastNode_Bot?start=ref${userTgId}`;
 
             let appStats = {{ app_stats | tojson }};
             let topRanges = {{ top_ranges_data | tojson }};
@@ -568,24 +508,25 @@ def home():
             let currentSelectedCountry = null;
 
             function toggleSidebar() {
-                let drop = document.getElementById('sidebarDropdown');
-                let arrow = document.getElementById('arrowIcon');
-                drop.classList.toggle('open');
-                arrow.innerText = drop.classList.contains('open') ? '▲' : '▼';
+                let sidebar = document.getElementById('sidebarDrawer');
+                sidebar.classList.toggle('open');
             }
 
-            function toggleClientDropdown() {
-                let content = document.getElementById('clientDropdownContent');
-                content.style.maxHeight = content.style.maxHeight === '200px' ? '0px' : '200px';
-            }
-
-            function scrollToSection(id) {
-                document.getElementById(id).scrollIntoView({ behavior: 'smooth' });
+            function switchView(viewId) {
+                document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
+                document.getElementById(viewId).classList.add('active');
                 toggleSidebar();
             }
 
             function exitApp() {
                 tg.close();
+            }
+
+            function updateWalletUI() {
+                document.getElementById('headerBalance').innerText = `Balance: $${userBalance.toFixed(3)}`;
+                document.getElementById('withdrawBalance').innerText = `$${userBalance.toFixed(3)}`;
+                document.getElementById('refCountDisplay').innerText = refCount;
+                document.getElementById('refEarningsDisplay').innerText = `$${refEarnings.toFixed(2)}`;
             }
 
             function renderApps() {
@@ -602,10 +543,14 @@ def home():
             function renderTopRanges() {
                 let container = document.getElementById('topRangesContainer');
                 container.innerHTML = '';
+                if (!topRanges || topRanges.length === 0) {
+                    container.innerHTML = '<p style="font-size:11px; color:var(--muted); text-align:center;">No active ranges yet.</p>';
+                    return;
+                }
                 topRanges.forEach(r => {
                     let div = document.createElement('div');
                     div.className = 'range-item';
-                    div.innerHTML = `<span>${r.flag} <b>${r.country}</b></span> <span style="color:var(--green); font-weight:bold;">${r.range}</span>`;
+                    div.innerHTML = `<span>${r.flag} <b>${r.country}</b></span> <span style="color:var(--green); font-weight:bold;">${r.range} (${r.count})</span>`;
                     container.appendChild(div);
                 });
             }
@@ -639,7 +584,7 @@ def home():
                 currentSelectedCountry.numbers.forEach(item => {
                     let row = document.createElement('div');
                     row.className = 'number-item';
-                    row.innerHTML = `<span><b>${item.phone}</b></span> <button class="btn" onclick="rentNumber('${item.phone}')">Rent 15m</button>`;
+                    row.innerHTML = `<span><b>${item.phone}</b></span> <button class="btn" style="width:auto; margin:0; padding:6px 12px;" onclick="rentNumber('${item.phone}')">Rent 15m</button>`;
                     container.appendChild(row);
                 });
             }
@@ -655,13 +600,75 @@ def home():
                 tg.close();
             }
 
+            function requestWithdraw() {
+                let amount = parseFloat(document.getElementById('withdrawAmount').value);
+                let address = document.getElementById('tonAddress').value.trim();
+
+                if (isNaN(amount) || amount < 5) {
+                    tg.showAlert("Minimum withdrawal amount is $5.00!");
+                    return;
+                }
+                if (amount > userBalance) {
+                    tg.showAlert("Insufficient balance!");
+                    return;
+                }
+                // Validate TON address format (EQ or UQ, length ~ 48)
+                if (!address.startsWith("EQ") && !address.startsWith("UQ") || address.length < 40) {
+                    tg.showAlert("Invalid TON USDT address! Must start with EQ or UQ on TON network.");
+                    return;
+                }
+
+                tg.showConfirm(`Do you want to withdraw $${amount} to TON address:\\n${address}?`, (confirmed) => {
+                    if (confirmed) {
+                        userBalance -= amount;
+                        updateWalletUI();
+                        // Gửi dữ liệu về bot/backend
+                        fetch('/api/withdraw', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({user_id: user_tgId, amount: amount, address: address})
+                        }).then(res => res.json()).then(data => {
+                            tg.showAlert("Withdrawal request submitted successfully! Waiting for Admin approval.");
+                        }).catch(() => {
+                            tg.showAlert("Withdrawal request recorded!");
+                        });
+                    }
+                });
+            }
+
             renderApps();
             renderTopRanges();
             renderCountries();
+            updateWalletUI();
         </script>
     </body>
     </html>
     """, app_stats=app_stats, top_ranges_data=top_ranges_data, countries_data=countries_data)
+
+@app.route('/api/withdraw', methods=['POST'])
+def api_withdraw():
+    data = request.json
+    uid = data.get("user_id")
+    amount = data.get("amount")
+    address = data.get("address")
+    
+    # Lưu vào danh sách đơn rút để Admin duyệt
+    userName = f"User_{uid}"
+    withdrawal_requests.append({
+        "user_id": uid,
+        "name": userName,
+        "amount": amount,
+        "address": address,
+        "time": time.strftime("%Y-%m-%d %H:%M:%S")
+    })
+    
+    # Báo cáo về group admin nếu cần
+    try:
+        bot.send_message(ADMIN_IDS[0], f"🚨 <b>CÓ ĐƠN RÚT TIỀN MỚI!</b>\n\n👤 User ID: <code>{uid}</code>\n💵 Số tiền: <b>${amount}</b>\n📬 Ví TON: <code>{address}</code>\n⏰ Lúc: {time.strftime('%Y-%m-%d %H:%M:%S')}", parse_mode="HTML")
+    except:
+        pass
+        
+    return jsonify({"success": True})
 
 def run_web():
     port = int(os.environ.get("PORT", 10000))
