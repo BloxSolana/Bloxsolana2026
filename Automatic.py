@@ -125,20 +125,11 @@ def parse_service_name(msg_text):
     elif "ZALO" in text_upper: return "Zalo"
     return "AUTHMSG"
 
-# Tạo bàn phím Reply Keyboard bên dưới (Ảnh 2)
 def get_reply_keyboard():
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    markup.add(
-        KeyboardButton("LIVE NUMBER"),
-        KeyboardButton("LIVE TRAFFIC")
-    )
-    markup.add(
-        KeyboardButton("INVITE FRIEND"),
-        KeyboardButton("WALLET")
-    )
-    markup.add(
-        KeyboardButton("LEADERBOARD")
-    )
+    markup.add(KeyboardButton("LIVE NUMBER"), KeyboardButton("LIVE TRAFFIC"))
+    markup.add(KeyboardButton("INVITE FRIEND"), KeyboardButton("WALLET"))
+    markup.add(KeyboardButton("LEADERBOARD"))
     return markup
 
 def get_menu_keyboard(user_id):
@@ -162,7 +153,7 @@ def send_welcome(message):
             ref_id = int(args[1].replace("ref", ""))
             if ref_id in user_wallets and ref_id != uid:
                 user_wallets[ref_id]["ref_count"] += 1
-                user_wallets[ref_id]["balance"] += 0.005 # Thưởng ref chuẩn $0.005
+                user_wallets[ref_id]["balance"] += 0.005
                 user_wallets[ref_id]["ref_earnings"] += 0.005
         except:
             pass
@@ -174,7 +165,6 @@ def send_welcome(message):
     bot.send_message(message.chat.id, welcome_text, parse_mode="HTML", reply_markup=get_menu_keyboard(uid))
     bot.send_message(message.chat.id, "👇 Use the quick menu below:", reply_markup=get_reply_keyboard())
 
-# Xử lý các nút bấm từ bàn phím Reply (Ảnh 2)
 @bot.message_handler(func=lambda msg: msg.text in ["LIVE NUMBER", "LIVE TRAFFIC", "INVITE FRIEND", "WALLET", "LEADERBOARD"])
 def handle_reply_buttons(message):
     uid = message.from_user.id
@@ -334,7 +324,6 @@ async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test
     top_ranges_data.sort(key=lambda x: x['count'], reverse=True)
     if len(top_ranges_data) > 5: top_ranges_data = top_ranges_data[:5]
 
-    # Cộng chuẩn $0.008 vào ví user khi nhận OTP thành công
     if clean_phone in user_rentals:
         owner_id = user_rentals[clean_phone]
         if owner_id in user_wallets:
@@ -397,7 +386,7 @@ def websocket_worker():
                 except: pass
         time.sleep(15)
 
-# --- FLASK SERVER & WEB APP (HAMBURGER MENU, GET NUMBER, WITHDRAW TON, REFERRAL $0.005) ---
+# --- FLASK SERVER & WEB APP ---
 app = Flask(__name__)
 
 @app.route('/')
@@ -723,14 +712,16 @@ def run_web():
     app.run(host="0.0.0.0", port=port)
 
 def run_bot_polling():
-    try:
-        bot.remove_webhook()
-        requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?offset=-1")
-        time.sleep(1)
-    except:
-        pass
-    print("🚀 Telegram Bot Polling Started Successfully!")
-    bot.infinity_polling(skip_pending=True, interval=0, timeout=20)
+    while True:
+        try:
+            bot.remove_webhook()
+            requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?offset=-1")
+            time.sleep(1)
+            print("🚀 Telegram Bot Polling Started Successfully!")
+            bot.infinity_polling(skip_pending=True, interval=0, timeout=20)
+        except Exception as e:
+            print(f"⚠️ Bot polling restart due to error: {e}")
+            time.sleep(5)
 
 if __name__ == "__main__":
     t_web = threading.Thread(target=run_web, daemon=True)
