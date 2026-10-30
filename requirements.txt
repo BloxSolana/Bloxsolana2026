@@ -1,8 +1,9 @@
+pyTelegramBotAPI
 requests
+curl_cffi
 firebase-admin
 flask
 gunicorn
-pyTelegramBotAPI
 beautifulsoup4
 pyotp
 websocket-client
