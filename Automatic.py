@@ -125,13 +125,6 @@ def parse_service_name(msg_text):
     elif "ZALO" in text_upper: return "Zalo"
     return "AUTHMSG"
 
-def get_reply_keyboard():
-    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    markup.add(KeyboardButton("🌍 LIVE NUMBER"), KeyboardButton("📈 LIVE TRAFFIC"))
-    markup.add(KeyboardButton("👥 INVITE FRIEND"), KeyboardButton("💳 WALLET"))
-    markup.add(KeyboardButton("🏆 LEADERBOARD"))
-    return markup
-
 def get_menu_keyboard(user_id):
     kb = InlineKeyboardMarkup(row_width=2)
     kb.add(
@@ -166,7 +159,6 @@ def send_welcome(message):
         except:
             pass
 
-    # Xóa tin nhắn lệnh /start của user cho sạch khung chat
     try:
         bot.delete_message(message.chat.id, message.message_id)
     except:
@@ -177,28 +169,6 @@ def send_welcome(message):
         "Welcome to the ultimate real-time secure OTP platform!"
     )
     bot.send_message(message.chat.id, welcome_text, parse_mode="HTML", reply_markup=get_menu_keyboard(uid))
-    bot.send_message(message.chat.id, "👇 Quick menu options below:", reply_markup=get_reply_keyboard())
-
-@bot.message_handler(func=lambda msg: msg.text in ["🌍 LIVE NUMBER", "📈 LIVE TRAFFIC", "👥 INVITE FRIEND", "💳 WALLET", "🏆 LEADERBOARD"])
-def handle_reply_buttons(message):
-    uid = message.from_user.id
-    if uid not in user_wallets:
-        user_wallets[uid] = {"balance": 0.0, "ref_count": 0, "ref_earnings": 0.0}
-        
-    text = message.text
-    if "LIVE NUMBER" in text:
-        available_total = sum(1 for data in inventory_numbers.values() for item in data["numbers"] if not item.get("locked_by"))
-        bot.reply_to(message, f"🌍 <b>LIVE STOCK (195+ Countries):</b>\n\n📦 Available numbers: <code>{available_total}</code>\nOpen Web App to get numbers!", parse_mode="HTML")
-    elif "LIVE TRAFFIC" in text:
-        bot.reply_to(message, "📈 <b>LIVE TRAFFIC MONITOR:</b>\n\nAll systems operating normally via Fast Node Gateway v3 API.", parse_mode="HTML")
-    elif "INVITE FRIEND" in text:
-        ref_link = f"https://t.me/FastNode_Bot?start=ref{uid}"
-        bot.reply_to(message, f"👥 <b>REFERRAL PROGRAM</b>\n\nInvite friends and earn <b>$0.005</b> per referral!\n\n🔗 Your Link:\n<code>{ref_link}</code>\n\n📊 Total Invited: <b>{user_wallets[uid]['ref_count']}</b>\n💰 Total Earned: <b>${user_wallets[uid]['ref_earnings']:.3f}</b>", parse_mode="HTML")
-    elif "WALLET" in text:
-        bal = user_wallets[uid]["balance"]
-        bot.reply_to(message, f"💳 <b>YOUR WALLET</b>\n\n💰 Balance: <b>${bal:.3f} USDT</b>\nMin withdraw: $5.00 (TON Network).", parse_mode="HTML")
-    elif "LEADERBOARD" in text:
-        bot.reply_to(message, f"🏆 <b>YOUR ACTIVITY STATUS</b>\n\n📊 Your Balance: <b>${user_wallets[uid]['balance']:.3f}</b>\n👥 Referrals: <b>{user_wallets[uid]['ref_count']} users</b>", parse_mode="HTML")
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
@@ -293,27 +263,39 @@ def handle_all_messages(message):
             "balance": "$0.00"
         }
         admin_state.pop(user_id, None)
-        bot.reply_to(message, "✅ WebSocket WSS Configuration saved successfully!", parse_mode="HTML", reply_markup=get_reply_keyboard())
+        bot.reply_to(message, "✅ WebSocket WSS Configuration saved successfully!", parse_mode="HTML")
         return
 
     if current_state == "waiting_for_numbers" and user_id in ADMIN_IDS:
         phones = re.split(r'[\s,\n]+', message.text)
         total_added = 0
+        duplicates = []
         added_summary = {}
+        
+        # Tạo tập hợp chứa tất cả các số đã có sẵn trong hệ thống để kiểm tra trùng lặp
+        all_existing_phones = set()
+        for data in inventory_numbers.values():
+            for item in data["numbers"]:
+                all_existing_phones.add(item["phone"])
+
         for phone in phones:
             cleaned = phone.replace("+", "").strip()
             if cleaned.isdigit() and len(cleaned) >= 5:
+                if cleaned in all_existing_phones:
+                    duplicates.append(cleaned)
+                    continue
                 cname, flag, full_key = detect_country_info(cleaned)
                 if full_key not in inventory_numbers:
                     inventory_numbers[full_key] = {"flag": flag, "name": cname, "numbers": []}
-                if cleaned not in [i["phone"] for i in inventory_numbers[full_key]["numbers"]]:
-                    inventory_numbers[full_key]["numbers"].append({"phone": cleaned, "expires": 0, "locked_by": None})
-                    total_added += 1
-                    added_summary[full_key] = added_summary.get(full_key, 0) + 1
+                inventory_numbers[full_key]["numbers"].append({"phone": cleaned, "expires": 0, "locked_by": None})
+                all_existing_phones.add(cleaned)
+                total_added += 1
+                added_summary[full_key] = added_summary.get(full_key, 0) + 1
         
         admin_state.pop(user_id, None)
         summary_str = "\n".join([f"• {k}: <b>+{v} numbers</b>" for k, v in added_summary.items()])
-        bot.reply_to(message, f"✅ <b>Successfully auto-added {total_added} numbers!</b>\n\n{summary_str}", parse_mode="HTML", reply_markup=get_reply_keyboard())
+        dup_str = f"\n\n⚠️ <b>Đã trùng có trước đó ({len(duplicates)} số):</b> <code>{', '.join(duplicates[:10])}{'...' if len(duplicates)>10 else ''}</code>" if duplicates else ""
+        bot.reply_to(message, f"✅ <b>Successfully auto-added {total_added} numbers!</b>\n\n{summary_str}{dup_str}", parse_mode="HTML")
         return
 
 @bot.message_handler(commands=['thue'])
@@ -458,6 +440,31 @@ def api_inventory():
         countries_data.append({"key": key, "name": data["name"], "flag": data["flag"], "numbers": available_numbers})
     return jsonify(countries_data)
 
+@app.route('/api/admin/delete_number', methods=['POST'])
+def api_delete_number():
+    data = request.json
+    phone = data.get("phone")
+    deleted = False
+    for key, val in inventory_numbers.items():
+        initial_len = len(val["numbers"])
+        val["numbers"] = [item for item in val["numbers"] if item["phone"] != phone]
+        if len(val["numbers"]) < initial_len:
+            deleted = True
+            break
+    return jsonify({"success": deleted})
+
+@app.route('/api/admin/delete_bulk_country', methods=['POST'])
+def api_delete_bulk_country():
+    data = request.json
+    key = data.get("key")
+    count = int(data.get("count", 100))
+    if key in inventory_numbers:
+        # Xóa số lượng định mức (ví dụ 100 số hoặc toàn bộ)
+        removed_count = min(count, len(inventory_numbers[key]["numbers"]))
+        inventory_numbers[key]["numbers"] = inventory_numbers[key]["numbers"][removed_count:]
+        return jsonify({"success": True, "removed": removed_count})
+    return jsonify({"success": False})
+
 @app.route('/')
 def home():
     countries_data = []
@@ -512,7 +519,7 @@ def home():
             .btn-gray { background: #475569; }
 
             .input-box { width: 100%; padding: 10px; background: #0f172a; border: 1px solid var(--border); border-radius: 8px; color: white; margin-bottom: 10px; box-sizing: border-box; font-size: 14px; }
-            .textarea-box { width: 100%; height: 120px; padding: 10px; background: #0f172a; border: 1px solid var(--border); border-radius: 8px; color: white; margin-bottom: 10px; box-sizing: border-box; font-size: 13px; resize: vertical; }
+            .textarea-box { width: 100%; height: 100px; padding: 10px; background: #0f172a; border: 1px solid var(--border); border-radius: 8px; color: white; margin-bottom: 10px; box-sizing: border-box; font-size: 13px; resize: vertical; }
             .warning-box { background: rgba(239, 68, 68, 0.1); border: 1px solid var(--red); padding: 10px; border-radius: 8px; font-size: 12px; color: #fca5a5; margin-bottom: 10px; line-height: 1.4; }
         </style>
     </head>
@@ -615,10 +622,33 @@ def home():
                 <div class="widget-card">
                     <div class="widget-title">➕ Auto-Add Numbers (Admin)</div>
                     <p style="font-size: 12px; color: var(--muted); line-height: 1.4;">
-                        Paste your list of numbers below. System will automatically detect country codes (+84 for Vietnam, +1 for USA, etc.) and sort them into respective inventories!
+                        Paste numbers below. Auto-detects country codes & checks duplicates!
                     </p>
-                    <textarea id="bulkNumbersInput" class="textarea-box" placeholder="Paste numbers here (separated by spaces, commas, or new lines)..."></textarea>
+                    <textarea id="bulkNumbersInput" class="textarea-box" placeholder="Paste numbers here..."></textarea>
                     <button class="btn" onclick="submitBulkNumbers()">Auto-Deploy & Categorize Numbers</button>
+                </div>
+
+                <!-- KHUNG QUẢN LÝ XÓA SỐ MỚI (Đúng phần bro tô đỏ) -->
+                <div class="widget-card">
+                    <div class="widget-title" style="color:#ef4444;">🗑 Number Deletion Management</div>
+                    
+                    <!-- Mục 1: Xóa từng số -->
+                    <div style="margin-bottom: 12px;">
+                        <label style="font-size: 12px; font-weight: bold; color: #38bdf8; display: block; margin-bottom: 4px;">🗑 Delete Specific Numbers</label>
+                        <div style="display:flex; gap:6px;">
+                            <input type="text" id="specificPhoneInput" class="input-box" placeholder="Enter phone number to delete..." style="margin:0;">
+                            <button class="btn btn-red" style="width:auto; margin:0; padding:0 12px;" onclick="deleteSpecificNumber()">Delete</button>
+                        </div>
+                    </div>
+
+                    <!-- Mục 2: Xóa 100 số theo quốc gia (Bung ra 195+ nước) -->
+                    <div>
+                        <label style="font-size: 12px; font-weight: bold; color: #f59e0b; display: block; margin-bottom: 4px;">⚡ Delete 100 Numbers by Country (195+)</label>
+                        <select id="countryDeleteSelect" class="input-box" style="margin-bottom:6px;">
+                            <option value="">-- Select Country to Delete (100 numbers) --</option>
+                        </select>
+                        <button class="btn btn-red" onclick="deleteBulkByCountry()">Permanently Delete 100 Numbers</button>
+                    </div>
                 </div>
             </div>
 
@@ -688,13 +718,21 @@ def home():
 
             function renderCountries() {
                 let grid = document.getElementById('countryGrid');
+                let deleteSelect = document.getElementById('countryDeleteSelect');
+                deleteSelect.innerHTML = '<option value="">-- Select Country to Delete (100 numbers) --</option>';
                 grid.innerHTML = '';
+
                 countriesData.forEach(c => {
                     let div = document.createElement('div');
                     div.className = 'country-pill';
                     div.innerHTML = `<span style="font-size:14px; display:block;">${c.flag}</span><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${c.name}</div><div style="color:var(--green); font-weight:bold;">${c.numbers.length}</div>`;
                     div.onclick = () => selectCountry(c.key);
                     grid.appendChild(div);
+
+                    let opt = document.createElement('option');
+                    opt.value = c.key;
+                    opt.innerText = `${c.flag} ${c.name} (${c.numbers.length} available)`;
+                    deleteSelect.appendChild(opt);
                 });
             }
 
@@ -716,7 +754,7 @@ def home():
                 currentSelectedCountry.numbers.forEach(item => {
                     let row = document.createElement('div');
                     row.className = 'number-item';
-                    row.innerHTML = `<span><b>${item.phone}</b></span> <button class="btn" style="width:auto; margin:0; padding:6px 12px;" onclick="rentNumber('${item.phone}')">Rent 15m</button>`;
+                    row.innerHTML = `<span><b>${item.phone}</b></span> <div style="display:flex; gap:4px;"><button class="btn" style="width:auto; margin:0; padding:4px 8px; font-size:11px;" onclick="rentNumber('${item.phone}')">Rent</button><button class="btn btn-red" style="width:auto; margin:0; padding:4px 8px; font-size:11px;" onclick="deleteSpecificNumberDirect('${item.phone}')">Delete</button></div>`;
                     container.appendChild(row);
                 });
             }
@@ -753,8 +791,61 @@ def home():
                     return;
                 }
                 tg.sendData(text);
-                tg.showAlert("Numbers sent to bot for auto-deployment!");
+                tg.showAlert("Numbers sent to bot for auto-deployment & duplicate check!");
                 tg.close();
+            }
+
+            function deleteSpecificNumberDirect(phone) {
+                tg.showConfirm(`Permanently delete phone number ${phone}?`, (confirmed) => {
+                    if (confirmed) {
+                        fetch('/api/admin/delete_number', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({phone: phone})
+                        }).then(res => res.json()).then(data => {
+                            if(data.success) {
+                                tg.showAlert("Number deleted permanently!");
+                                refreshInventory();
+                            } else {
+                                tg.showAlert("Failed to delete number.");
+                            }
+                        });
+                    }
+                });
+            }
+
+            function deleteSpecificNumber() {
+                let phone = document.getElementById('specificPhoneInput').value.trim();
+                if (!phone) {
+                    tg.showAlert("Please enter a phone number to delete!");
+                    return;
+                }
+                deleteSpecificNumberDirect(phone);
+                document.getElementById('specificPhoneInput').value = '';
+            }
+
+            function deleteBulkByCountry() {
+                let key = document.getElementById('countryDeleteSelect').value;
+                if (!key) {
+                    tg.showAlert("Please select a country from the dropdown!");
+                    return;
+                }
+                tg.showConfirm(`Permanently delete up to 100 numbers from this country?`, (confirmed) => {
+                    if (confirmed) {
+                        fetch('/api/admin/delete_bulk_country', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({key: key, count: 100})
+                        }).then(res => res.json()).then(data => {
+                            if(data.success) {
+                                tg.showAlert(`Successfully deleted ${data.removed} numbers permanently!`);
+                                refreshInventory();
+                            } else {
+                                tg.showAlert("Failed to delete numbers.");
+                            }
+                        });
+                    }
+                });
             }
 
             function requestWithdraw() {
