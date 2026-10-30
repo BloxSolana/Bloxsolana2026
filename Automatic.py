@@ -9,7 +9,7 @@ import json
 import requests
 import websocket
 import telebot
-from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, ReplyKeyboardMarkup, KeyboardButton
 from flask import Flask, render_template_string, request, jsonify
 
 # --- CONFIGURATION ---
@@ -26,17 +26,15 @@ inventory_numbers = {}     # Kho chứa số toàn cầu
 admin_state = {}           # Trạng thái chờ nhập của Admin
 user_configs = {}          # Cấu hình WSS
 
-# Dữ liệu tài khoản người dùng mô phỏng (Balance $, Ref, Lịch sử rút)
-user_wallets = {}          # {user_id: {"balance": 0.0, "ref_count": 0, "ref_earnings": 0.0, "ref_code": "..."}}
+user_wallets = {}          # {user_id: {"balance": 0.0, "ref_count": 0, "ref_earnings": 0.0}}
 withdrawal_requests = []   # Danh sách đơn rút tiền chờ duyệt
 
-# Thống kê Top Applications Access (Bắt đầu từ 0, Real-time +1 khi có OTP)
 app_stats = {
     "WhatsApp": 0, "ClickBank": 0, "Apple": 0, "Shopee": 0, "Facebook": 0,
     "TikTok": 0, "AUTHMSG": 0, "TALAPH": 0, "Uber": 0, "SPayLaterPH": 0,
     "Telegram": 0, "Google": 0, "Instagram": 0, "Discord": 0, "Zalo": 0
 }
-top_ranges_data = []       # Top Ranges thực tế từ hệ thống
+top_ranges_data = []
 last_reset_time = time.time()
 
 # --- COMPLETE OFFICIAL ISO COUNTRY DATABASE (195+ Quốc gia) ---
@@ -127,6 +125,22 @@ def parse_service_name(msg_text):
     elif "ZALO" in text_upper: return "Zalo"
     return "AUTHMSG"
 
+# Tạo bàn phím Reply Keyboard bên dưới (Ảnh 2)
+def get_reply_keyboard():
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    markup.add(
+        KeyboardButton("LIVE NUMBER"),
+        KeyboardButton("LIVE TRAFFIC")
+    )
+    markup.add(
+        KeyboardButton("INVITE FRIEND"),
+        KeyboardButton("WALLET")
+    )
+    markup.add(
+        KeyboardButton("LEADERBOARD")
+    )
+    return markup
+
 def get_menu_keyboard(user_id):
     kb = InlineKeyboardMarkup(row_width=2)
     kb.add(InlineKeyboardButton("🚀 OPEN WEB APP PORTAL", web_app=WebAppInfo(url=WEBAPP_URL)))
@@ -140,17 +154,16 @@ def get_menu_keyboard(user_id):
 def send_welcome(message):
     uid = message.from_user.id
     if uid not in user_wallets:
-        user_wallets[uid] = {"balance": 0.0, "ref_count": 0, "ref_earnings": 0.0, "ref_code": f"FAST{uid}"}
+        user_wallets[uid] = {"balance": 0.0, "ref_count": 0, "ref_earnings": 0.0}
     
-    # Kiểm tra xem có ref không
     args = message.text.split()
     if len(args) > 1 and args[1].startswith("ref"):
         try:
             ref_id = int(args[1].replace("ref", ""))
             if ref_id in user_wallets and ref_id != uid:
                 user_wallets[ref_id]["ref_count"] += 1
-                user_wallets[ref_id]["balance"] += 0.50 # Thưởng ref $0.5
-                user_wallets[ref_id]["ref_earnings"] += 0.50
+                user_wallets[ref_id]["balance"] += 0.005 # Thưởng ref chuẩn $0.005
+                user_wallets[ref_id]["ref_earnings"] += 0.005
         except:
             pass
 
@@ -159,6 +172,29 @@ def send_welcome(message):
         "Welcome to the ultimate real-time secure OTP platform!"
     )
     bot.send_message(message.chat.id, welcome_text, parse_mode="HTML", reply_markup=get_menu_keyboard(uid))
+    bot.send_message(message.chat.id, "👇 Use the quick menu below:", reply_markup=get_reply_keyboard())
+
+# Xử lý các nút bấm từ bàn phím Reply (Ảnh 2)
+@bot.message_handler(func=lambda msg: msg.text in ["LIVE NUMBER", "LIVE TRAFFIC", "INVITE FRIEND", "WALLET", "LEADERBOARD"])
+def handle_reply_buttons(message):
+    uid = message.from_user.id
+    if uid not in user_wallets:
+        user_wallets[uid] = {"balance": 0.0, "ref_count": 0, "ref_earnings": 0.0}
+        
+    text = message.text
+    if text == "LIVE NUMBER":
+        available_total = sum(1 for data in inventory_numbers.values() for item in data["numbers"] if not item.get("locked_by"))
+        bot.reply_to(message, f"🌍 <b>LIVE STOCK (195+ Countries):</b>\n\n📦 Available numbers: <code>{available_total}</code>\nOpen Web App to get numbers!", parse_mode="HTML")
+    elif text == "LIVE TRAFFIC":
+        bot.reply_to(message, "📈 <b>LIVE TRAFFIC MONITOR:</b>\n\nAll systems operating normally via Fast Node Gateway v3 API.", parse_mode="HTML")
+    elif text == "INVITE FRIEND":
+        ref_link = f"https://t.me/FastNode_Bot?start=ref{uid}"
+        bot.reply_to(message, f"👥 <b>REFERRAL PROGRAM</b>\n\nInvite friends and earn <b>$0.005</b> per referral!\n\n🔗 Your Link:\n<code>{ref_link}</code>\n\n📊 Total Invited: <b>{user_wallets[uid]['ref_count']}</b>\n💰 Total Earned: <b>${user_wallets[uid]['ref_earnings']:.3f}</b>", parse_mode="HTML")
+    elif text == "WALLET":
+        bal = user_wallets[uid]["balance"]
+        bot.reply_to(message, f"💳 <b>YOUR WALLET</b>\n\n💰 Balance: <b>${bal:.3f} USDT</b>\nMin withdraw: $5.00 (TON Network).", parse_mode="HTML")
+    elif text == "LEADERBOARD":
+        bot.reply_to(message, f"🏆 <b>GLOBAL LEADERBOARD</b>\n\n1. K.Bro - $145.50\n2. FastNode - $98.20\n3. You - ${user_wallets[uid]['balance']:.3f}", parse_mode="HTML")
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
@@ -168,22 +204,29 @@ def handle_callback(call):
     
     if call.data == "menu_live_number":
         available_total = sum(1 for data in inventory_numbers.values() for item in data["numbers"] if not item.get("locked_by"))
-        text = f"🌍 <b>LIVE STOCK (195+ Countries):</b>\n\n📦 Available numbers: <code>{available_total}</code>\nOpen Web App to get numbers!"
+        text = f"🌍 <b>LIVE STOCK (195+ Countries):</b>\n\n📦 Available numbers: <code>{available_total}</code>"
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("🔙 BACK", callback_data="menu_back"))
         bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, parse_mode="HTML", reply_markup=kb)
 
-    elif call.data == "admin_withdrawals":
+    elif call.data == "menu_create_config":
         if user_id not in ADMIN_IDS:
             bot.answer_callback_query(call.id, "⛔ Access denied!", show_alert=True)
             return
+        admin_state[user_id] = "waiting_for_ws"
+        text = "🔮 <b>Setup WSS Configuration</b>\n\nSend your WebSocket URL or Cookie string here:"
+        kb = InlineKeyboardMarkup()
+        kb.add(InlineKeyboardButton("❌ CANCEL", callback_data="menu_back"))
+        bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, parse_mode="HTML", reply_markup=kb)
+
+    elif call.data == "admin_withdrawals":
+        if user_id not in ADMIN_IDS: return
         if not withdrawal_requests:
             text = "📂 <b>Không có đơn rút tiền nào đang chờ duyệt!</b>"
         else:
             text = f"📂 <b>DANH SÁCH ĐƠN RÚT TIỀN ({len(withdrawal_requests)} đơn):</b>\n\n"
             for idx, req in enumerate(withdrawal_requests):
                 text += f"🆔 <b>STT {idx+1}</b> | User ID: <code>{req['user_id']}</code>\n👤 Tên: {req['name']}\n💵 Số tiền: <b>${req['amount']}</b>\n📬 Ví TON: <code>{req['address']}</code>\n⏰ Lúc: {req['time']}\n━━━━━━━━━━━━━━━━━━━━━\n"
-        
         kb = InlineKeyboardMarkup()
         if withdrawal_requests:
             kb.add(InlineKeyboardButton("✅ DUYỆT ĐƠN ĐẦU TIÊN", callback_data="approve_first_wd"))
@@ -194,13 +237,49 @@ def handle_callback(call):
         if user_id not in ADMIN_IDS: return
         if withdrawal_requests:
             req = withdrawal_requests.pop(0)
-            bot.send_message(req['user_id'], f"🎉 <b>Đơn rút ${req['amount']} USDT (TON) của bạn đã được Admin phê duyệt và thanh toán thành công!</b>", parse_mode="HTML")
-            bot.answer_callback_query(call.id, f"Đã duyệt đơn rút của user {req['user_id']} thành công!")
+            bot.send_message(req['user_id'], f"🎉 <b>Đơn rút ${req['amount']} USDT (TON) của bạn đã được Admin duyệt thành công!</b>", parse_mode="HTML")
+            bot.answer_callback_query(call.id, "Đã duyệt đơn thành công!")
         handle_callback(type('obj', (object,), {'from_user': call.from_user, 'message': call.message, 'data': 'admin_withdrawals'})())
 
     elif call.data == "menu_back":
+        admin_state.pop(user_id, None)
         welcome_text = "🔥 <b>FAST NODE • IVAS OTP GATEWAY PORTAL</b>\n\nWelcome to the ultimate real-time secure OTP platform!"
         bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=welcome_text, parse_mode="HTML", reply_markup=get_menu_keyboard(user_id))
+
+@bot.message_handler(func=lambda message: True)
+def handle_all_messages(message):
+    user_id = message.from_user.id
+    current_state = admin_state.get(user_id)
+    chat_id = message.chat.id
+    
+    if current_state == "waiting_for_ws" and user_id in ADMIN_IDS:
+        text_input = message.text.strip()
+        ws_match = re.search(r'(wss?://[^\s\'"]+)', text_input)
+        token_match = re.search(r'(?:token=|access_token=|key=)([a-zA-Z0-9_\-\.]+)', text_input)
+        user_configs[user_id] = {
+            "ws_url": ws_match.group(1) if ws_match else "Custom Session",
+            "token": token_match.group(1) if token_match else text_input[:20],
+            "balance": "$0.00"
+        }
+        admin_state.pop(user_id, None)
+        bot.reply_to(message, "✅ WebSocket WSS Configuration saved successfully!", parse_mode="HTML", reply_markup=get_reply_keyboard())
+        return
+
+    if user_id in ADMIN_IDS and current_state == "waiting_for_numbers":
+        phones = re.split(r'[\s,\n]+', message.text)
+        total_added = 0
+        for phone in phones:
+            cleaned = phone.replace("+", "").strip()
+            if cleaned.isdigit() and len(cleaned) >= 5:
+                _, _, full_key = detect_country_info(cleaned)
+                if full_key not in inventory_numbers:
+                    cname, flag = detect_country_info(cleaned)[:2]
+                    inventory_numbers[full_key] = {"flag": flag, "name": cname, "numbers": []}
+                if cleaned not in [i["phone"] for i in inventory_numbers[full_key]["numbers"]]:
+                    inventory_numbers[full_key]["numbers"].append({"phone": cleaned, "expires": 0, "locked_by": None})
+                    total_added += 1
+        admin_state.pop(user_id, None)
+        bot.reply_to(message, f"✅ Added {total_added} numbers to inventory successfully!", parse_mode="HTML", reply_markup=get_reply_keyboard())
 
 @bot.message_handler(commands=['thue'])
 def handle_rent_number(message):
@@ -217,10 +296,6 @@ def handle_rent_number(message):
                 item["locked_by"] = user_id
                 break
     bot.reply_to(message, f"✅ Successfully rented number <code>{phone_to_rent}</code> for 15 minutes! OTP will be delivered here privately.", parse_mode="HTML")
-
-# API nhận yêu cầu rút tiền từ WebApp
-@bot.message_handler(func=lambda msg: False) # Placeholder cho routing nếu cần
-def dummy(): pass
 
 def background_cleanup_and_wss():
     global last_reset_time, app_stats
@@ -250,7 +325,6 @@ async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test
     else:
         app_stats["AUTHMSG"] += 1
 
-    # Cập nhật Top Ranges thực tế
     range_prefix = clean_phone[:5]
     existing_range = next((r for r in top_ranges_data if r['range'] == range_prefix), None)
     if existing_range:
@@ -260,7 +334,7 @@ async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test
     top_ranges_data.sort(key=lambda x: x['count'], reverse=True)
     if len(top_ranges_data) > 5: top_ranges_data = top_ranges_data[:5]
 
-    # Cộng $0.008 vào ví user nếu có người thuê số này
+    # Cộng chuẩn $0.008 vào ví user khi nhận OTP thành công
     if clean_phone in user_rentals:
         owner_id = user_rentals[clean_phone]
         if owner_id in user_wallets:
@@ -293,7 +367,7 @@ async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test
 
     if clean_phone in user_rentals:
         owner_id = user_rentals[clean_phone]
-        private_caption = f"🔔 <b>[PRIVATE EXCLUSIVE OTP ($0.008 EARNED)]</b>\n\n" + caption
+        private_caption = f"🔔 <b>[REAL-TIME PRIVATE EXCLUSIVE OTP ($0.008 EARNED)]</b>\n\n" + caption
         try:
             await asyncio.to_thread(bot.send_message, chat_id=owner_id, text=private_caption, parse_mode="HTML", reply_markup=kb, disable_web_page_preview=True)
         except Exception as e: pass
@@ -311,7 +385,7 @@ def websocket_worker():
         except: pass
     def on_error(ws, error): pass
     def on_close(ws, c, m): time.sleep(10)
-    def on_open(ws): print("🟢 WebSocket Connected!")
+    def on_open(ws): print("🟢 WebSocket Connected Real-time!")
 
     while True:
         for uid, cfg in user_configs.items():
@@ -323,7 +397,7 @@ def websocket_worker():
                 except: pass
         time.sleep(15)
 
-# --- FLASK SERVER & WEB APP (HAMBURGER MENU 3 GẠCH, DASHBOARD, WITHDRAW TON, REFERRAL) ---
+# --- FLASK SERVER & WEB APP (HAMBURGER MENU, GET NUMBER, WITHDRAW TON, REFERRAL $0.005) ---
 app = Flask(__name__)
 
 @app.route('/')
@@ -345,11 +419,9 @@ def home():
             :root { --bg: #0f172a; --card: #1e293b; --orange-bar: #f59e0b; --border: #334155; --text: #f8fafc; --muted: #94a3b8; --green: #22c55e; --red: #ef4444; }
             body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 0; }
             
-            /* Top Header with Hamburger 3 Gạch */
             .top-bar { background: var(--orange-bar); color: #000; padding: 12px 16px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; }
             .hamburger-btn { background: none; border: none; font-size: 20px; cursor: pointer; color: #000; font-weight: bold; }
             
-            /* Sidebar Drawer Menu */
             .sidebar { position: fixed; top: 0; left: -260px; width: 250px; height: 100%; background: #131c2e; border-right: 1px solid var(--border); transition: 0.3s ease; z-index: 1000; padding-top: 20px; box-shadow: 4px 0 15px rgba(0,0,0,0.5); }
             .sidebar.open { left: 0; }
             .sidebar-header { padding: 0 16px 15px 16px; border-bottom: 1px solid var(--border); font-size: 16px; font-weight: bold; color: #38bdf8; display: flex; justify-content: space-between; align-items: center; }
@@ -357,8 +429,6 @@ def home():
             .menu-link:hover { background: #1e293b; color: #38bdf8; }
 
             .content-container { padding: 12px; }
-
-            /* Views Sections */
             .view-section { display: none; }
             .view-section.active { display: block; }
 
@@ -383,22 +453,19 @@ def home():
             .btn-red { background: var(--red); }
             .btn-gray { background: #475569; }
 
-            /* Withdraw & Ref Styles */
             .input-box { width: 100%; padding: 10px; background: #0f172a; border: 1px solid var(--border); border-radius: 8px; color: white; margin-bottom: 10px; box-sizing: border-box; font-size: 14px; }
             .warning-box { background: rgba(239, 68, 68, 0.1); border: 1px solid var(--red); padding: 10px; border-radius: 8px; font-size: 12px; color: #fca5a5; margin-bottom: 10px; line-height: 1.4; }
         </style>
     </head>
     <body>
-        <!-- Top Bar with Hamburger Menu -->
         <div class="top-bar">
             <div style="display:flex; align-items:center; gap:10px;">
                 <button class="hamburger-btn" onclick="toggleSidebar()">☰</button>
                 <span>Fast Node • Portal</span>
             </div>
-            <span id="headerBalance">Balance: $0.00</span>
+            <span id="headerBalance">Balance: $0.000</span>
         </div>
 
-        <!-- Sidebar Drawer -->
         <div class="sidebar" id="sidebarDrawer">
             <div class="sidebar-header">
                 <span>📁 Menu</span>
@@ -414,7 +481,6 @@ def home():
 
         <div class="content-container">
             
-            <!-- VIEW 1: DASHBOARD -->
             <div id="dashboardView" class="view-section active">
                 <div class="dashboard-grid">
                     <div class="widget-card">
@@ -430,7 +496,6 @@ def home():
                 </div>
             </div>
 
-            <!-- VIEW 2: GET NUMBER (195+ COUNTRIES) -->
             <div id="getNumberView" class="view-section">
                 <div class="widget-card" id="marketplaceSection">
                     <div class="widget-title">Get Number • 195+ Countries Marketplace</div>
@@ -447,7 +512,6 @@ def home():
                 </div>
             </div>
 
-            <!-- VIEW 3: WITHDRAW -->
             <div id="withdrawView" class="view-section">
                 <div class="widget-card">
                     <div class="widget-title">💸 Withdraw USDT (TON Network)</div>
@@ -455,21 +519,20 @@ def home():
                         <b>⚠️ IMPORTANT RULES & REGULATIONS:</b><br>
                         • Minimum withdrawal amount: <b>$5.00</b>.<br>
                         • Only enter a valid <b>TON network USDT address</b> (must start with EQ or UQ).<br>
-                        • <b>WARNING:</b> If you enter an incorrect address or wrong network (ERC20/TRC20), your funds will be permanently lost! Double check before confirming.
+                        • <b>WARNING:</b> Incorrect network/address means permanent loss of funds!
                     </div>
-                    <div style="font-size: 13px; margin-bottom: 6px; color: var(--muted);">Your Available Balance: <b id="withdrawBalance" style="color:var(--green);">$0.00</b></div>
-                    <input type="number" id="withdrawAmount" class="input-box" placeholder="Enter amount to withdraw (Min $5)">
-                    <input type="text" id="tonAddress" class="input-box" placeholder="Enter TON USDT Address (EQ... / UQ...)">
+                    <div style="font-size: 13px; margin-bottom: 6px; color: var(--muted);">Your Balance: <b id="withdrawBalance" style="color:var(--green);">$0.000</b></div>
+                    <input type="number" id="withdrawAmount" class="input-box" placeholder="Min $5.00">
+                    <input type="text" id="tonAddress" class="input-box" placeholder="TON Address (EQ... / UQ...)">
                     <button class="btn" onclick="requestWithdraw()">Submit Withdrawal Request</button>
                 </div>
             </div>
 
-            <!-- VIEW 4: REFERRAL PROGRAM -->
             <div id="referralView" class="view-section">
                 <div class="widget-card">
                     <div class="widget-title">👥 Referral Program & Earnings</div>
                     <p style="font-size: 13px; color: var(--muted); line-height: 1.4;">
-                        Invite your friends using your personal referral link. Earn <b>$0.50</b> for every active user who joins through your link!
+                        Invite friends using your link. Earn <b>$0.005</b> for every active user!
                     </p>
                     <div style="margin: 12px 0;">
                         <label style="font-size: 12px; color: var(--muted);">Your Referral Link:</label>
@@ -482,7 +545,7 @@ def home():
                         </div>
                         <div class="widget-card" style="flex:1; text-align:center; margin:0;">
                             <div style="font-size: 11px; color: var(--muted);">Total Earned</div>
-                            <div id="refEarningsDisplay" style="font-size: 18px; font-weight: bold; color: var(--green); margin-top: 4px;">$0.00</div>
+                            <div id="refEarningsDisplay" style="font-size: 18px; font-weight: bold; color: var(--green); margin-top: 4px;">$0.000</div>
                         </div>
                     </div>
                 </div>
@@ -494,12 +557,11 @@ def home():
             let tg = window.Telegram.WebApp;
             tg.expand();
 
-            let userBalance = 0.00;
+            let userBalance = 0.000;
             let refCount = 0;
-            let refEarnings = 0.00;
+            let refEarnings = 0.000;
             let userTgId = tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : "123456";
 
-            // Set referral link
             document.getElementById('refLinkInput').value = `https://t.me/FastNode_Bot?start=ref${userTgId}`;
 
             let appStats = {{ app_stats | tojson }};
@@ -508,8 +570,7 @@ def home():
             let currentSelectedCountry = null;
 
             function toggleSidebar() {
-                let sidebar = document.getElementById('sidebarDrawer');
-                sidebar.classList.toggle('open');
+                document.getElementById('sidebarDrawer').classList.toggle('open');
             }
 
             function switchView(viewId) {
@@ -518,15 +579,13 @@ def home():
                 toggleSidebar();
             }
 
-            function exitApp() {
-                tg.close();
-            }
+            function exitApp() { tg.close(); }
 
             function updateWalletUI() {
                 document.getElementById('headerBalance').innerText = `Balance: $${userBalance.toFixed(3)}`;
                 document.getElementById('withdrawBalance').innerText = `$${userBalance.toFixed(3)}`;
                 document.getElementById('refCountDisplay').innerText = refCount;
-                document.getElementById('refEarningsDisplay').innerText = `$${refEarnings.toFixed(2)}`;
+                document.getElementById('refEarningsDisplay').innerText = `$${refEarnings.toFixed(3)}`;
             }
 
             function renderApps() {
@@ -596,7 +655,7 @@ def home():
 
             function rentNumber(phone) {
                 tg.sendData(`/thue ${phone}`);
-                tg.showAlert(`Successfully rented number ${phone} for 15 minutes! Hidden from others.`);
+                tg.showAlert(`Successfully rented number ${phone} for 15 minutes!`);
                 tg.close();
             }
 
@@ -612,23 +671,21 @@ def home():
                     tg.showAlert("Insufficient balance!");
                     return;
                 }
-                // Validate TON address format (EQ or UQ, length ~ 48)
                 if (!address.startsWith("EQ") && !address.startsWith("UQ") || address.length < 40) {
-                    tg.showAlert("Invalid TON USDT address! Must start with EQ or UQ on TON network.");
+                    tg.showAlert("Invalid TON USDT address! Must start with EQ or UQ.");
                     return;
                 }
 
-                tg.showConfirm(`Do you want to withdraw $${amount} to TON address:\\n${address}?`, (confirmed) => {
+                tg.showConfirm(`Withdraw $${amount} to TON address:\\n${address}?`, (confirmed) => {
                     if (confirmed) {
                         userBalance -= amount;
                         updateWalletUI();
-                        // Gửi dữ liệu về bot/backend
                         fetch('/api/withdraw', {
                             method: 'POST',
                             headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({user_id: user_tgId, amount: amount, address: address})
+                            body: JSON.stringify({user_id: userTgId, amount: amount, address: address})
                         }).then(res => res.json()).then(data => {
-                            tg.showAlert("Withdrawal request submitted successfully! Waiting for Admin approval.");
+                            tg.showAlert("Withdrawal request submitted successfully!");
                         }).catch(() => {
                             tg.showAlert("Withdrawal request recorded!");
                         });
@@ -652,22 +709,13 @@ def api_withdraw():
     amount = data.get("amount")
     address = data.get("address")
     
-    # Lưu vào danh sách đơn rút để Admin duyệt
-    userName = f"User_{uid}"
     withdrawal_requests.append({
-        "user_id": uid,
-        "name": userName,
-        "amount": amount,
-        "address": address,
-        "time": time.strftime("%Y-%m-%d %H:%M:%S")
+        "user_id": uid, "name": f"User_{uid}", "amount": amount, "address": address, "time": time.strftime("%Y-%m-%d %H:%M:%S")
     })
     
-    # Báo cáo về group admin nếu cần
     try:
         bot.send_message(ADMIN_IDS[0], f"🚨 <b>CÓ ĐƠN RÚT TIỀN MỚI!</b>\n\n👤 User ID: <code>{uid}</code>\n💵 Số tiền: <b>${amount}</b>\n📬 Ví TON: <code>{address}</code>\n⏰ Lúc: {time.strftime('%Y-%m-%d %H:%M:%S')}", parse_mode="HTML")
-    except:
-        pass
-        
+    except: pass
     return jsonify({"success": True})
 
 def run_web():
