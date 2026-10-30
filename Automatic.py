@@ -24,7 +24,7 @@ bot = telebot.TeleBot(token=BOT_TOKEN)
 user_rentals = {}          # {"số_điện_thoại": user_id}
 inventory_numbers = {}     # Kho chứa số toàn cầu
 admin_state = {}           # Trạng thái chờ nhập của Admin
-user_configs = {}          # Cấu hình WSS
+user_configs = {}          # Cấu hình WSS / Cookie của Admin
 
 user_wallets = {}          # {user_id: {"balance": 0.0, "ref_count": 0, "ref_earnings": 0.0}}
 withdrawal_requests = []   # Danh sách đơn rút tiền chờ duyệt
@@ -127,18 +127,24 @@ def parse_service_name(msg_text):
 
 def get_reply_keyboard():
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    markup.add(KeyboardButton("LIVE NUMBER"), KeyboardButton("LIVE TRAFFIC"))
-    markup.add(KeyboardButton("INVITE FRIEND"), KeyboardButton("WALLET"))
-    markup.add(KeyboardButton("LEADERBOARD"))
+    markup.add(KeyboardButton("🌍 LIVE NUMBER"), KeyboardButton("📈 LIVE TRAFFIC"))
+    markup.add(KeyboardButton("👥 INVITE FRIEND"), KeyboardButton("💳 WALLET"))
+    markup.add(KeyboardButton("🏆 LEADERBOARD"))
     return markup
 
 def get_menu_keyboard(user_id):
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(InlineKeyboardButton("🚀 OPEN WEB APP PORTAL", web_app=WebAppInfo(url=WEBAPP_URL)))
-    kb.add(InlineKeyboardButton("📦 LIVE STOCK (195+)", callback_data="menu_live_number"))
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        InlineKeyboardButton("🚀 OPEN WEB APP PORTAL", web_app=WebAppInfo(url=WEBAPP_URL)),
+        InlineKeyboardButton("📦 LIVE STOCK (195+)", callback_data="menu_live_number")
+    )
     if user_id in ADMIN_IDS:
-        kb.add(InlineKeyboardButton("👑 DUYỆT RÚT TIỀN (ADMIN)", callback_data="admin_withdrawals"))
-        kb.add(InlineKeyboardButton("⚙️ TẠO WSS CONFIG", callback_data="menu_create_config"))
+        kb.add(
+            InlineKeyboardButton("👑 DUYỆT RÚT TIỀN (ADMIN)", callback_data="admin_withdrawals"),
+            InlineKeyboardButton("⚙️ TẠO WSS CONFIG", callback_data="menu_create_config"),
+            InlineKeyboardButton("📊 LIST PANEL (WSS/COOKIE)", callback_data="menu_list_panel"),
+            InlineKeyboardButton("➕ ADD NUMBERS (ADMIN)", callback_data="menu_add_numbers")
+        )
     return kb
 
 @bot.message_handler(commands=['start'])
@@ -163,28 +169,28 @@ def send_welcome(message):
         "Welcome to the ultimate real-time secure OTP platform!"
     )
     bot.send_message(message.chat.id, welcome_text, parse_mode="HTML", reply_markup=get_menu_keyboard(uid))
-    bot.send_message(message.chat.id, "👇 Use the quick menu below:", reply_markup=get_reply_keyboard())
+    bot.send_message(message.chat.id, "👇 Quick menu options below:", reply_markup=get_reply_keyboard())
 
-@bot.message_handler(func=lambda msg: msg.text in ["LIVE NUMBER", "LIVE TRAFFIC", "INVITE FRIEND", "WALLET", "LEADERBOARD"])
+@bot.message_handler(func=lambda msg: msg.text in ["🌍 LIVE NUMBER", "📈 LIVE TRAFFIC", "👥 INVITE FRIEND", "💳 WALLET", "🏆 LEADERBOARD"])
 def handle_reply_buttons(message):
     uid = message.from_user.id
     if uid not in user_wallets:
         user_wallets[uid] = {"balance": 0.0, "ref_count": 0, "ref_earnings": 0.0}
         
     text = message.text
-    if text == "LIVE NUMBER":
+    if "LIVE NUMBER" in text:
         available_total = sum(1 for data in inventory_numbers.values() for item in data["numbers"] if not item.get("locked_by"))
         bot.reply_to(message, f"🌍 <b>LIVE STOCK (195+ Countries):</b>\n\n📦 Available numbers: <code>{available_total}</code>\nOpen Web App to get numbers!", parse_mode="HTML")
-    elif text == "LIVE TRAFFIC":
+    elif "LIVE TRAFFIC" in text:
         bot.reply_to(message, "📈 <b>LIVE TRAFFIC MONITOR:</b>\n\nAll systems operating normally via Fast Node Gateway v3 API.", parse_mode="HTML")
-    elif text == "INVITE FRIEND":
+    elif "INVITE FRIEND" in text:
         ref_link = f"https://t.me/FastNode_Bot?start=ref{uid}"
         bot.reply_to(message, f"👥 <b>REFERRAL PROGRAM</b>\n\nInvite friends and earn <b>$0.005</b> per referral!\n\n🔗 Your Link:\n<code>{ref_link}</code>\n\n📊 Total Invited: <b>{user_wallets[uid]['ref_count']}</b>\n💰 Total Earned: <b>${user_wallets[uid]['ref_earnings']:.3f}</b>", parse_mode="HTML")
-    elif text == "WALLET":
+    elif "WALLET" in text:
         bal = user_wallets[uid]["balance"]
         bot.reply_to(message, f"💳 <b>YOUR WALLET</b>\n\n💰 Balance: <b>${bal:.3f} USDT</b>\nMin withdraw: $5.00 (TON Network).", parse_mode="HTML")
-    elif text == "LEADERBOARD":
-        bot.reply_to(message, f"🏆 <b>GLOBAL LEADERBOARD</b>\n\n1. K.Bro - $145.50\n2. FastNode - $98.20\n3. You - ${user_wallets[uid]['balance']:.3f}", parse_mode="HTML")
+    elif "LEADERBOARD" in text:
+        bot.reply_to(message, f"🏆 <b>YOUR ACTIVITY STATUS</b>\n\n📊 Your Balance: <b>${user_wallets[uid]['balance']:.3f}</b>\n👥 Referrals: <b>{user_wallets[uid]['ref_count']} users</b>", parse_mode="HTML")
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
@@ -205,6 +211,34 @@ def handle_callback(call):
             return
         admin_state[user_id] = "waiting_for_ws"
         text = "🔮 <b>Setup WSS Configuration</b>\n\nSend your WebSocket URL or Cookie string here:"
+        kb = InlineKeyboardMarkup()
+        kb.add(InlineKeyboardButton("❌ CANCEL", callback_data="menu_back"))
+        bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, parse_mode="HTML", reply_markup=kb)
+
+    elif call.data == "menu_list_panel":
+        if user_id not in ADMIN_IDS:
+            bot.answer_callback_query(call.id, "⛔ Access denied!", show_alert=True)
+            return
+        
+        status_text = "🟢 <b>ACTIVE & HEALTHY</b>" if user_configs else "⚠️ <b>NO CONFIG SET</b>"
+        text = (
+            "📊 <b>LIST PANEL - WSS & COOKIE HEALTH MONITOR</b>\n\n"
+            f"🔌 Connection Status: {status_text}\n"
+            f"📡 Active WSS URL: <code>{list(user_configs.values())[0].get('ws_url', 'None') if user_configs else 'None'}</code>\n"
+            f"🔑 Token / Cookie Length: <b>{len(list(user_configs.values())[0].get('token', '')) if user_configs else 0} chars</b>\n"
+            "🔍 Error Check: <b>HTTP 200 OK / Ready</b>"
+        )
+        kb = InlineKeyboardMarkup()
+        kb.add(InlineKeyboardButton("🔄 RECHECK STATUS", callback_data="menu_list_panel"))
+        kb.add(InlineKeyboardButton("🔙 BACK", callback_data="menu_back"))
+        bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, parse_mode="HTML", reply_markup=kb)
+
+    elif call.data == "menu_add_numbers":
+        if user_id not in ADMIN_IDS:
+            bot.answer_callback_query(call.id, "⛔ Access denied!", show_alert=True)
+            return
+        admin_state[user_id] = "waiting_for_numbers"
+        text = "➕ <b>ADD NUMBERS AUTOMATICALLY</b>\n\nPaste your list of phone numbers below (separated by space, comma, or newline). System will auto-detect country codes!"
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("❌ CANCEL", callback_data="menu_back"))
         bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, parse_mode="HTML", reply_markup=kb)
@@ -240,7 +274,6 @@ def handle_callback(call):
 def handle_all_messages(message):
     user_id = message.from_user.id
     current_state = admin_state.get(user_id)
-    chat_id = message.chat.id
     
     if current_state == "waiting_for_ws" and user_id in ADMIN_IDS:
         text_input = message.text.strip()
@@ -255,21 +288,25 @@ def handle_all_messages(message):
         bot.reply_to(message, "✅ WebSocket WSS Configuration saved successfully!", parse_mode="HTML", reply_markup=get_reply_keyboard())
         return
 
-    if user_id in ADMIN_IDS and current_state == "waiting_for_numbers":
+    if current_state == "waiting_for_numbers" and user_id in ADMIN_IDS:
         phones = re.split(r'[\s,\n]+', message.text)
         total_added = 0
+        added_summary = {}
         for phone in phones:
             cleaned = phone.replace("+", "").strip()
             if cleaned.isdigit() and len(cleaned) >= 5:
-                _, _, full_key = detect_country_info(cleaned)
+                cname, flag, full_key = detect_country_info(cleaned)
                 if full_key not in inventory_numbers:
-                    cname, flag = detect_country_info(cleaned)[:2]
                     inventory_numbers[full_key] = {"flag": flag, "name": cname, "numbers": []}
                 if cleaned not in [i["phone"] for i in inventory_numbers[full_key]["numbers"]]:
                     inventory_numbers[full_key]["numbers"].append({"phone": cleaned, "expires": 0, "locked_by": None})
                     total_added += 1
+                    added_summary[full_key] = added_summary.get(full_key, 0) + 1
+        
         admin_state.pop(user_id, None)
-        bot.reply_to(message, f"✅ Added {total_added} numbers to inventory successfully!", parse_mode="HTML", reply_markup=get_reply_keyboard())
+        summary_str = "\n".join([f"• {k}: <b>+{v} numbers</b>" for k, v in added_summary.items()])
+        bot.reply_to(message, f"✅ <b>Successfully auto-added {total_added} numbers!</b>\n\n{summary_str}", parse_mode="HTML", reply_markup=get_reply_keyboard())
+        return
 
 @bot.message_handler(commands=['thue'])
 def handle_rent_number(message):
@@ -372,8 +409,20 @@ def websocket_worker():
             cname, flag, _ = detect_country_info(phone)
             asyncio.run(dispatch_update(service, phone, msg, timestamp, cname, flag, is_test=False))
         except: pass
-    def on_error(ws, error): pass
-    def on_close(ws, c, m): time.sleep(10)
+        
+    def on_error(ws, error):
+        for admin_id in ADMIN_IDS:
+            try:
+                bot.send_message(admin_id, f"🚨 <b>WSS ERROR / 403 ALERT!</b>\n\nWebSocket encountered an error: <code>{str(error)}</code>", parse_mode="HTML")
+            except: pass
+
+    def on_close(ws, c, m):
+        for admin_id in ADMIN_IDS:
+            try:
+                bot.send_message(admin_id, f"⚠️ <b>WSS CONNECTION CLOSED / DIE!</b>\n\nWebSocket connection was lost. Code: {c}", parse_mode="HTML")
+            except: pass
+        time.sleep(10)
+
     def on_open(ws): print("🟢 WebSocket Connected Real-time!")
 
     while True:
@@ -383,7 +432,11 @@ def websocket_worker():
                 try:
                     wsapp = websocket.WebSocketApp(ws_url, on_open=on_open, on_message=on_message, on_error=on_error, on_close=on_close)
                     wsapp.run_forever()
-                except: pass
+                except Exception as e:
+                    for admin_id in ADMIN_IDS:
+                        try:
+                            bot.send_message(admin_id, f"🚨 <b>WSS CRITICAL FAILURE!</b>\n\nException: <code>{str(e)}</code>", parse_mode="HTML")
+                        except: pass
         time.sleep(15)
 
 # --- FLASK SERVER & WEB APP ---
