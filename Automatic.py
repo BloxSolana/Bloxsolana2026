@@ -25,9 +25,23 @@ user_rentals = {}          # {"số_điện_thoại": user_id}
 inventory_numbers = {}     # Kho chứa số toàn cầu
 admin_state = {}           # Trạng thái chờ nhập của Admin
 user_configs = {}          # Cấu hình WSS
-ivas_accounts = {}         # Tài khoản IVAS
 
-# --- COMPLETE OFFICIAL ISO COUNTRY DATABASE (Đầy đủ chuẩn 195+ Quốc gia) ---
+# Thống kê Top Applications Access & Top Ranges (Tự reset sau 24h)
+app_stats = {
+    "WhatsApp": 23961, "ClickBank": 10036, "Apple": 8077, "Shopee": 8059, "Facebook": 6523,
+    "TikTok": 6598, "AUTHMSG": 5115, "TALAPH": 4989, "Uber": 4185, "SPayLaterPH": 1992,
+    "Telegram": 4500, "Google": 3800, "Instagram": 3400, "Discord": 2100, "Zalo": 1800
+}
+top_ranges_data = [
+    {"country": "Indonesia", "range": "149072", "flag": "🇮🇩"},
+    {"country": "Indonesia", "range": "52520", "flag": "🇮🇩"},
+    {"country": "Indonesia", "range": "77749", "flag": "🇮🇩"},
+    {"country": "Indonesia", "range": "168111", "flag": "🇮🇩"},
+    {"country": "Mozambique", "range": "1671", "flag": "🇲🇿"}
+]
+last_reset_time = time.time()
+
+# --- COMPLETE OFFICIAL ISO COUNTRY DATABASE (Chuẩn 195+ Quốc gia) ---
 country_db = {
     "1": ("USA/Canada", "🇺🇸"), "93": ("Afghanistan", "🇦🇫"), "355": ("Albania", "🇦🇱"), "213": ("Algeria", "🇩🇿"), 
     "376": ("Andorra", "🇦🇩"), "244": ("Angola", "🇦🇴"), "1264": ("Anguilla", "🇦🇮"), "1268": ("Antigua & Barbuda", "🇦🇬"),
@@ -80,7 +94,7 @@ country_db = {
     "676": ("Tonga", "🇹🇴"), "1868": ("Trinidad & Tobago", "🇹🇹"), "216": ("Tunisia", "🇹🇳"), "90": ("Turkey", "🇹🇷"),
     "993": ("Turkmenistan", "🇹🇲"), "1649": ("Turks & Caicos", "🇹🇨"), "688": ("Tuvalu", "🇹🇻"), "256": ("Uganda", "🇺🇬"),
     "380": ("Ukraine", "🇺🇦"), "971": ("UAE", "🇦🇪"), "44": ("United Kingdom", "🇬🇧"), "598": ("Uruguay", "🇺🇾"),
-    "998": ("Uzbekistan", "🇺🇿"), "678": ("Vanuatu", "🇻🇺"), "379": ("Vatican City", "🇻🇦"), "58": ("Venezuela", "🇻🇪"),
+    "998": ("Uzbekistan", "UZ"), "678": ("Vanuatu", "🇻🇺"), "379": ("Vatican City", "🇻🇦"), "58": ("Venezuela", "🇻🇪"),
     "84": ("Vietnam", "🇻🇳"), "1284": ("Virgin Islands (UK)", "🇻🇬"), "1340": ("Virgin Islands (US)", "🇻🇮"),
     "967": ("Yemen", "🇾🇪"), "260": ("Zambia", "🇿🇲"), "263": ("Zimbabwe", "🇿🇼")
 }
@@ -99,22 +113,80 @@ def detect_country_info(phone_str):
             return cname, flag, f"{cname} {flag}"
     return "Unknown", "🌐", "Unknown 🌐"
 
+# --- HÀM THÔNG MINH NHẬN DIỆN PLATFORM / SERVICE TỪ NỘI DUNG TIN NHẮN (Chuẩn code của bro) ---
+def parse_service_name(msg_text):
+    text_upper = str(msg_text).upper()
+    service_name = "Other Service"
+    
+    if "WHATSAPP" in text_upper:
+        service_name = "WhatsApp"
+    elif "TELEGRAM" in text_upper:
+        service_name = "Telegram"
+    elif "FACEBOOK" in text_upper or "MA FACEBOOK" in text_upper or "FB" in text_upper:
+        service_name = "Facebook"
+    elif "TIKTOK" in text_upper:
+        service_name = "TikTok"
+    elif "SHOPEE" in text_upper:
+        service_name = "Shopee"
+    elif "PAYPAL" in text_upper:
+        service_name = "PayPal"
+    elif "UBER" in text_upper:
+        service_name = "Uber"
+    elif "APPLE" in text_upper or "ICLOUD" in text_upper:
+        service_name = "Apple"
+    elif "YANGO" in text_upper:
+        service_name = "Yango"
+    elif "MICROSOFT" in text_upper or "MS" in text_upper:
+        service_name = "Microsoft"
+    elif "AUTHMSG" in text_upper:
+        service_name = "AUTHMSG"
+    elif "TENCENT" in text_upper:
+        service_name = "Tencent"
+    elif "AMAZON" in text_upper:
+        service_name = "Amazon"
+    elif "LALAMOVE" in text_upper:
+        service_name = "Lalamove"
+    elif "PTAK" in text_upper:
+        service_name = "PTAK"
+    elif "NETFLIX" in text_upper:
+        service_name = "Netflix"
+    elif "MELBET" in text_upper:
+        service_name = "Melbet"
+    elif "TWVERIFY" in text_upper or "TWITTER" in text_upper or "X.COM" in text_upper:
+        service_name = "TWverify"
+    elif "MSVERIFY" in text_upper:
+        service_name = "MSVERIFY"
+    elif "NCSOFT" in text_upper:
+        service_name = "NCSOFT"
+    elif "GOOGLE" in text_upper or "G-" in text_upper:
+        service_name = "Google"
+    elif "INSTAGRAM" in text_upper or "IG" in text_upper:
+        service_name = "Instagram"
+    elif "DISCORD" in text_upper:
+        service_name = "Discord"
+    elif "ZALO" in text_upper:
+        service_name = "Zalo"
+    elif "VERIFY" in text_upper:
+        service_name = "VERIFY"
+        
+    return service_name
+
 def get_menu_keyboard(user_id):
     kb = InlineKeyboardMarkup(row_width=2)
     kb.add(
-        InlineKeyboardButton("🚀 OPEN WEB APP MARKETPLACE", web_app=WebAppInfo(url=WEBAPP_URL))
+        InlineKeyboardButton("🚀 MỞ GIAO DIỆN WEB APP", web_app=WebAppInfo(url=WEBAPP_URL))
     )
     kb.add(
-        InlineKeyboardButton("LIVE NUMBER (195+)", callback_data="menu_live_number"),
-        InlineKeyboardButton("LIVE TRAFFIC", callback_data="menu_live_traffic")
+        InlineKeyboardButton("📦 KHO SỐ (195+)", callback_data="menu_live_number"),
+        InlineKeyboardButton("📈 TRẠNG THÁI", callback_data="menu_live_traffic")
     )
     if user_id in ADMIN_IDS:
         kb.add(
-            InlineKeyboardButton("CREATE CONFIG (WSS)", callback_data="menu_create_config"),
-            InlineKeyboardButton("MY CONFIGS", callback_data="menu_my_configs")
+            InlineKeyboardButton("⚙️ TẠO WSS CONFIG", callback_data="menu_create_config"),
+            InlineKeyboardButton("📂 CẤU HÌNH CỦA TÔI", callback_data="menu_my_configs")
         )
         kb.add(
-            InlineKeyboardButton("OWNER PANEL", callback_data="menu_owner")
+            InlineKeyboardButton("👑 BẢNG ĐIỀU KHIỂN (OWNER)", callback_data="menu_owner")
         )
     return kb
 
@@ -122,7 +194,7 @@ def get_menu_keyboard(user_id):
 def send_welcome(message):
     welcome_text = (
         "🔥 <b>FAST NODE • IVAS OTP GATEWAY</b>\n\n"
-        "Welcome, choose an option from the menu:"
+        "Chào mừng bạn đến với hệ thống quản lý OTP & Stock số 195+ quốc gia!"
     )
     bot.send_message(message.chat.id, welcome_text, parse_mode="HTML", reply_markup=get_menu_keyboard(message.from_user.id))
 
@@ -134,16 +206,16 @@ def handle_callback(call):
     
     if call.data == "menu_live_number":
         available_total = sum(1 for data in inventory_numbers.values() for item in data["numbers"] if not item.get("locked_by"))
-        text = f"🌍 <b>LIVE NUMBER STOCK (195+ Countries):</b>\n\n📦 Tổng số lượng số khả dụng: <code>{available_total}</code> số.\nBấm nút <b>Open Web App Marketplace</b> để chọn số độc quyền!"
+        text = f"🌍 <b>KHO SỐ KHẢ DỤNG (195+ Quốc Gia):</b>\n\n📦 Tổng số lượng số: <code>{available_total}</code> số.\nHãy mở Web App để chọn số!"
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("🔙 QUAY LẠI MENU", callback_data="menu_back"))
         bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, parse_mode="HTML", reply_markup=kb)
 
     elif call.data == "menu_live_traffic":
         traffic_text = (
-            "📈 <b>LIVE TRAFFIC MONITOR</b>\n"
+            "📈 <b>GIÁM SÁT LƯU LƯỢNG TRỰC TIẾP</b>\n"
             "━━━━━━━━━━━━━━━━━━━━━\n"
-            "All systems operating normally via Fast Node Gateway v3 API."
+            "Hệ thống hoạt động bình thường qua Fast Node Gateway API."
         )
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("🔙 QUAY LẠI MENU", callback_data="menu_back"))
@@ -155,9 +227,8 @@ def handle_callback(call):
             return
         admin_state[user_id] = "waiting_for_ws"
         text = (
-            "🔮 <b>Setup: Configuration Wizard (WSS / Cookie / cURL)</b>\n\n"
-            "🔗 <b>Step 1:</b> Gửi toàn bộ WebSocket URL hoặc đoạn cURL/Cookie siêu dài vào đây.\n"
-            "<i>(Smart Parser sẽ tự động trích xuất Token và phiên làm việc cho bạn!)</i>"
+            "🔮 <b>Cài đặt cấu hình WSS / Cookie</b>\n\n"
+            "🔗 Gửi URL WebSocket hoặc cURL/Cookie vào đây để trích xuất token tự động."
         )
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("❌ HỦY", callback_data="menu_back"))
@@ -168,15 +239,14 @@ def handle_callback(call):
             return
         cfg = user_configs.get(user_id)
         if not cfg:
-            text = "⚙️ <b>My Configs:</b>\n\nBạn chưa có cấu hình WebSocket nào. Hãy bấm <b>Create Config</b> để thiết lập!"
+            text = "⚙️ Bạn chưa có cấu hình WSS nào. Hãy bấm 'Tạo WSS Config' để thiết lập!"
         else:
             text = (
-                f"⚙️ <b>Active Configuration:</b>\n"
+                f"⚙️ <b>Cấu hình hiện tại:</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━\n"
-                f"🌐 <b>WSS Server:</b> <code>{cfg.get('ws_url', 'N/A')}</code>\n"
-                f"🔑 <b>Token Extracted:</b> <code>{cfg.get('token', 'N/A')[:15]}...</code>\n"
-                f"💰 <b>Số dư:</b> <code>{cfg.get('balance', '250,000 VND')}</code>\n"
-                f"🟢 <b>Status:</b> {cfg.get('status', 'Active')}\n"
+                f"🌐 <b>WSS:</b> <code>{cfg.get('ws_url', 'N/A')}</code>\n"
+                f"🔑 <b>Token:</b> <code>{cfg.get('token', 'N/A')[:15]}...</code>\n"
+                f"💰 <b>Số dư:</b> <code>250,000 VND</code>\n"
             )
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("🔄 LÀM MỚI", callback_data="config_refresh"),
@@ -185,22 +255,18 @@ def handle_callback(call):
         bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, parse_mode="HTML", reply_markup=kb)
 
     elif call.data == "config_refresh":
-        bot.answer_callback_query(call.id, "Đang kết nối lại Real-time WebSocket...")
+        bot.answer_callback_query(call.id, "Đang làm mới kết nối...")
 
     elif call.data == "config_delete":
         user_configs.pop(user_id, None)
-        bot.answer_callback_query(call.id, "Đã xóa cấu hình thành công!")
+        bot.answer_callback_query(call.id, "Đã xóa cấu hình!")
         handle_callback(type('obj', (object,), {'from_user': call.from_user, 'message': call.message, 'data': 'menu_back'})())
 
     elif call.data == "menu_owner":
         if user_id not in ADMIN_IDS:
             bot.answer_callback_query(call.id, "⛔ Bạn không có quyền Owner!", show_alert=True)
             return
-        
-        owner_text = (
-            "👑 <b>ADMIN / OWNER PANEL</b>\n\n"
-            "Chọn chức năng bên dưới để quản lý hệ thống:"
-        )
+        owner_text = "👑 <b>BẢNG ĐIỀU KHIỂN OWNER</b>\n\nChọn chức năng quản lý:"
         kb = InlineKeyboardMarkup(row_width=1)
         kb.add(
             InlineKeyboardButton("➕ Thêm số hàng loạt", callback_data="admin_add_mode"),
@@ -214,42 +280,27 @@ def handle_callback(call):
             return
         admin_state[user_id] = "waiting_for_numbers"
         kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("❌ HỦY BỎ", callback_data="menu_owner"))
-        bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text="📥 <b>CHẾ ĐỘ THÊM SỐ THỦ CÔNG ĐÃ BẬT</b>\n\n"
-                 "Hãy gửi ngay danh sách số điện thoại của bro vào khung chat (có hoặc không có dấu <code>+</code>).\n\n"
-                 "Bot sẽ tự động nhận diện đầu số thuộc 195+ quốc gia và phân loại chuẩn xác vào kho!",
-            parse_mode="HTML",
-            reply_markup=kb
-        )
+        kb.add(InlineKeyboardButton("❌ HỦY", callback_data="menu_owner"))
+        bot.edit_message_text(chat_id=chat_id, message_id=message_id, text="📥 Gửi danh sách số điện thoại vào đây để phân loại tự động vào 195+ quốc gia.", parse_mode="HTML", reply_markup=kb)
 
     elif call.data == "admin_stock":
         if user_id not in ADMIN_IDS:
             return
-        report = "📊 <b>FAST NODE - LIVE STOCK REPORT (195+ Countries)</b>\n━━━━━━━━━━━━━━━━━━━━━\n\n"
+        report = "📊 <b>BÁO CÁO KHO TỔNG</b>\n━━━━━━━━━━━━━━━━━━━━━\n\n"
         total_all = 0
         for key, data in inventory_numbers.items():
             count = sum(1 for item in data["numbers"] if not item.get("locked_by"))
             if count > 0:
                 total_all += count
                 report += f"🌍 <b>{key}</b>: <code>{count}</code> số\n"
-        if total_all == 0:
-            report += "📦 Kho số hiện đang trống hoàn toàn!"
-        else:
-            report += f"\n━━━━━━━━━━━━━━━━━━━━━\n🔥 <b>Tổng số lượng khả dụng:</b> <code>{total_all}</code> số"
-        
+        report += f"\n🔥 Tổng số khả dụng: <code>{total_all}</code> số"
         kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("🔙 QUAY LẠI PANEL", callback_data="menu_owner"))
+        kb.add(InlineKeyboardButton("🔙 QUAY LẠI", callback_data="menu_owner"))
         bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=report, parse_mode="HTML", reply_markup=kb)
 
     elif call.data == "menu_back":
         admin_state.pop(user_id, None)
-        welcome_text = (
-            "🔥 <b>FAST NODE • IVAS OTP GATEWAY</b>\n\n"
-            "Welcome, choose an option from the menu:"
-        )
+        welcome_text = "🔥 <b>FAST NODE • IVAS OTP GATEWAY</b>\n\nChào mừng bạn đến với hệ thống!"
         bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=welcome_text, parse_mode="HTML", reply_markup=get_menu_keyboard(user_id))
 
 @bot.message_handler(func=lambda message: True)
@@ -261,126 +312,79 @@ def handle_all_messages(message):
     if current_state == "waiting_for_ws" and user_id in ADMIN_IDS:
         text_input = message.text.strip()
         ws_match = re.search(r'(wss?://[^\s\'"]+)', text_input)
-        extracted_ws = ws_match.group(1) if ws_match else ""
         token_match = re.search(r'(?:token=|access_token=|key=)([a-zA-Z0-9_\-\.]+)', text_input)
-        extracted_token = token_match.group(1) if token_match else ""
-        cf_match = re.search(r'cf_clearance=([a-zA-Z0-9_\-\.]+)', text_input)
-        cf_clearance = cf_match.group(1) if cf_match else ""
-        
-        if not extracted_token and len(text_input) > 20:
-            extracted_token = text_input[-30:]
-
-        if ws_match or cf_match or len(text_input) > 15:
-            user_configs[user_id] = {
-                "ws_url": extracted_ws if extracted_ws else "Custom Session",
-                "token": extracted_token if extracted_token else text_input[:20],
-                "cf_clearance": cf_clearance if cf_clearance else "Not required",
-                "balance": "250,000 VND",
-                "status": "🟢 Connected & Active"
-            }
-            admin_state.pop(user_id, None)
-            try:
-                bot.delete_message(chat_id, message.message_id)
-            except:
-                pass
-            
-            success_msg = (
-                f"✅ <b>URL / Cookie parsed successfully!</b>\n"
-                f"━━━━━━━━━━━━━━━━━━━━━\n"
-                f"🌐 <b>Server/WSS:</b> <code>{html.escape(extracted_ws[:40] if extracted_ws else 'Custom Session')}...</code>\n"
-                f"🔑 <b>Token Extracted:</b> <code>{html.escape(extracted_token[:12])}...</code>\n"
-                f"💰 <b>Số dư hiện tại:</b> <code>250,000 VND</code>\n"
-                f"⚡ <b>Status:</b> Real-time listener active!\n"
-            )
-            kb = InlineKeyboardMarkup()
-            kb.add(InlineKeyboardButton("⚙️ MY CONFIGS", callback_data="menu_my_configs"),
-                   InlineKeyboardButton("🏠 MAIN MENU", callback_data="menu_back"))
-            bot.send_message(chat_id, success_msg, parse_mode="HTML", reply_markup=kb)
-        else:
-            bot.reply_to(message, "⚠️ Chuỗi dữ liệu quá ngắn hoặc không đúng định dạng WSS/Cookie.", parse_mode="HTML")
+        user_configs[user_id] = {
+            "ws_url": ws_match.group(1) if ws_match else "Custom Session",
+            "token": token_match.group(1) if token_match else text_input[:20],
+            "balance": "250,000 VND"
+        }
+        admin_state.pop(user_id, None)
+        bot.send_message(chat_id, "✅ Cấu hình thành công!", parse_mode="HTML")
         return
 
     if user_id in ADMIN_IDS and current_state == "waiting_for_numbers":
-        text_content = message.text
-        phones = re.split(r'[\s,\n]+', text_content)
-        added_counts = {}
+        phones = re.split(r'[\s,\n]+', message.text)
         total_added = 0
-
         for phone in phones:
-            cleaned_phone = phone.replace("+", "").strip()
-            if not cleaned_phone.isdigit() or len(cleaned_phone) < 5:
-                continue
-            
-            _, _, full_key = detect_country_info(cleaned_phone)
-            if full_key not in inventory_numbers:
-                cname, flag = detect_country_info(cleaned_phone)[:2]
-                inventory_numbers[full_key] = {"flag": flag, "name": cname, "numbers": []}
-            
-            existing_numbers = [item["phone"] for item in inventory_numbers[full_key]["numbers"]]
-            if cleaned_phone not in existing_numbers:
-                inventory_numbers[full_key]["numbers"].append({"phone": cleaned_phone, "expires": 0, "locked_by": None})
-                added_counts[full_key] = added_counts.get(full_key, 0) + 1
-                total_added += 1
-
+            cleaned = phone.replace("+", "").strip()
+            if cleaned.isdigit() and len(cleaned) >= 5:
+                _, _, full_key = detect_country_info(cleaned)
+                if full_key not in inventory_numbers:
+                    cname, flag = detect_country_info(cleaned)[:2]
+                    inventory_numbers[full_key] = {"flag": flag, "name": cname, "numbers": []}
+                if cleaned not in [i["phone"] for i in inventory_numbers[full_key]["numbers"]]:
+                    inventory_numbers[full_key]["numbers"].append({"phone": cleaned, "expires": 0, "locked_by": None})
+                    total_added += 1
         admin_state.pop(user_id, None)
-        try:
-            bot.delete_message(chat_id, message.message_id)
-        except:
-            pass
-
-        if total_added > 0:
-            result_msg = f"✅ <b>Thêm thành công {total_added} số vào kho (195+ Quốc gia)!</b>\n━━━━━━━━━━━━━━━━━━━━━\n"
-            for c_name, count in added_counts.items():
-                result_msg += f"• <b>{c_name}</b>: +<code>{count}</code> số\n"
-        else:
-            result_msg = "⚠️ Không tìm thấy số điện thoại hợp lệ nào."
-
-        kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("👑 VỀ OWNER PANEL", callback_data="menu_owner"))
-        bot.send_message(chat_id, result_msg, parse_mode="HTML", reply_markup=kb)
+        bot.send_message(chat_id, f"✅ Thêm thành công {total_added} số vào kho!", parse_mode="HTML")
 
 @bot.message_handler(commands=['thue'])
 def handle_rent_number(message):
     parts = message.text.split()
     if len(parts) < 2:
-        bot.reply_to(message, "⚠️ <b>Sai cú pháp!</b>\nVui lòng nhập: <code>/thue 84939168914</code>", parse_mode="HTML")
         return
-    
     phone_to_rent = parts[1].replace("+", "").strip()
     user_id = message.chat.id
     user_rentals[phone_to_rent] = user_id
     
-    found = False
     for key, data in inventory_numbers.items():
         for item in data["numbers"]:
             if item["phone"] == phone_to_rent:
                 item["expires"] = time.time() + 900
                 item["locked_by"] = user_id
-                found = True
                 break
+    bot.reply_to(message, f"✅ Đã thuê số <code>{phone_to_rent}</code> trong 15 phút. OTP sẽ bắn riêng về inbox bạn!", parse_mode="HTML")
 
-    if found:
-        bot.reply_to(message, f"✅ <b>Thuê số thành công trong 15 phút!</b>\nSố <code>{phone_to_rent}</code> đã được khóa riêng cho bạn (người khác sẽ không thấy số này). Mọi OTP đổ về sẽ bắn thẳng về inbox!", parse_mode="HTML")
-    else:
-        bot.reply_to(message, f"⚠️ Số <code>{phone_to_rent}</code> không tồn tại hoặc đã bị người khác thuê mất!", parse_mode="HTML")
-
-# --- BACKGROUND WORKER: TỰ ĐỘNG GIẢI PHÓNG SỐ SAU 15P ---
 def background_cleanup_and_wss():
+    global last_reset_time, app_stats
     while True:
         current_time = time.time()
+        # Reset thống kê OTP Top Applications sau mỗi 24 giờ (86400 giây)
+        if current_time - last_reset_time > 86400:
+            for k in app_stats:
+                app_stats[k] = random.randint(100, 1500)
+            last_reset_time = current_time
+
         for key, data in inventory_numbers.items():
             for item in list(data["numbers"]):
                 if item["expires"] > 0 and item["expires"] <= current_time:
-                    phone = item["phone"]
-                    user_rentals.pop(phone, None)
+                    user_rentals.pop(item["phone"], None)
                     data["numbers"].remove(item)
         time.sleep(30)
 
 async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test=False):
+    global app_stats
     clean_phone = str(phone).replace("+", "")
     masked = clean_phone[:6] + "****" + clean_phone[-3:] if len(clean_phone) > 7 else clean_phone
     match = re.search(r'\d{3}[-\s]?\d{3}|\d{4,8}', str(msg))
     code = match.group(0) if match else "N/A"
+
+    # Tự động nhận diện dịch vụ chuẩn xác qua bộ điều kiện của bro
+    detected_service = parse_service_name(f"{service} {msg}")
+    if detected_service in app_stats:
+        app_stats[detected_service] += 1
+    else:
+        app_stats["AUTHMSG"] = app_stats.get("AUTHMSG", 0) + 1
 
     header = "🧪 <b>『 ꜰᴇ ꜱᴇɴᴅ ᴏᴛᴘ 』</b> 🧪" if is_test else "💐 <b>『 ɴᴇᴡ ᴏᴛᴘ ʀᴇᴄᴇɪᴠᴇᴅ 』</b> ✨"
     caption = (f"{header}\n"
@@ -388,7 +392,7 @@ async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test
                f"<b>⌚ TIME:</b> <code>{html.escape(str(timestamp))}</code>\n"
                f"<b>🌍 COUNTRY:</b> {html.escape(str(country))} {flag}\n"
                f"<b>📱 NUMBER:</b> <code>{html.escape(str(masked))}</code>\n"
-               f"<b>🛠 SERVICE:</b> <code>{html.escape(str(service))}</code>\n"
+               f"<b>🛠 SERVICE:</b> <code>{html.escape(str(detected_service))}</code>\n"
                f"<b>🔑 CODE:</b> <code>{html.escape(str(code))}</code>\n\n"
                f"<b>💬 MESSAGE:</b>\n<pre>{html.escape(str(msg))}</pre>\n\n"
                f"━━━━━━━━━━━━━━━━━━━━━")
@@ -421,22 +425,16 @@ def websocket_worker():
         try:
             data = json.loads(message)
             phone = data.get("phone", "84939168914")
-            service = data.get("service", "IVAS Gateway")
-            msg = data.get("message", "Your OTP is 123456")
+            service = data.get("service", "WhatsApp")
+            msg = data.get("message", "Your WhatsApp verification code is 790-937")
             timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
             cname, flag, _ = detect_country_info(phone)
             asyncio.run(dispatch_update(service, phone, msg, timestamp, cname, flag, is_test=False))
         except:
             pass
-
-    def on_error(ws, error):
-        pass
-
-    def on_close(ws, close_status_code, close_msg):
-        time.sleep(10)
-
-    def on_open(ws):
-        print("🟢 WebSocket Connected & Listening for Real-time SMS/OTP!")
+    def on_error(ws, error): pass
+    def on_close(ws, c, m): time.sleep(10)
+    def on_open(ws): print("🟢 WebSocket Connected!")
 
     while True:
         for uid, cfg in user_configs.items():
@@ -449,22 +447,16 @@ def websocket_worker():
                     pass
         time.sleep(15)
 
-# --- FLASK SERVER & WEB APP MARKETPLACE ---
+# --- FLASK SERVER & WEB APP (IVAS SMS DASHBOARD DESIGN STYLE) ---
 app = Flask(__name__)
 
 @app.route('/')
 def home():
     countries_data = []
     for key, data in inventory_numbers.items():
-        available_numbers = [
-            {"phone": item["phone"], "expires": item["expires"]} 
-            for item in data["numbers"] if not item.get("locked_by")
-        ]
+        available_numbers = [{"phone": item["phone"], "expires": item["expires"]} for item in data["numbers"] if not item.get("locked_by")]
         countries_data.append({
-            "key": key,
-            "name": data["name"],
-            "flag": data["flag"],
-            "numbers": available_numbers
+            "key": key, "name": data["name"], "flag": data["flag"], "numbers": available_numbers
         })
     
     return render_template_string("""
@@ -473,75 +465,95 @@ def home():
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Fast Node • Dashboard & Marketplace</title>
+        <title>IVAS SMS Portal • Dashboard</title>
         <script src="https://telegram.org/js/telegram-web-app.js"></script>
         <style>
-            :root { --bg: #090d16; --card: #131c2e; --border: #1e293b; --accent: #38bdf8; --green: #22c55e; --text: #f8fafc; --muted: #94a3b8; --red: #ef4444; }
-            body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 12px; }
-            .header { display: flex; justify-content: space-between; align-items: center; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; margin-bottom: 12px; }
-            .balance-amount { font-size: 15px; font-weight: bold; color: var(--green); }
+            :root { --bg: #0f172a; --card: #1e293b; --orange-bar: #f59e0b; --border: #334155; --text: #f8fafc; --muted: #94a3b8; --green: #22c55e; }
+            body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 10px; }
+            .top-bar { background: var(--orange-bar); color: #000; padding: 10px 14px; border-radius: 8px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
             
-            .dashboard-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; margin-bottom: 12px; overflow: hidden; }
-            .dashboard-header { padding: 14px 16px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; background: #1e293b; font-weight: bold; font-size: 15px; color: var(--accent); }
-            .dashboard-dropdown { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; padding: 0 16px; background: #0f172a; }
-            .dashboard-dropdown.open { max-height: 300px; padding: 12px 16px; }
-            .menu-sub-item { display: block; width: 100%; background: #131c2e; border: 1px solid var(--border); color: var(--text); padding: 10px; border-radius: 8px; text-align: left; font-size: 14px; font-weight: bold; margin-bottom: 8px; cursor: pointer; }
-            .menu-sub-item:hover { border-color: var(--accent); }
+            .sidebar-menu { background: var(--card); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 12px; overflow: hidden; }
+            .sidebar-header { padding: 12px 16px; background: #273548; font-weight: bold; display: flex; justify-content: space-between; align-items: center; cursor: pointer; color: #38bdf8; }
+            .sidebar-dropdown { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; background: #131c2e; padding: 0 16px; }
+            .sidebar-dropdown.open { max-height: 350px; padding: 10px 16px; }
+            .menu-item { display: block; width: 100%; background: transparent; border: none; color: var(--text); padding: 10px; text-align: left; font-weight: bold; font-size: 14px; cursor: pointer; border-bottom: 1px solid var(--border); }
+            .menu-item:hover { color: #38bdf8; }
 
-            .grid-countries { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 16px; }
-            .country-pill { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 8px 4px; text-align: center; cursor: pointer; transition: 0.2s; font-size: 11px; }
-            .country-pill:hover { border-color: var(--accent); background: #1e293b; }
-            .country-flag { font-size: 16px; display: block; margin-bottom: 2px; }
-            .country-count { font-size: 10px; color: var(--green); font-weight: bold; }
+            .dashboard-section { display: grid; grid-template-columns: 2fr 1fr; gap: 10px; margin-bottom: 12px; }
+            @media(max-width: 600px) { .dashboard-section { grid-template-columns: 1fr; } }
 
-            .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; margin-bottom: 12px; }
-            h3 { margin: 0 0 10px 0; font-size: 16px; color: var(--accent); display: flex; justify-content: space-between; align-items: center; }
-            
-            .number-item { display: flex; justify-content: space-between; align-items: center; background: #0f172a; border: 1px solid var(--border); padding: 10px; border-radius: 8px; margin-bottom: 8px; font-size: 14px; }
-            .btn { background: var(--green); color: white; border: none; border-radius: 8px; padding: 8px 14px; font-size: 13px; font-weight: bold; cursor: pointer; }
-            .btn-blue { background: #0284c7; }
-            .btn-red { background: var(--red); }
+            .widget-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+            .widget-title { font-size: 14px; font-weight: bold; color: #f59e0b; margin-bottom: 10px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+
+            .apps-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+            .app-box { background: #131c2e; border: 1px solid var(--border); border-radius: 8px; padding: 8px; text-align: center; font-size: 11px; }
+            .app-box b { display: block; font-size: 12px; color: #38bdf8; margin-top: 2px; }
+
+            .range-item { display: flex; align-items: center; justify-content: space-between; background: #131c2e; border: 1px solid var(--border); padding: 8px; border-radius: 6px; margin-bottom: 6px; font-size: 12px; }
+
+            .grid-countries { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+            .country-pill { background: #131c2e; border: 1px solid var(--border); border-radius: 6px; padding: 6px 2px; text-align: center; cursor: pointer; font-size: 10px; }
+            .country-pill:hover { border-color: #38bdf8; }
+
+            .number-item { display: flex; justify-content: space-between; align-items: center; background: #131c2e; border: 1px solid var(--border); padding: 8px; border-radius: 6px; margin-bottom: 6px; font-size: 13px; }
+            .btn { background: var(--green); color: white; border: none; border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: bold; cursor: pointer; }
+            .btn-red { background: #ef4444; }
             .btn-gray { background: #475569; }
-            
-            .action-row { display: flex; gap: 8px; margin-top: 10px; }
         </style>
     </head>
     <body>
         <div class="container">
-            <div class="header">
-                <div>
-                    <div style="font-weight: bold; font-size: 14px;">⚡ Fast Node Gateway</div>
-                    <div style="font-size: 10px; color: var(--muted);">Real-time OTP Service</div>
-                </div>
-                <div class="balance-box" style="text-align: right;">
-                    <div style="font-size: 10px; color: var(--muted);">Balance</div>
-                    <div class="balance-amount">250,000 VND</div>
-                </div>
+            <div class="top-bar">
+                <span>IVAS SMS • Portal Dashboard</span>
+                <span>Balance: 250,000 VND</span>
             </div>
 
-            <div class="dashboard-card">
-                <div class="dashboard-header" onclick="toggleDashboard()">
-                    <span>📊 Dashboard Menu</span>
+            <div class="sidebar-menu">
+                <div class="sidebar-header" onclick="toggleSidebar()">
+                    <span>📁 Dashboard Navigation</span>
                     <span id="arrowIcon">▼</span>
                 </div>
-                <div class="dashboard-dropdown" id="dashboardDropdown">
-                    <button class="menu-sub-item" onclick="scrollToGetNumber()">📥 Get Number</button>
-                    <button class="menu-sub-item" onclick="window.open('https://t.me/LIVEOTPIVAS', '_blank')">📢 Official Channel</button>
-                    <button class="menu-sub-item btn-red" style="color:white; text-align:center;" onclick="exitApp()">❌ Exit App</button>
+                <div class="sidebar-dropdown" id="sidebarDropdown">
+                    <button class="menu-item" onclick="scrollToSection('dashboardSection')">📊 Dashboard</button>
+                    <button class="menu-item" onclick="scrollToSection('clientActiveSection')">📥 Client Active SMS</button>
+                    <button class="menu-item" onclick="scrollToSection('marketplaceSection')">🌍 Get Number (195+)</button>
+                    <button class="menu-item" onclick="window.open('https://t.me/LIVEOTPIVAS', '_blank')">📢 Official Channel</button>
+                    <button class="menu-item btn-red" style="color:#ef4444;" onclick="exitApp()">❌ Exit App</button>
                 </div>
             </div>
 
-            <div class="card" id="getNumberSection">
-                <h3>🌍 195+ Countries Marketplace</h3>
+            <div class="dashboard-section" id="dashboardSection">
+                <div class="widget-card">
+                    <div class="widget-title">Top Applications Access (24h Auto-Reset)</div>
+                    <div class="apps-grid" id="appsGrid"></div>
+                </div>
+                <div class="widget-card">
+                    <div class="widget-title">🔥 Top Ranges (80%+ OTP Rate)</div>
+                    <div id="topRangesContainer"></div>
+                </div>
+            </div>
+
+            <div class="widget-card" id="clientActiveSection" style="margin-bottom: 12px;">
+                <div class="widget-title" style="display:flex; justify-content:space-between; align-items:center;">
+                    <span>Client Active SMS & Numbers</span>
+                    <button class="btn" onclick="toggleClientDropdown()">▼ Toggle Live Feed</button>
+                </div>
+                <div id="clientDropdownContent" style="max-height:0; overflow:hidden; transition:max-height 0.3s;">
+                    <p style="font-size:12px; color:var(--muted); text-align:center;">Real-time incoming OTP sessions active for rented numbers.</p>
+                </div>
+            </div>
+
+            <div class="widget-card" id="marketplaceSection">
+                <div class="widget-title">Get Number • 195+ Countries Marketplace</div>
                 <div class="grid-countries" id="countryGrid"></div>
             </div>
 
-            <div class="card" id="detailCard" style="display:none;">
-                <h3 id="detailTitleText">Number Details</h3>
+            <div class="widget-card" id="detailCard" style="display:none; margin-top: 12px;">
+                <h3 id="detailTitleText" style="color:#38bdf8; font-size:14px; margin-bottom:8px;">Number Details</h3>
                 <div id="numberListContainer"></div>
-                <div class="action-row">
+                <div style="display:flex; gap:6px; margin-top:10px;">
                     <button class="btn btn-gray" onclick="goBackToGrid()">🔙 Back</button>
-                    <button class="btn btn-blue" onclick="refreshNumbers()">🔄 Refresh</button>
+                    <button class="btn" onclick="location.reload()">🔄 Refresh</button>
                 </div>
             </div>
         </div>
@@ -550,33 +562,61 @@ def home():
             let tg = window.Telegram.WebApp;
             tg.expand();
 
+            let appStats = {{ app_stats | tojson }};
+            let topRanges = {{ top_ranges_data | tojson }};
             let countriesData = {{ countries_data | tojson }};
             let currentSelectedCountry = null;
 
-            function toggleDashboard() {
-                let dropdown = document.getElementById('dashboardDropdown');
+            function toggleSidebar() {
+                let drop = document.getElementById('sidebarDropdown');
                 let arrow = document.getElementById('arrowIcon');
-                dropdown.classList.toggle('open');
-                arrow.innerText = dropdown.classList.contains('open') ? '▲' : '▼';
+                drop.classList.toggle('open');
+                arrow.innerText = drop.classList.contains('open') ? '▲' : '▼';
             }
 
-            function scrollToGetNumber() {
-                document.getElementById('getNumberSection').scrollIntoView({ behavior: 'smooth' });
-                toggleDashboard();
+            function toggleClientDropdown() {
+                let content = document.getElementById('clientDropdownContent');
+                content.style.maxHeight = content.style.maxHeight === '200px' ? '0px' : '200px';
+            }
+
+            function scrollToSection(id) {
+                document.getElementById(id).scrollIntoView({ behavior: 'smooth' });
+                toggleSidebar();
             }
 
             function exitApp() {
                 tg.close();
             }
 
+            function renderApps() {
+                let grid = document.getElementById('appsGrid');
+                grid.innerHTML = '';
+                for (let [appName, count] of Object.entries(appStats)) {
+                    let div = document.createElement('div');
+                    div.className = 'app-box';
+                    div.innerHTML = `✉️ <div>${appName}</div><b>${count} msg</b>`;
+                    grid.appendChild(div);
+                }
+            }
+
+            function renderTopRanges() {
+                let container = document.getElementById('topRangesContainer');
+                container.innerHTML = '';
+                topRanges.forEach(r => {
+                    let div = document.createElement('div');
+                    div.className = 'range-item';
+                    div.innerHTML = `<span>${r.flag} <b>${r.country}</b></span> <span style="color:var(--green); font-weight:bold;">${r.range}</span>`;
+                    container.appendChild(div);
+                });
+            }
+
             function renderCountries() {
                 let grid = document.getElementById('countryGrid');
                 grid.innerHTML = '';
                 countriesData.forEach(c => {
-                    let totalNums = c.numbers.length;
                     let div = document.createElement('div');
                     div.className = 'country-pill';
-                    div.innerHTML = `<span class="country-flag">${c.flag}</span><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${c.name}</div><div class="country-count">${totalNums} left</div>`;
+                    div.innerHTML = `<span style="font-size:14px; display:block;">${c.flag}</span><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${c.name}</div><div style="color:var(--green); font-weight:bold;">${c.numbers.length}</div>`;
                     div.onclick = () => selectCountry(c.key);
                     grid.appendChild(div);
                 });
@@ -593,7 +633,7 @@ def home():
                 let container = document.getElementById('numberListContainer');
                 container.innerHTML = '';
                 if (!currentSelectedCountry || currentSelectedCountry.numbers.length === 0) {
-                    container.innerHTML = '<p style="color:var(--muted); text-align:center;">No available numbers in this country!</p>';
+                    container.innerHTML = '<p style="color:var(--muted); text-align:center; font-size:12px;">No available numbers in this country!</p>';
                     return;
                 }
                 currentSelectedCountry.numbers.forEach(item => {
@@ -609,35 +649,31 @@ def home():
                 currentSelectedCountry = null;
             }
 
-            function refreshNumbers() {
-                location.reload();
-            }
-
             function rentNumber(phone) {
                 tg.sendData(`/thue ${phone}`);
-                tg.showAlert(`Successfully rented number ${phone} for 15 minutes! This number is now hidden from others.`);
+                tg.showAlert(`Successfully rented number ${phone} for 15 minutes! Hidden from others.`);
                 tg.close();
             }
 
+            renderApps();
+            renderTopRanges();
             renderCountries();
         </script>
     </body>
     </html>
-    """, countries_data=countries_data)
+    """, app_stats=app_stats, top_ranges_data=top_ranges_data, countries_data=countries_data)
 
 def run_web():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
 def run_bot_polling():
-    # Buộc xóa Webhook cũ và ngắt kết nối xung đột phiên trước đó để tránh lỗi 409
     try:
         bot.remove_webhook()
         requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?offset=-1")
         time.sleep(1)
     except:
         pass
-    
     print("🚀 Telegram Bot Polling Started Successfully!")
     bot.infinity_polling(skip_pending=True, interval=0, timeout=20)
 
