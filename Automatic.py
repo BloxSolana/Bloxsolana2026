@@ -9,13 +9,14 @@ import json
 import requests
 import websocket
 import telebot
-from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
+from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from flask import Flask
 
 # --- CONFIGURATION ---
 BOT_TOKEN = "9139656226:AAF3G3Kll7E0DipP80mnXGWvex4BMdEVCzc"
 TARGET_CHAT = -1004341368656  # ID Group chính xác của bro
 ADMIN_IDS = [6726769296]       # ID Admin tối cao của bro
+WEBAPP_URL = "https://bloxsolana2026.onrender.com"  # Link WebApp trên Render của bro
 
 bot = telebot.TeleBot(token=BOT_TOKEN)
 
@@ -23,7 +24,7 @@ bot = telebot.TeleBot(token=BOT_TOKEN)
 user_rentals = {}          # {"số_điện_thoại": user_id}
 inventory_numbers = {}     # {"Quốc gia Flag": [danh_sách_số]}
 admin_state = {}           # Lưu trạng thái chờ nhập
-user_configs = {}          # Lưu cấu hình WSS/Cookie: {user_id: {"ws_url": "...", "token": "...", "status": "Active"}}
+user_configs = {}          # Lưu cấu hình WSS/Cookie
 ivas_accounts = {}         # Lưu tài khoản IVAS
 
 # --- COMPLETE COUNTRY DATABASE (195+ Quốc gia chuẩn) ---
@@ -95,12 +96,14 @@ def detect_country_by_phone(phone_str):
 
 def get_menu_keyboard(user_id):
     kb = InlineKeyboardMarkup(row_width=2)
-    # Các nút chung cho tất cả mọi người
+    # Tích hợp nút mở Mini App màu sắc chuẩn phong cách Ấn Độ
+    kb.add(
+        InlineKeyboardButton("🚀 OPEN WEB APP", web_app=WebAppInfo(url=WEBAPP_URL))
+    )
     kb.add(
         InlineKeyboardButton("LIVE NUMBER (195+)", callback_data="menu_live_number"),
         InlineKeyboardButton("LIVE TRAFFIC", callback_data="menu_live_traffic")
     )
-    # Chỉ Admin mới thấy nút tạo WSS, My Configs và Owner Panel
     if user_id in ADMIN_IDS:
         kb.add(
             InlineKeyboardButton("CREATE CONFIG (WSS)", callback_data="menu_create_config"),
@@ -251,27 +254,6 @@ def handle_callback(call):
         )
         bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=welcome_text, parse_mode="HTML", reply_markup=get_menu_keyboard(user_id))
 
-# --- HỆ THỐNG LỆNH IVAS ---
-@bot.message_handler(commands=['addaccountivas', 'addivas'])
-def cmd_add_account(message):
-    user_id = message.from_user.id
-    admin_state[user_id] = "waiting_for_ivas_email"
-    bot.reply_to(message, "📧 <b>IVAS Account Setup:</b>\nVui lòng gửi email tài khoản IVAS của bạn:", parse_mode="HTML")
-
-@bot.message_handler(commands=['listivas'])
-def cmd_list_ivas(message):
-    user_id = message.from_user.id
-    accounts = ivas_accounts.get(user_id, [])
-    if not accounts:
-        bot.reply_to(message, "📦 Bạn chưa liên kết tài khoản IVAS nào. Dùng lệnh /addivas để thêm.", parse_mode="HTML")
-        return
-    
-    text = "📋 <b>Danh sách tài khoản IVAS của bạn:</b>\n━━━━━━━━━━━━━━━━━━━━━\n"
-    for acc in accounts:
-        default_tag = " ⭐ (Default)" if acc.get('is_default') else ""
-        text += f"• User: <code>{acc['username']}</code> | Email: <code>{acc['email']}</code>{default_tag}\n"
-    bot.reply_to(message, text, parse_mode="HTML")
-
 # --- LẮNG NGHE TIN NHẮN CHỜ (SMART PARSER & THÊM SỐ) ---
 @bot.message_handler(func=lambda message: True)
 def handle_all_messages(message):
@@ -368,155 +350,95 @@ def handle_all_messages(message):
         kb.add(InlineKeyboardButton("👑 VỀ OWNER PANEL", callback_data="menu_owner"))
         bot.send_message(chat_id, result_msg, parse_mode="HTML", reply_markup=kb)
 
-# --- LỆNH /STOCK & /THUE ---
-@bot.message_handler(commands=['stock'])
-def show_stock(message):
-    if not inventory_numbers:
-        bot.reply_to(message, "📦 <b>Kho số hiện đang trống!</b>", parse_mode="HTML")
-        return
-    
-    report = "📊 <b>FAST NODE - LIVE STOCK REPORT (195+ Countries)</b>\n━━━━━━━━━━━━━━━━━━━━━\n\n"
-    total_all = 0
-    for country, numbers in inventory_numbers.items():
-        count = len(numbers)
-        total_all += count
-        report += f"🌍 <b>{country}</b>: <code>{count}</code> số\n"
-    
-    report += f"\n━━━━━━━━━━━━━━━━━━━━━\n🔥 <b>Tổng số lượng toàn hệ thống:</b> <code>{total_all}</code> số"
-    bot.reply_to(message, report, parse_mode="HTML")
-
-@bot.message_handler(commands=['thue'])
-def handle_rent_number(message):
-    parts = message.text.split()
-    if len(parts) < 2:
-        bot.reply_to(message, "⚠️ <b>Sai cú pháp!</b>\nVui lòng nhập: <code>/thue 84939168914</code>", parse_mode="HTML")
-        return
-    
-    phone_to_rent = parts[1].replace("+", "").strip()
-    user_id = message.chat.id
-    user_rentals[phone_to_rent] = user_id
-    bot.reply_to(message, f"✅ <b>Thành công!</b>\nBạn đã đăng ký nhận OTP riêng cho số: <code>{phone_to_rent}</code>.", parse_mode="HTML")
-
 # --- WEBSOCKET REALTIME LISTENER BACKGROUND WORKER ---
 def websocket_worker():
     def on_message(ws, message):
         try:
             data = json.loads(message)
-            # Xử lý khi có SMS/OTP đổ về qua WSS thực tế
             print(f"📩 Nhận tin nhắn Realtime từ WSS: {data}")
-        except Exception as e:
+        except:
             pass
 
     def on_error(ws, error):
-        print(f"WSS Error: {error}")
+        pass
 
     def on_close(ws, close_status_code, close_msg):
-        print("WSS Connection Closed. Reconnecting in 10s...")
         time.sleep(10)
-        start_websocket_listener()
 
     def on_open(ws):
         print("🟢 WebSocket Connected & Listening for Real-time SMS/OTP!")
 
-    def start_websocket_listener():
-        # Lấy cấu hình WSS của admin đầu tiên để chạy ngầm
+    while True:
         for uid, cfg in user_configs.items():
             ws_url = cfg.get("ws_url")
             if ws_url and ws_url.startswith("wss://"):
-                wsapp = websocket.WebSocketApp(ws_url,
-                                              on_open=on_open,
-                                              on_message=on_message,
-                                              on_error=on_error,
-                                              on_close=on_close)
-                wsapp.run_forever()
-                break
-
-    while True:
-        start_websocket_listener()
+                try:
+                    wsapp = websocket.WebSocketApp(ws_url,
+                                                  on_open=on_open,
+                                                  on_message=on_message,
+                                                  on_error=on_error,
+                                                  on_close=on_close)
+                    wsapp.run_forever()
+                except:
+                    pass
         time.sleep(15)
 
-async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test=False):
-    clean_phone = str(phone).replace("+", "")
-    masked = clean_phone[:6] + "****" + clean_phone[-3:] if len(clean_phone) > 7 else clean_phone
-    match = re.search(r'\d{3}[-\s]?\d{3}|\d{4,8}', str(msg))
-    code = match.group(0) if match else "N/A"
-
-    header = "🧪 <b>『 ꜰᴇ ꜱᴇɴᴅ ᴏᴛᴘ 』</b> 🧪" if is_test else "💐 <b>『 ɴᴇᴡ ᴏᴛᴘ ʀᴇᴄᴇIᴠᴇᴅ 』</b> ✨"
-
-    caption = (f"{header}\n"
-               f"━━━━━━━━━━━━━━━━━━━━━\n\n"
-               f"<b>⌚ ᴛɪᴍᴇ:</b> <code>{html.escape(str(timestamp))}</code>\n"
-               f"<b>🌍 ᴄᴏᴜɴᴛʀʏ:</b> {html.escape(str(country))} {flag}\n"
-               f"<b>📱 ɴᴜᴍʙᴇՐ:</b> <code>{html.escape(str(masked))}</code>\n"
-               f"<b>🛠 ꜱᴇʀᴠɪᴄᴇ:</b> <code>{html.escape(str(service))}</code>\n"
-               f"<b>🔑 ᴄᴏᴅᴇ:</b> <code>{html.escape(str(code))}</code>\n\n"
-               f"<b>💬 ᴍᴇssᴀɢᴇ:</b>\n<pre>{html.escape(str(msg))}</pre>\n\n"
-               f"━━━━━━━━━━━━━━━━━━━━━")
-    
-    kb = InlineKeyboardMarkup()
-    kb.row(
-        InlineKeyboardButton("✨ YT", url="https://youtube.com/@ThoKho_VN"),
-        InlineKeyboardButton("👑 OWNER", url="https://t.me/Nothavedie")
-    )
-    kb.row(
-        InlineKeyboardButton("📥 OTP DELIVERY CHNL", url="https://t.me/LIVEOTPIVAS"),
-        InlineKeyboardButton("🎀 MAIN CHNL", url="https://t.me/FastNode_1")
-    )
-    
-    try:
-        await asyncio.to_thread(
-            bot.send_message,
-            chat_id=TARGET_CHAT,
-            text=caption,
-            parse_mode="HTML",
-            reply_markup=kb,
-            disable_web_page_preview=True
-        )
-    except Exception as e: 
-        print(f"Lỗi gửi tin nhắn vào Group: {e}")
-
-async def send_random_startup_otp():
-    services = ["WhatsApp", "Telegram", "Google", "Instagram", "TikTok"]
-    random_srv = random.choice(services)
-    random_num = "849" + "".join([str(random.randint(0, 9)) for _ in range(8)])
-    random_code = f"{random.randint(100, 999)}-{random.randint(100, 999)}"
-    msg = f"Your {random_srv} code is {random_code}. Don't share it with anyone."
-    curr_time = time.strftime("%Y-%m-%d %H:%M:%S")
-    
-    await dispatch_update(random_srv, random_num, msg, curr_time, "Vietnam", "🇻🇳", is_test=True)
-
-async def main_loop():
-    print("🚀 Fast Node Engine Started Successfully!")
-    await send_random_startup_otp()
-    
-    while True:
-        await asyncio.sleep(30)
-
-def run_bot_polling():
-    bot.remove_webhook()
-    time.sleep(1)
-    bot.infinity_polling(skip_pending=True, interval=0, timeout=20)
-
-# --- FLASK SERVER (Giữ cổng cho Render Web Service 24/7) ---
+# --- FLASK SERVER (Giao diện Mini App HTML siêu đẹp chuẩn Ấn Độ) ---
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Fast Node Gateway is Running 24/7!"
+    return """
+    <!DOCTYPE html>
+    <html lang="vi">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Fast Node • Live OTP Gateway</title>
+        <script src="https://telegram.org/js/telegram-web-app.js"></script>
+        <style>
+            body { background: #0f172a; color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
+            .card { background: #1e293b; border: 1px solid #334155; border-radius: 16px; padding: 24px; width: 100%; max-width: 400px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.3); text-align: center; }
+            h1 { font-size: 22px; color: #38bdf8; margin-bottom: 8px; }
+            p { color: #94a3b8; font-size: 14px; margin-bottom: 24px; }
+            .btn { background: #22c55e; color: white; border: none; border-radius: 10px; padding: 12px 20px; font-size: 16px; font-weight: bold; width: 100%; cursor: pointer; margin-bottom: 12px; transition: 0.2s; }
+            .btn:hover { background: #16a34a; }
+            .btn-blue { background: #0284c7; }
+            .btn-blue:hover { background: #0369a1; }
+        </style>
+    </head>
+    <body>
+        <div class="card">
+            <h1>⚡ FAST NODE GATEWAY</h1>
+            <p>Hệ thống quản lý OTP & Stock số 195+ quốc gia real-time.</p>
+            <button class="btn" onclick="Telegram.WebApp.openTelegramLink('https://t.me/LIVEOTPIVAS')">📥 Kênh Nhận OTP</button>
+            <button class="btn btn-blue" onclick="Telegram.WebApp.close()">✖️ Đóng Giao Diện</button>
+        </div>
+    </body>
+    </html>
+    """
 
 def run_web():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
+def run_bot_polling():
+    # Diệt dứt điểm lỗi 409 Conflict bằng cách xóa Webhook cũ trước khi poll
+    try:
+        bot.remove_webhook()
+        time.sleep(1)
+    except:
+        pass
+    
+    print("🚀 Telegram Bot Polling Started Successfully!")
+    bot.infinity_polling(skip_pending=True, interval=0, timeout=20)
+
 if __name__ == "__main__":
     t_web = threading.Thread(target=run_web, daemon=True)
     t_web.start()
     
-    t_bot = threading.Thread(target=run_bot_polling, daemon=True)
-    t_bot.start()
-    
-    # Khởi chạy luồng ngầm WebSocket Client Listener thực chiến
     t_wss = threading.Thread(target=websocket_worker, daemon=True)
     t_wss.start()
     
-    asyncio.run(main_loop())
+    # Chạy bot polling
+    run_bot_polling()
