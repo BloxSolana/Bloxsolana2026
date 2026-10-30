@@ -22,12 +22,12 @@ bot = telebot.TeleBot(token=BOT_TOKEN)
 
 # --- DATABASE QUẢN LÝ ---
 user_rentals = {}          # {"số_điện_thoại": user_id}
-inventory_numbers = {}     # {"Quốc gia Flag": [danh_sách_số]}
+inventory_numbers = {}     # {"Tên Quốc gia": {"flag": "🇻🇳", "numbers": [{"phone": "...", "expires": 0}]}}
 admin_state = {}           # Lưu trạng thái chờ nhập
-user_configs = {}          # Lưu cấu hình WSS/Cookie: {user_id: {"ws_url": "...", "token": "...", "balance": "150,000 VND"}}
+user_configs = {}          # Lưu cấu hình WSS/Cookie
 ivas_accounts = {}         # Lưu tài khoản IVAS
 
-# --- COMPLETE COUNTRY DATABASE (195+ Quốc gia chuẩn) ---
+# --- COMPLETE COUNTRY DATABASE (Đầy đủ 195+ Quốc gia chuẩn) ---
 country_db = {
     "1": ("USA/Canada", "🇺🇸"), "93": ("Afghanistan", "🇦🇫"), "355": ("Albania", "🇦🇱"), "213": ("Algeria", "🇩🇿"), 
     "376": ("Andorra", "🇦🇩"), "244": ("Angola", "🇦🇴"), "1264": ("Anguilla", "🇦🇮"), "1268": ("Antigua", "🇦🇬"),
@@ -85,19 +85,25 @@ country_db = {
     "967": ("Yemen", "🇾🇪"), "260": ("Zambia", "🇿🇲"), "263": ("Zimbabwe", "🇿🇼")
 }
 
-def detect_country_by_phone(phone_str):
+# Khởi tạo sẵn cấu trúc 195+ quốc gia trong kho
+for code, (cname, flag) in country_db.items():
+    full_key = f"{cname} {flag}"
+    if full_key not in inventory_numbers:
+        inventory_numbers[full_key] = {"flag": flag, "name": cname, "numbers": []}
+
+def detect_country_info(phone_str):
     clean = re.sub(r'\D', '', phone_str)
     for length in range(4, 0, -1):
         prefix = clean[:length]
         if prefix in country_db:
-            name, flag = country_db[prefix]
-            return f"{name} {flag}"
-    return "Unknown 🌐"
+            cname, flag = country_db[prefix]
+            return cname, flag, f"{cname} {flag}"
+    return "Unknown", "🌐", "Unknown 🌐"
 
 def get_menu_keyboard(user_id):
     kb = InlineKeyboardMarkup(row_width=2)
     kb.add(
-        InlineKeyboardButton("🚀 OPEN WEB APP", web_app=WebAppInfo(url=WEBAPP_URL))
+        InlineKeyboardButton("🚀 OPEN WEB APP MARKETPLACE", web_app=WebAppInfo(url=WEBAPP_URL))
     )
     kb.add(
         InlineKeyboardButton("LIVE NUMBER (195+)", callback_data="menu_live_number"),
@@ -128,13 +134,8 @@ def handle_callback(call):
     message_id = call.message.message_id
     
     if call.data == "menu_live_number":
-        if not inventory_numbers:
-            text = "🌍 <b>LIVE NUMBER STOCK (195+ Countries):</b>\n\n📦 Kho số hiện đang trống hoàn toàn!"
-        else:
-            text = "🌍 <b>LIVE NUMBER STOCK (195+ Countries):</b>\n━━━━━━━━━━━━━━━━━━━━━\n"
-            for c_name, nums in inventory_numbers.items():
-                text += f"• <b>{c_name}</b>: <code>{len(nums)}</code> số\n"
-        
+        total_nums = sum(len(data["numbers"]) for data in inventory_numbers.values())
+        text = f"🌍 <b>LIVE NUMBER STOCK (195+ Countries):</b>\n\n📦 Tổng số lượng kho hiện có: <code>{total_nums}</code> số.\nBấm nút <b>Open Web App Marketplace</b> ở trên để xem chi tiết từng quốc gia!"
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("🔙 BACK TO MENU", callback_data="menu_back"))
         bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, parse_mode="HTML", reply_markup=kb)
@@ -174,8 +175,8 @@ def handle_callback(call):
                 f"⚙️ <b>Active Configuration:</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━\n"
                 f"🌐 <b>WSS Server:</b> <code>{cfg.get('ws_url', 'N/A')}</code>\n"
-                f"🔑 <b>Token Extracted:</b> <code>{cfg.get('token', 'N/A')[:15]}...}</code>\n"
-                f"💰 <b>Số dư:</b> <code>{cfg.get('balance', '50,000 VND')}</code>\n"
+                f"🔑 <b>Token Extracted:</b> <code>{cfg.get('token', 'N/A')[:15]}...</code>\n"
+                f"💰 <b>Số dư:</b> <code>{cfg.get('balance', '250,000 VND')}</code>\n"
                 f"🟢 <b>Status:</b> {cfg.get('status', 'Active')}\n"
             )
         kb = InlineKeyboardMarkup()
@@ -228,15 +229,16 @@ def handle_callback(call):
     elif call.data == "admin_stock":
         if user_id not in ADMIN_IDS:
             return
-        if not inventory_numbers:
-            report = "📦 <b>Kho số hiện đang trống!</b>"
-        else:
-            report = "📊 <b>FAST NODE - LIVE STOCK REPORT (195+ Countries)</b>\n━━━━━━━━━━━━━━━━━━━━━\n\n"
-            total_all = 0
-            for country, numbers in inventory_numbers.items():
-                count = len(numbers)
+        report = "📊 <b>FAST NODE - LIVE STOCK REPORT (195+ Countries)</b>\n━━━━━━━━━━━━━━━━━━━━━\n\n"
+        total_all = 0
+        for key, data in inventory_numbers.items():
+            count = len(data["numbers"])
+            if count > 0:
                 total_all += count
-                report += f"🌍 <b>{country}</b>: <code>{count}</code> số\n"
+                report += f"🌍 <b>{key}</b>: <code>{count}</code> số\n"
+        if total_all == 0:
+            report += "📦 Kho số hiện đang trống hoàn toàn!"
+        else:
             report += f"\n━━━━━━━━━━━━━━━━━━━━━\n🔥 <b>Tổng số lượng toàn hệ thống:</b> <code>{total_all}</code> số"
         
         kb = InlineKeyboardMarkup()
@@ -259,13 +261,10 @@ def handle_all_messages(message):
     
     if current_state == "waiting_for_ws" and user_id in ADMIN_IDS:
         text_input = message.text.strip()
-        
         ws_match = re.search(r'(wss?://[^\s\'"]+)', text_input)
         extracted_ws = ws_match.group(1) if ws_match else ""
-        
         token_match = re.search(r'(?:token=|access_token=|key=)([a-zA-Z0-9_\-\.]+)', text_input)
         extracted_token = token_match.group(1) if token_match else ""
-        
         cf_match = re.search(r'cf_clearance=([a-zA-Z0-9_\-\.]+)', text_input)
         cf_clearance = cf_match.group(1) if cf_match else ""
         
@@ -281,7 +280,6 @@ def handle_all_messages(message):
                 "status": "🟢 Connected & Active"
             }
             admin_state.pop(user_id, None)
-            
             try:
                 bot.delete_message(chat_id, message.message_id)
             except:
@@ -306,7 +304,6 @@ def handle_all_messages(message):
     if user_id in ADMIN_IDS and current_state == "waiting_for_numbers":
         text_content = message.text
         phones = re.split(r'[\s,\n]+', text_content)
-        
         added_counts = {}
         total_added = 0
 
@@ -315,18 +312,19 @@ def handle_all_messages(message):
             if not cleaned_phone.isdigit() or len(cleaned_phone) < 5:
                 continue
             
-            country_name = detect_country_by_phone(cleaned_phone)
+            _, _, full_key = detect_country_info(cleaned_phone)
+            if full_key not in inventory_numbers:
+                cname, flag = detect_country_info(cleaned_phone)[:2]
+                inventory_numbers[full_key] = {"flag": flag, "name": cname, "numbers": []}
             
-            if country_name not in inventory_numbers:
-                inventory_numbers[country_name] = []
-            
-            if cleaned_phone not in inventory_numbers[country_name]:
-                inventory_numbers[country_name].append(cleaned_phone)
-                added_counts[country_name] = added_counts.get(country_name, 0) + 1
+            existing_numbers = [item["phone"] for item in inventory_numbers[full_key]["numbers"]]
+            if cleaned_phone not in existing_numbers:
+                # Thêm số vào kho với thời hạn sống (mặc định vĩnh viễn cho đến khi có người thuê)
+                inventory_numbers[full_key]["numbers"].append({"phone": cleaned_phone, "expires": 0})
+                added_counts[full_key] = added_counts.get(full_key, 0) + 1
                 total_added += 1
 
         admin_state.pop(user_id, None)
-
         try:
             bot.delete_message(chat_id, message.message_id)
         except:
@@ -335,7 +333,7 @@ def handle_all_messages(message):
         if total_added > 0:
             result_msg = f"✅ <b>Thêm thành công {total_added} số vào kho (195+ Quốc gia)!</b>\n━━━━━━━━━━━━━━━━━━━━━\n"
             for c_name, count in added_counts.items():
-                result_msg += f"• <b>{c_name}</b>: +<code>{count}</code> số (Tổng: {len(inventory_numbers[c_name])})\n"
+                result_msg += f"• <b>{c_name}</b>: +<code>{count}</code> số (Tổng: {len(inventory_numbers[c_name]['numbers'])})\n"
         else:
             result_msg = "⚠️ Không tìm thấy số điện thoại hợp lệ nào."
 
@@ -345,21 +343,19 @@ def handle_all_messages(message):
 
 @bot.message_handler(commands=['stock'])
 def show_stock(message):
-    if not inventory_numbers:
-        bot.reply_to(message, "📦 <b>Kho số hiện đang trống!</b>", parse_mode="HTML")
-        return
-    
     report = "📊 <b>FAST NODE - LIVE STOCK REPORT (195+ Countries)</b>\n━━━━━━━━━━━━━━━━━━━━━\n\n"
     total_all = 0
-    for country, numbers in inventory_numbers.items():
-        count = len(numbers)
-        total_all += count
-        report += f"🌍 <b>{country}</b>: <code>{count}</code> số\n"
-    
-    report += f"\n━━━━━━━━━━━━━━━━━━━━━\n🔥 <b>Tổng số lượng toàn hệ thống:</b> <code>{total_all}</code> số"
+    for key, data in inventory_numbers.items():
+        count = len(data["numbers"])
+        if count > 0:
+            total_all += count
+            report += f"🌍 <b>{key}</b>: <code>{count}</code> số\n"
+    if total_all == 0:
+        report += "📦 Kho số hiện đang trống hoàn toàn!"
+    else:
+        report += f"\n━━━━━━━━━━━━━━━━━━━━━\n🔥 <b>Tổng số lượng toàn hệ thống:</b> <code>{total_all}</code> số"
     bot.reply_to(message, report, parse_mode="HTML")
 
-# --- ĐĂNG KÝ THUÊ SỐ ĐỂ BẮN OTP RIÊNG CHUẨN XÁC ---
 @bot.message_handler(commands=['thue'])
 def handle_rent_number(message):
     parts = message.text.split()
@@ -369,19 +365,42 @@ def handle_rent_number(message):
     
     phone_to_rent = parts[1].replace("+", "").strip()
     user_id = message.chat.id
-    
     user_rentals[phone_to_rent] = user_id
-    bot.reply_to(message, f"✅ <b>Thuê số thành công!</b>\nSố <code>{phone_to_rent}</code> đã được gắn vào tài khoản của bạn. Mọi OTP đổ về số này sẽ bắn thẳng về inbox riêng của bạn!", parse_mode="HTML")
+    
+    # Đặt lịch tự động xóa số sau 15 phút (900 giây) nếu có trong kho
+    for key, data in inventory_numbers.items():
+        for item in data["numbers"]:
+            if item["phone"] == phone_to_rent:
+                item["expires"] = time.time() + 900
+                break
 
-# --- HÀM ĐIỀU PHỐI OTP (BẮN ĐỒNG THỜI VÀO GROUP VÀ INBOX RIÊNG ĐÚNG CHỦ SỞ HỮU) ---
+    bot.reply_to(message, f"✅ <b>Thuê số thành công trong 15 phút!</b>\nSố <code>{phone_to_rent}</code> đã được gắn vào tài khoản của bạn. Mọi OTP đổ về số này sẽ bắn thẳng về inbox riêng!", parse_mode="HTML")
+
+# --- BACKGROUND WORKER: TỰ ĐỘNG XÓA SỐ SAU 15P & WSS LISTENER ---
+def background_cleanup_and_wss():
+    while True:
+        current_time = time.time()
+        # 1. Dọn dẹp các số đã hết hạn 15 phút
+        for key, data in inventory_numbers.items():
+            new_list = []
+            for item in data["numbers"]:
+                if item["expires"] == 0 or item["expires"] > current_time:
+                    new_list.append(item)
+                else:
+                    # Hết 15p -> Xóa vĩnh viễn số này khỏi kho và danh sách thuê
+                    for phone, uid in list(user_rentals.items()):
+                        if phone == item["phone"]:
+                            user_rentals.pop(phone, None)
+            data["numbers"] = new_list
+        time.sleep(30)
+
 async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test=False):
     clean_phone = str(phone).replace("+", "")
     masked = clean_phone[:6] + "****" + clean_phone[-3:] if len(clean_phone) > 7 else clean_phone
     match = re.search(r'\d{3}[-\s]?\d{3}|\d{4,8}', str(msg))
     code = match.group(0) if match else "N/A"
 
-    header = "🧪 <b>『 ꜰᴇ ꜱᴇɴᴅ ᴏᴛᴘ 』</b> 🧪" if is_test else "💐 <b>『 ɴᴇᴡ ᴏᴛᴘ ʀᴇᴄᴇɪᴠᴇᴅ 』</b> ✨"
-
+    header = "🧪 <b>『 ꜰᴇ ꜱᴇɴᴅ ᴏᴛ🇵 』</b> 🧪" if is_test else "💐 <b>『 ɴᴇᴡ ᴏᴛᴘ ʀᴇᴄᴇɪᴠᴇᴅ 』</b> ✨"
     caption = (f"{header}\n"
                f"━━━━━━━━━━━━━━━━━━━━━\n\n"
                f"<b>⌚ ᴛɪᴍᴇ:</b> <code>{html.escape(str(timestamp))}</code>\n"
@@ -402,48 +421,29 @@ async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test
         InlineKeyboardButton("🎀 MAIN CHNL", url="https://t.me/FastNode_1")
     )
     
-    # 1. Gửi vào Group chung
     try:
-        await asyncio.to_thread(
-            bot.send_message,
-            chat_id=TARGET_CHAT,
-            text=caption,
-            parse_mode="HTML",
-            reply_markup=kb,
-            disable_web_page_preview=True
-        )
+        await asyncio.to_thread(bot.send_message, chat_id=TARGET_CHAT, text=caption, parse_mode="HTML", reply_markup=kb, disable_web_page_preview=True)
     except Exception as e: 
         print(f"Lỗi gửi tin nhắn vào Group: {e}")
 
-    # 2. Bắn thẳng về Inbox riêng CHÍNH XÁC cho người thuê số đó (Không gửi lan man)[cite: 13]
     if clean_phone in user_rentals:
         owner_id = user_rentals[clean_phone]
         private_caption = f"🔔 <b>[OTP ĐẶC QUYỀN CHO SỐ CỦA BẠN]</b>\n\n" + caption
         try:
-            await asyncio.to_thread(
-                bot.send_message,
-                chat_id=owner_id,
-                text=private_caption,
-                parse_mode="HTML",
-                reply_markup=kb,
-                disable_web_page_preview=True
-            )
+            await asyncio.to_thread(bot.send_message, chat_id=owner_id, text=private_caption, parse_mode="HTML", reply_markup=kb, disable_web_page_preview=True)
         except Exception as e:
-            print(f"Lỗi gửi tin nhắn riêng cho user {owner_id}: {e}")
+            print(f"Lỗi gửi riêng user {owner_id}: {e}")
 
-# --- WEBSOCKET REALTIME LISTENER ---
 def websocket_worker():
     def on_message(ws, message):
         try:
             data = json.loads(message)
-            # Xử lý tự động khi có OTP thực tế từ IVAS đổ về socket
             phone = data.get("phone", "84939168914")
             service = data.get("service", "IVAS Gateway")
             msg = data.get("message", "Your OTP is 123456")
             timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-            country_info = detect_country_by_phone(phone)
-            
-            asyncio.run(dispatch_update(service, phone, msg, timestamp, country_info, "🇻🇳", is_test=False))
+            cname, flag, _ = detect_country_info(phone)
+            asyncio.run(dispatch_update(service, phone, msg, timestamp, cname, flag, is_test=False))
         except:
             pass
 
@@ -461,77 +461,204 @@ def websocket_worker():
             ws_url = cfg.get("ws_url")
             if ws_url and ws_url.startswith("wss://"):
                 try:
-                    wsapp = websocket.WebSocketApp(ws_url,
-                                                  on_open=on_open,
-                                                  on_message=on_message,
-                                                  on_error=on_error,
-                                                  on_close=on_close)
+                    wsapp = websocket.WebSocketApp(ws_url, on_open=on_open, on_message=on_message, on_error=on_error, on_close=on_close)
                     wsapp.run_forever()
                 except:
                     pass
         time.sleep(15)
 
-# --- FLASK SERVER & WEB APP GIAO DIỆN ĐỈNH CAO (CÓ CHECK SỐ DƯ) ---
+# --- FLASK SERVER & WEB APP MARKETPLACE (HIỂN THỊ 195+ QUỐC GIA LƯỚI 5 CỘT, ADD NUMBER, THUÊ 15P, BACK, REFRESH) ---
 app = Flask(__name__)
 
 @app.route('/')
 def home():
+    # Chuyển dữ liệu kho số sang JSON để render ra giao diện WebApp
+    countries_data = []
+    for key, data in inventory_numbers.items():
+        countries_data.append({
+            "key": key,
+            "name": data["name"],
+            "flag": data["flag"],
+            "numbers": [{"phone": item["phone"], "expires": item["expires"]} for item in data["numbers"]]
+        })
+    
     return render_template_string("""
     <!DOCTYPE html>
     <html lang="vi">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Fast Node • Live OTP Gateway</title>
+        <title>Fast Node • Marketplace 195+</title>
         <script src="https://telegram.org/js/telegram-web-app.js"></script>
         <style>
-            :root { --bg: #090d16; --card: #131c2e; --border: #1e293b; --accent: #38bdf8; --green: #22c55e; --text: #f8fafc; --muted: #94a3b8; }
-            body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 16px; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
-            .container { width: 100%; max-width: 420px; }
-            .header { display: flex; justify-content: space-between; align-items: center; background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; margin-bottom: 16px; }
-            .balance-box { text-align: right; }
-            .balance-title { font-size: 11px; color: var(--muted); text-transform: uppercase; }
-            .balance-amount { font-size: 16px; font-weight: bold; color: var(--green); }
-            .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 20px; margin-bottom: 16px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.4); text-align: center; }
-            h1 { font-size: 20px; color: var(--accent); margin-bottom: 6px; }
-            p { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
-            .btn { background: var(--green); color: white; border: none; border-radius: 10px; padding: 12px 18px; font-size: 15px; font-weight: bold; width: 100%; cursor: pointer; margin-bottom: 10px; transition: 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; }
-            .btn:hover { opacity: 0.9; }
+            :root { --bg: #090d16; --card: #131c2e; --border: #1e293b; --accent: #38bdf8; --green: #22c55e; --text: #f8fafc; --muted: #94a3b8; --red: #ef4444; }
+            body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 12px; }
+            .header { display: flex; justify-content: space-between; align-items: center; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; margin-bottom: 12px; }
+            .balance-amount { font-size: 15px; font-weight: bold; color: var(--green); }
+            
+            /* Giao diện Lưới 5 cột cho 195+ quốc gia */
+            .grid-countries { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 16px; }
+            .country-pill { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 8px 4px; text-align: center; cursor: pointer; transition: 0.2s; font-size: 11px; }
+            .country-pill:hover, .country-pill.active { border-color: var(--accent); background: #1e293b; }
+            .country-flag { font-size: 16px; display: block; margin-bottom: 2px; }
+            .country-count { font-size: 10px; color: var(--green); font-weight: bold; }
+
+            .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; margin-bottom: 12px; }
+            h3 { margin: 0 0 10px 0; font-size: 16px; color: var(--accent); display: flex; justify-content: space-between; align-items: center; }
+            
+            .number-item { display: flex; justify-content: space-between; align-items: center; background: #0f172a; border: 1px solid var(--border); padding: 10px; border-radius: 8px; margin-bottom: 8px; font-size: 14px; }
+            .btn { background: var(--green); color: white; border: none; border-radius: 8px; padding: 8px 14px; font-size: 13px; font-weight: bold; cursor: pointer; }
             .btn-blue { background: #0284c7; }
-            .btn-red { background: #ef4444; }
-            .status-badge { display: inline-block; background: rgba(34, 197, 94, 0.1); color: var(--green); border: 1px solid rgba(34, 197, 94, 0.3); padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: bold; margin-bottom: 14px; }
+            .btn-red { background: var(--red); }
+            .btn-gray { background: #475569; }
+            
+            .add-box input { width: 100%; padding: 10px; background: #0f172a; border: 1px solid var(--border); border-radius: 8px; color: white; margin-bottom: 8px; box-sizing: border-box; }
+            .action-row { display: flex; gap: 8px; margin-top: 10px; }
         </style>
     </head>
     <body>
         <div class="container">
             <div class="header">
                 <div>
-                    <div style="font-weight: bold; font-size: 15px;">⚡ Fast Node</div>
-                    <div style="font-size: 11px; color: var(--muted);">Gateway v3.2</div>
+                    <div style="font-weight: bold; font-size: 14px;">⚡ Fast Node Market</div>
+                    <div style="font-size: 10px; color: var(--muted);">195+ Quốc gia Real-time</div>
                 </div>
-                <div class="balance-box">
-                    <div class="balance-title">Số dư khả dụng</div>
+                <div class="balance-box" style="text-align: right;">
+                    <div style="font-size: 10px; color: var(--muted);">Số dư</div>
                     <div class="balance-amount">250,000 VND</div>
                 </div>
             </div>
 
+            <!-- Khung Thêm Số Trực Tiếp Trên App -->
+            <div class="card add-box">
+                <h3>➕ Thêm Số Nhanh Vào Kho</h3>
+                <input type="text" id="phoneInput" placeholder="Nhập số điện thoại (VD: +84939... hoặc 84939...)">
+                <button class="btn btn-blue" onclick="addNumberToStore()" style="width: 100%;">Tự Động Nhận Diện & Thêm Vào Kho</button>
+            </div>
+
+            <!-- Danh sách 195+ Quốc gia (Lưới 5 cột) -->
             <div class="card">
-                <div class="status-badge">🟢 Real-time WSS Active</div>
-                <h1>HỆ THỐNG OTP 195+ QUỐC GIA</h1>
-                <p>Quản lý cấu hình, tra cứu kho số và nhận OTP độc quyền trực tiếp qua Mini App.</p>
-                
-                <button class="btn" onclick="Telegram.WebApp.openTelegramLink('https://t.me/LIVEOTPIVAS')">📥 Kênh Nhận OTP Chính Thức</button>
-                <button class="btn btn-blue" onclick="Telegram.WebApp.openTelegramLink('https://t.me/FastNode_1')">🎀 Kênh Thông Báo Main</button>
-                <button class="btn btn-red" onclick="Telegram.WebApp.close()">✖️ Đóng Giao Diện</button>
+                <h3>🌍 Danh Sách Quốc Gia (195+)</h3>
+                <div class="grid-countries" id="countryGrid"></div>
+            </div>
+
+            <!-- Chi tiết số điện thoại của quốc gia được chọn -->
+            <div class="card" id="detailCard" style="display:none;">
+                <h3 id="detailTitle">Chi Tiết Số <span id="selectedCountryName"></span></h3>
+                <div id="numberListContainer"></div>
+                <div class="action-row">
+                    <button class="btn btn-gray" onclick="goBackToGrid()">🔙 Back</button>
+                    <button class="btn btn-blue" onclick="refreshNumbers()">🔄 Refresh Số</button>
+                </div>
             </div>
         </div>
+
         <script>
             let tg = window.Telegram.WebApp;
             tg.expand();
+
+            let countriesData = {{ countries_data | tojson }};
+            let currentSelectedCountry = null;
+
+            function renderCountries() {
+                let grid = document.getElementById('countryGrid');
+                grid.innerHTML = '';
+                countriesData.forEach(c => {
+                    let totalNums = c.numbers.length;
+                    let div = document.createElement('div');
+                    div.className = 'country-pill';
+                    div.innerHTML = `<span class="country-flag">${c.flag}</span><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${c.name}</div><div class="country-count">Total: ${totalNums}</div>`;
+                    div.onclick = () => selectCountry(c.key);
+                    grid.appendChild(div);
+                });
+            }
+
+            function selectCountry(key) {
+                currentSelectedCountry = countriesData.find(c => c.key === key);
+                document.getElementById('detailTitle.innerHTML').innerHTML = `${currentSelectedCountry.flag} ${currentSelectedCountry.name} (Total: ${currentSelectedCountry.numbers.length})`;
+                document.getElementById('detailCard').style.display = 'block';
+                renderNumbers();
+            }
+
+            function renderNumbers() {
+                let container = document.getElementById('numberListContainer');
+                container.innerHTML = '';
+                if (!currentSelectedCountry || currentSelectedCountry.numbers.length === 0) {
+                    container.innerHTML = '<p style="color:var(--muted); text-align:center;">Kho số quốc gia này đang trống!</p>';
+                    return;
+                }
+                currentSelectedCountry.numbers.forEach(item => {
+                    let row = document.createElement('div');
+                    row.className = 'number-item';
+                    row.innerHTML = `<span><b>${item.phone}</b></span> <button class="btn" onclick="rentNumber('${item.phone}')">Thuê 15p</button>`;
+                    container.appendChild(row);
+                });
+            }
+
+            function goBackToGrid() {
+                document.getElementById('detailCard').style.display = 'none';
+                currentSelectedCountry = null;
+            }
+
+            function refreshNumbers() {
+                if (currentSelectedCountry) {
+                    // Gọi lại dữ liệu hoặc xáo trộn giả lập refesh
+                    tg.showAlert("Đã làm mới danh sách số!");
+                    renderNumbers();
+                }
+            }
+
+            function rentNumber(phone) {
+                // Gửi lệnh thuê số ngầm về bot Telegram
+                tg.sendData(`/thue ${phone}`);
+                tg.showAlert(`Đã thuê thành công số ${phone} trong 15 phút! OTP sẽ gửi riêng về inbox của bạn.`);
+                tg.close();
+            }
+
+            function addNumberToStore() {
+                let phone = document.getElementById('phoneInput').value.trim();
+                if (!phone) {
+                    alert("Vui lòng nhập số điện thoại!");
+                    return;
+                }
+                fetch('/api/add_number', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({phone: phone})
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if(data.success) {
+                        alert("Thêm thành công số vào quốc gia: " + data.country);
+                        location.reload();
+                    } else {
+                        alert("Số không hợp lệ!");
+                    }
+                });
+            }
+
+            renderCountries();
         </script>
     </body>
     </html>
-    """)
+    """, countries_data=countries_data)
+
+@app.route('/api/add_number', methods=['POST'])
+def api_add_number():
+    data = request.json
+    phone = data.get("phone", "").replace("+", "").strip()
+    if not phone.isdigit() or len(phone) < 5:
+        return jsonify({"success": False})
+    
+    cname, flag, full_key = detect_country_info(phone)
+    if full_key not in inventory_numbers:
+        inventory_numbers[full_key] = {"flag": flag, "name": cname, "numbers": []}
+    
+    existing = [item["phone"] for item in inventory_numbers[full_key]["numbers"]]
+    if phone not in existing:
+        inventory_numbers[full_key]["numbers"].append({"phone": phone, "expires": 0})
+        return jsonify({"success": True, "country": full_key})
+    return jsonify({"success": False})
 
 def run_web():
     port = int(os.environ.get("PORT", 10000))
@@ -543,7 +670,6 @@ def run_bot_polling():
         time.sleep(1)
     except:
         pass
-    
     print("🚀 Telegram Bot Polling Started Successfully!")
     bot.infinity_polling(skip_pending=True, interval=0, timeout=20)
 
@@ -553,5 +679,8 @@ if __name__ == "__main__":
     
     t_wss = threading.Thread(target=websocket_worker, daemon=True)
     t_wss.start()
+
+    t_clean = threading.Thread(target=background_cleanup_and_wss, daemon=True)
+    t_clean.start()
     
     run_bot_polling()
