@@ -13,13 +13,14 @@ from flask import Flask
 # --- CONFIGURATION ---
 BOT_TOKEN = "9139656226:AAF3G3Kll7E0DipP80mnXGWvex4BMdEVCzc"
 TARGET_CHAT = -1004341368656  # ID Group chính xác của bro
-ADMIN_IDS = [6726769296]       # ⚠️ THAY ID TELEGRAM CỦA BRO VÀO ĐÂY ĐỂ CÓ QUYỀN ADMIN
+ADMIN_IDS = [6726769296]       # ID Admin của bro
 
 bot = telebot.TeleBot(token=BOT_TOKEN)
 
 # --- DATABASE QUẢN LÝ ---
 user_rentals = {}          # {"số_điện_thoại": user_id}
-inventory_numbers = {}     # {"quốc_gia": [danh_sách_số]}
+inventory_numbers = {}     # {"Quốc gia Flag": [danh_sách_số]}
+admin_state = {}           # Lưu trạng thái chờ nhập số của admin: {user_id: "waiting_for_numbers"}
 
 # --- COMPLETE COUNTRY DATABASE (195+ Quốc gia chuẩn) ---
 country_db = {
@@ -93,7 +94,7 @@ def detect_country_by_phone(phone_str):
 def send_welcome(message):
     welcome_text = (
         "🔥 <b>FAST NODE • LIVE OTP GATEWAY</b>\n\n"
-        "Welcome -, choose an option from the menu:"
+        "Welcome, choose an option from the menu:"
     )
     kb = InlineKeyboardMarkup(row_width=2)
     kb.add(
@@ -115,43 +116,162 @@ def send_welcome(message):
 # --- XỬ LÝ CLICK NÚT MENU INTERACTIVE ---
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
+    user_id = call.from_user.id
+    
     if call.data == "menu_live_number":
-        # Hiển thị danh sách quốc gia dạng phân trang / chọn mẫu
-        kb = InlineKeyboardMarkup(row_width=2)
-        countries_list = list(country_db.values())[:14] # Lấy mẫu top quốc gia
-        for name, flag in countries_list:
-            kb.add(InlineKeyboardButton(f"{name} {flag}", callback_data=f"country_{name}"))
-        kb.add(InlineKeyboardButton("CLOSE", callback_data="menu_close"))
+        # Hiển thị tổng kho số theo quốc gia
+        if not inventory_numbers:
+            text = "🌍 <b>LIVE NUMBER STOCK:</b>\n\n📦 Kho số hiện đang trống hoàn toàn!"
+        else:
+            text = "🌍 <b>LIVE NUMBER STOCK (195+ Countries):</b>\n━━━━━━━━━━━━━━━━━━━━━\n"
+            for c_name, nums in inventory_numbers.items():
+                text += f"• <b>{c_name}</b>: <code>{len(nums)}</code> số\n"
         
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text="🌍 <b>Select Country / Range:</b>",
-            parse_mode="HTML",
-            reply_markup=kb
-        )
+        kb = InlineKeyboardMarkup()
+        kb.add(InlineKeyboardButton("🔙 BACK TO MENU", callback_data="menu_back"))
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=text, parse_mode="HTML", reply_markup=kb)
+
     elif call.data == "menu_live_traffic":
         traffic_text = (
             "📈 <b>LIVE TRAFFIC MONITOR</b>\n"
             "━━━━━━━━━━━━━━━━━━━━━\n"
             "All systems operating normally via Fast Node Gateway v3 API."
         )
-        bot.answer_callback_query(call.id, "Traffic loaded successfully!")
-        bot.send_message(call.message.chat.id, traffic_text, parse_mode="HTML")
+        kb = InlineKeyboardMarkup()
+        kb.add(InlineKeyboardButton("🔙 BACK TO MENU", callback_data="menu_back"))
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=traffic_text, parse_mode="HTML", reply_markup=kb)
+
+    elif call.data == "menu_invite":
+        bot.answer_callback_query(call.id, "Tính năng mời bạn bè đang phát triển!")
+    elif call.data == "menu_wallet":
+        bot.answer_callback_query(call.id, "Số dư ví: 0 VND")
+
+    elif call.data == "menu_leaderboard":
+        bot.answer_callback_query(call.id, "Đang cập nhật bảng xếp hạng...")
+
     elif call.data == "menu_owner":
+        if user_id not in ADMIN_IDS:
+            bot.answer_callback_query(call.id, "⛔ Bạn không có quyền Owner!", show_alert=True)
+            return
+        
         owner_text = (
             "👑 <b>ADMIN / OWNER PANEL</b>\n\n"
-            "• Thêm số hàng loạt: <code>/add [danh_sách_số]</code>\n"
-            "• Xem kho số tổng: <code>/stock</code>\n"
-            "• Gán số riêng: <code>/thue [số_điện_thoại]</code>"
+            "Chọn chức năng bên dưới để quản lý hệ thống:"
         )
-        bot.answer_callback_query(call.id)
-        bot.send_message(call.message.chat.id, owner_text, parse_mode="HTML")
+        kb = InlineKeyboardMarkup(row_width=1)
+        kb.add(
+            InlineKeyboardButton("➕ Add Numbers (Thêm số hàng loạt)", callback_data="admin_add_mode"),
+            InlineKeyboardButton("📊 Stock Report (Xem kho tổng)", callback_data="admin_stock"),
+            InlineKeyboardButton("🔙 BACK TO MENU", callback_data="menu_back")
+        )
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=owner_text, parse_mode="HTML", reply_markup=kb)
+
+    elif call.data == "admin_add_mode":
+        if user_id not in ADMIN_IDS:
+            return
+        admin_state[user_id] = "waiting_for_numbers"
+        kb = InlineKeyboardMarkup()
+        kb.add(InlineKeyboardButton("❌ HỦY BỎ", callback_data="menu_owner"))
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="📥 <b>CHẾ ĐỘ THÊM SỐ THỦ CÔNG ĐÃ BẬT</b>\n\n"
+                 "Hãy gửi ngay danh sách số điện thoại của bro vào khung chat này (có thể gửi 10, 100 hay hàng ngàn số, có hoặc không có dấu <code>+</code>).\n\n"
+                 "Bot sẽ tự động nhận diện đầu số, phân loại vào đúng quốc gia và cộng dồn vào kho!",
+            parse_mode="HTML",
+            reply_markup=kb
+        )
+
+    elif call.data == "admin_stock":
+        if user_id not in ADMIN_IDS:
+            return
+        if not inventory_numbers:
+            report = "📦 <b>Kho số hiện đang trống!</b>"
+        else:
+            report = "📊 <b>FAST NODE - LIVE STOCK REPORT</b>\n━━━━━━━━━━━━━━━━━━━━━\n\n"
+            total_all = 0
+            for country, numbers in inventory_numbers.items():
+                count = len(numbers)
+                total_all += count
+                report += f"🌍 <b>{country}</b>: <code>{count}</code> số\n"
+            report += f"\n━━━━━━━━━━━━━━━━━━━━━\n🔥 <b>Tổng số lượng toàn hệ thống:</b> <code>{total_all}</code> số"
+        
+        kb = InlineKeyboardMarkup()
+        kb.add(InlineKeyboardButton("🔙 QUAY LẠI PANEL", callback_data="menu_owner"))
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=report, parse_mode="HTML", reply_markup=kb)
+
+    elif call.data == "menu_back":
+        admin_state.pop(user_id, None)
+        welcome_text = (
+            "🔥 <b>FAST NODE • LIVE OTP GATEWAY</b>\n\n"
+            "Welcome, choose an option from the menu:"
+        )
+        kb = InlineKeyboardMarkup(row_width=2)
+        kb.add(
+            InlineKeyboardButton("LIVE NUMBER", callback_data="menu_live_number"),
+            InlineKeyboardButton("LIVE TRAFFIC", callback_data="menu_live_traffic")
+        )
+        kb.add(
+            InlineKeyboardButton("INVITE FRIEND", callback_data="menu_invite"),
+            InlineKeyboardButton("WALLET", callback_data="menu_wallet")
+        )
+        kb.add(
+            InlineKeyboardButton("LEADERBOARD", callback_data="menu_leaderboard")
+        )
+        kb.add(
+            InlineKeyboardButton("OWNER PANEL", callback_data="menu_owner")
+        )
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=welcome_text, parse_mode="HTML", reply_markup=kb)
+
     elif call.data == "menu_close":
         try:
             bot.delete_message(call.message.chat.id, call.message.message_id)
         except:
             pass
+
+# --- LẮNG NGHE TIN NHẮN ĐỂ NHẬN SỐ THỦ CÔNG TỪ ADMIN ---
+@bot.message_handler(func=lambda message: True)
+def handle_all_messages(message):
+    user_id = message.from_user.id
+    
+    # Kiểm tra xem admin có đang bật chế độ chờ nhập số không
+    if user_id in ADMIN_IDS and admin_state.get(user_id) == "waiting_for_numbers":
+        text_content = message.text
+        # Tách danh sách số bằng khoảng trắng, xuống dòng hoặc dấu phẩy
+        phones = re.split(r'[\s,\n]+', text_content)
+        
+        added_counts = {}
+        total_added = 0
+
+        for phone in phones:
+            cleaned_phone = phone.replace("+", "").strip()
+            if not cleaned_phone.isdigit() or len(cleaned_phone) < 5:
+                continue
+            
+            country_name = detect_country_by_phone(cleaned_phone)
+            
+            if country_name not in inventory_numbers:
+                inventory_numbers[country_name] = []
+            
+            if cleaned_phone not in inventory_numbers[country_name]:
+                inventory_numbers[country_name].append(cleaned_phone)
+                added_counts[country_name] = added_counts.get(country_name, 0) + 1
+                total_added += 1
+
+        # Tắt trạng thái chờ sau khi nhận xong
+        admin_state.pop(user_id, None)
+
+        if total_added > 0:
+            result_msg = f"✅ <b>Thêm thành công {total_added} số vào kho!</b>\n━━━━━━━━━━━━━━━━━━━━━\n"
+            for c_name, count in added_counts.items():
+                result_msg += f"• <b>{c_name}</b>: +<code>{count}</code> số\n"
+            result_msg += f"\n🔥 <b>Tổng số lượng trong kho quốc gia đó hiện tại:</b> <code>{len(inventory_numbers[c_name])}</code> số"
+        else:
+            result_msg = "⚠️ Không tìm thấy số điện thoại hợp lệ nào trong nội dung bro vừa gửi."
+
+        kb = InlineKeyboardMarkup()
+        kb.add(InlineKeyboardButton("👑 VỀ OWNER PANEL", callback_data="menu_owner"))
+        bot.reply_to(message, result_msg, parse_mode="HTML", reply_markup=kb)
 
 # --- XEM KHO SỐ HIỆN CÓ (/STOCK) ---
 @bot.message_handler(commands=['stock'])
@@ -170,40 +290,7 @@ def show_stock(message):
     report += f"\n━━━━━━━━━━━━━━━━━━━━━\n🔥 <b>Tổng số lượng toàn hệ thống:</b> <code>{total_all}</code> số"
     bot.reply_to(message, report, parse_mode="HTML")
 
-# --- ADMIN: THÊM SỐ THỦ CÔNG HÀNG LOẠT (/ADD) ---
-@bot.message_handler(commands=['add'])
-def admin_add_numbers(message):
-    parts = message.text.split()[1:]
-    if not parts:
-        bot.reply_to(message, "⚠️ <b>Sai cú pháp!</b>\nVí dụ: <code>/add 84939168914 84988888888 95912345678</code>", parse_mode="HTML")
-        return
-
-    added_counts = {}
-    total_added = 0
-
-    for phone in parts:
-        cleaned_phone = phone.replace("+", "").strip()
-        if not cleaned_phone.isdigit():
-            continue
-        
-        country_name = detect_country_by_phone(cleaned_phone)
-        
-        if country_name not in inventory_numbers:
-            inventory_numbers[country_name] = []
-        
-        if cleaned_phone not in inventory_numbers[country_name]:
-            inventory_numbers[country_name].append(cleaned_phone)
-            added_counts[country_name] = added_counts.get(country_name, 0) + 1
-            total_added += 1
-
-    result_msg = f"✅ <b>Thêm thành công {total_added} số vào kho!</b>\n━━━━━━━━━━━━━━━━━━━━━\n"
-    for c_name, count in added_counts.items():
-        result_msg += f"• <b>{c_name}</b>: +<code>{count}</code> số\n"
-    result_msg += "━━━━━━━━━━━━━━━━━━━━━\n💡 Dùng lệnh <code>/stock</code> để kiểm tra tổng kho."
-
-    bot.reply_to(message, result_msg, parse_mode="HTML")
-
-# --- TÍNH NĂNG NHẬN SỐ THUÊ CÁ NHÂN (/THUE) ---
+# --- LỆNH THUÊ SỐ (/THUE) ---
 @bot.message_handler(commands=['thue'])
 def handle_rent_number(message):
     parts = message.text.split()
@@ -229,7 +316,7 @@ async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test
                f"━━━━━━━━━━━━━━━━━━━━━\n\n"
                f"<b>⌚ ᴛɪᴍᴇ:</b> <code>{html.escape(str(timestamp))}</code>\n"
                f"<b>🌍 ᴄᴏᴜɴᴛʀʏ:</b> {html.escape(str(country))} {flag}\n"
-               f"<b>📱 ɴᴜᴍʙᴇՐ:</b> <code>{html.escape(str(masked))}</code>\n"
+               f"<b>📱 ɴ🇺ᴍʙᴇՐ:</b> <code>{html.escape(str(masked))}</code>\n"
                f"<b>🛠 ꜱᴇʀᴠɪᴄᴇ:</b> <code>{html.escape(str(service))}</code>\n"
                f"<b>🔑 ᴄᴏᴅᴇ:</b> <code>{html.escape(str(code))}</code>\n\n"
                f"<b>💬 ᴍᴇssᴀɢᴇ:</b>\n<pre>{html.escape(str(msg))}</pre>\n\n"
@@ -290,27 +377,4 @@ async def main_loop():
         await asyncio.sleep(30)
 
 def run_bot_polling():
-    bot.infinity_polling(skip_pending=True)
-
-# --- FLASK SERVER (Giữ cổng cho Render Web Service 24/7) ---
-app = Flask(__name__)
-
-@app.route('/')
-def home():
-    return "Fast Node Gateway is Running 24/7!"
-
-def run_web():
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
-
-if __name__ == "__main__":
-    # 1. Chạy Flask Web Server ở luồng phụ
-    t_web = threading.Thread(target=run_web, daemon=True)
-    t_web.start()
-    
-    # 2. Chạy bot polling ở luồng phụ
-    t_bot = threading.Thread(target=run_bot_polling, daemon=True)
-    t_bot.start()
-    
-    # 3. Chạy vòng lặp async ở luồng chính
-    asyncio.run(main_loop())
+    bot.re
