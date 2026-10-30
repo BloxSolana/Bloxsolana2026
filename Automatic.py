@@ -3,14 +3,17 @@ import random
 import re
 import html
 import time
+import os
+import threading
 import requests
 import telebot
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
+from flask import Flask
 
 # --- CONFIGURATION ---
 BOT_TOKEN = "9139656226:AAF3G3Kll7E0DipP80mnXGWvex4BMdEVCzc"
 TARGET_CHAT = -1004341368656  # ID Group chính xác của bro
-ADMIN_IDS = [123456789]       # ⚠️ THAY ID TELEGRAM CỦA BRO VÀO ĐÂY ĐỂ CÓ QUYỀN ADMIN
+ADMIN_IDS = [6726769296]       # ⚠️ THAY ID TELEGRAM CỦA BRO VÀO ĐÂY ĐỂ CÓ QUYỀN ADMIN
 
 bot = telebot.TeleBot(token=BOT_TOKEN)
 
@@ -18,7 +21,7 @@ bot = telebot.TeleBot(token=BOT_TOKEN)
 user_rentals = {}          # {"số_điện_thoại": user_id}
 inventory_numbers = {}     # {"quốc_gia": [danh_sách_số]}
 
-# --- COMPLETE COUNTRY DATABASE (195+ Quốc gia) ---
+# --- COMPLETE COUNTRY DATABASE (195+ Quốc gia chuẩn) ---
 country_db = {
     "1": ("USA/Canada", "🇺🇸"), "93": ("Afghanistan", "🇦🇫"), "355": ("Albania", "🇦🇱"), "213": ("Algeria", "🇩🇿"), 
     "376": ("Andorra", "🇦🇩"), "244": ("Angola", "🇦🇴"), "1264": ("Anguilla", "🇦🇮"), "1268": ("Antigua", "🇦🇬"),
@@ -78,7 +81,6 @@ country_db = {
 
 def detect_country_by_phone(phone_str):
     clean = re.sub(r'\D', '', phone_str)
-    # Quét mã vùng từ dài xuống ngắn (4 chữ số -> 1 chữ số)
     for length in range(4, 0, -1):
         prefix = clean[:length]
         if prefix in country_db:
@@ -86,27 +88,70 @@ def detect_country_by_phone(phone_str):
             return f"{name} {flag}"
     return "Unknown 🌐"
 
-# --- BẮT SỰ KIỆN /START ---
+# --- BẮT SỰ KIỆN /START (Giao diện Menu Đầy Đủ) ---
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     welcome_text = (
-        "🚀 <b>Welcome to Fast Node Gateway!</b>\n\n"
-        "🌐 High-performance live number allocation & instant OTP verification system.\n\n"
-        "💡 <i>Lệnh hỗ trợ:</i>\n"
-        "• <code>/thue [số_điện_thoại]</code> : Nhận OTP riêng về inbox\n"
-        "• <code>/stock</code> : Xem kho số hiện có\n"
-        "• <code>/add [số_1] [số_2]...</code> : (Admin) Thêm số thủ công"
+        "🔥 <b>FAST NODE • LIVE OTP GATEWAY</b>\n\n"
+        "Welcome -, choose an option from the menu:"
     )
-    kb = InlineKeyboardMarkup()
-    kb.row(
-        InlineKeyboardButton("✨ YT", url="https://youtube.com/@ThoKho_VN"),
-        InlineKeyboardButton("👑 OWNER", url="https://t.me/Nothavedie")
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.add(
+        InlineKeyboardButton("LIVE NUMBER", callback_data="menu_live_number"),
+        InlineKeyboardButton("LIVE TRAFFIC", callback_data="menu_live_traffic")
     )
-    kb.row(
-        InlineKeyboardButton("📥 DIRECT OTP CHANNEL", url="https://t.me/LIVEOTPIVAS"),
-        InlineKeyboardButton("🎀 MAIN CHANNEL FE", url="https://t.me/FastNode_1")
+    kb.add(
+        InlineKeyboardButton("INVITE FRIEND", callback_data="menu_invite"),
+        InlineKeyboardButton("WALLET", callback_data="menu_wallet")
+    )
+    kb.add(
+        InlineKeyboardButton("LEADERBOARD", callback_data="menu_leaderboard")
+    )
+    kb.add(
+        InlineKeyboardButton("OWNER PANEL", callback_data="menu_owner")
     )
     bot.send_message(message.chat.id, welcome_text, parse_mode="HTML", reply_markup=kb)
+
+# --- XỬ LÝ CLICK NÚT MENU INTERACTIVE ---
+@bot.callback_query_handler(func=lambda call: True)
+def handle_callback(call):
+    if call.data == "menu_live_number":
+        # Hiển thị danh sách quốc gia dạng phân trang / chọn mẫu
+        kb = InlineKeyboardMarkup(row_width=2)
+        countries_list = list(country_db.values())[:14] # Lấy mẫu top quốc gia
+        for name, flag in countries_list:
+            kb.add(InlineKeyboardButton(f"{name} {flag}", callback_data=f"country_{name}"))
+        kb.add(InlineKeyboardButton("CLOSE", callback_data="menu_close"))
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="🌍 <b>Select Country / Range:</b>",
+            parse_mode="HTML",
+            reply_markup=kb
+        )
+    elif call.data == "menu_live_traffic":
+        traffic_text = (
+            "📈 <b>LIVE TRAFFIC MONITOR</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
+            "All systems operating normally via Fast Node Gateway v3 API."
+        )
+        bot.answer_callback_query(call.id, "Traffic loaded successfully!")
+        bot.send_message(call.message.chat.id, traffic_text, parse_mode="HTML")
+    elif call.data == "menu_owner":
+        owner_text = (
+            "👑 <b>ADMIN / OWNER PANEL</b>\n\n"
+            "• Thêm số hàng loạt: <code>/add [danh_sách_số]</code>\n"
+            "• Xem kho số tổng: <code>/stock</code>\n"
+            "• Gán số riêng: <code>/thue [số_điện_thoại]</code>"
+        )
+        bot.answer_callback_query(call.id)
+        bot.send_message(call.message.chat.id, owner_text, parse_mode="HTML")
+    elif call.data == "menu_close":
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except:
+            pass
 
 # --- XEM KHO SỐ HIỆN CÓ (/STOCK) ---
 @bot.message_handler(commands=['stock'])
@@ -128,12 +173,6 @@ def show_stock(message):
 # --- ADMIN: THÊM SỐ THỦ CÔNG HÀNG LOẠT (/ADD) ---
 @bot.message_handler(commands=['add'])
 def admin_add_numbers(message):
-    # Kiểm tra quyền admin
-    if message.from_user.id not in ADMIN_IDS and len(ADMIN_IDS) > 0:
-        # Nếu chưa set ADMIN_IDS thì cho phép user hiện tại test luôn, hoặc chặn
-        pass # Bỏ qua check nếu muốn ai cũng add được lúc test, hoặc bật dòng dưới:
-        # bot.reply_to(message, "⛔ Bạn không có quyền sử dụng lệnh này!"); return
-
     parts = message.text.split()[1:]
     if not parts:
         bot.reply_to(message, "⚠️ <b>Sai cú pháp!</b>\nVí dụ: <code>/add 84939168914 84988888888 95912345678</code>", parse_mode="HTML")
@@ -147,7 +186,6 @@ def admin_add_numbers(message):
         if not cleaned_phone.isdigit():
             continue
         
-        # Tự động nhận diện quốc gia từ số điện thoại
         country_name = detect_country_by_phone(cleaned_phone)
         
         if country_name not in inventory_numbers:
@@ -158,7 +196,6 @@ def admin_add_numbers(message):
             added_counts[country_name] = added_counts.get(country_name, 0) + 1
             total_added += 1
 
-    # Tạo thông báo báo cáo kết quả add số
     result_msg = f"✅ <b>Thêm thành công {total_added} số vào kho!</b>\n━━━━━━━━━━━━━━━━━━━━━\n"
     for c_name, count in added_counts.items():
         result_msg += f"• <b>{c_name}</b>: +<code>{count}</code> số\n"
@@ -166,7 +203,7 @@ def admin_add_numbers(message):
 
     bot.reply_to(message, result_msg, parse_mode="HTML")
 
-# --- TÍNH NĂNG NHẬN SỐ THUÊ CÁ NHÂN ---
+# --- TÍNH NĂNG NHẬN SỐ THUÊ CÁ NHÂN (/THUE) ---
 @bot.message_handler(commands=['thue'])
 def handle_rent_number(message):
     parts = message.text.split()
@@ -208,7 +245,6 @@ async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test
         InlineKeyboardButton("🎀 MAIN CHNL", url="https://t.me/FastNode_1")
     )
     
-    # 1. Bắn lên Group chung
     try:
         await asyncio.to_thread(
             bot.send_message,
@@ -221,7 +257,6 @@ async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test
     except Exception as e: 
         print(f"Lỗi gửi tin nhắn vào Group: {e}")
 
-    # 2. Bắn riêng Private Chat nếu số có người thuê
     if clean_phone in user_rentals:
         owner_id = user_rentals[clean_phone]
         private_caption = f"🔔 <b>[OTP RIÊNG CHO SỐ CỦA BRO]</b>\n\n" + caption
@@ -257,9 +292,25 @@ async def main_loop():
 def run_bot_polling():
     bot.infinity_polling(skip_pending=True)
 
+# --- FLASK SERVER (Giữ cổng cho Render Web Service 24/7) ---
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Fast Node Gateway is Running 24/7!"
+
+def run_web():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
+
 if __name__ == "__main__":
-    import threading
-    t = threading.Thread(target=run_bot_polling, daemon=True)
-    t.start()
+    # 1. Chạy Flask Web Server ở luồng phụ
+    t_web = threading.Thread(target=run_web, daemon=True)
+    t_web.start()
     
+    # 2. Chạy bot polling ở luồng phụ
+    t_bot = threading.Thread(target=run_bot_polling, daemon=True)
+    t_bot.start()
+    
+    # 3. Chạy vòng lặp async ở luồng chính
     asyncio.run(main_loop())
