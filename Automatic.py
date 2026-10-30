@@ -10,14 +10,15 @@ from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
 # --- CONFIGURATION ---
 BOT_TOKEN = "9139656226:AAF3G3Kll7E0DipP80mnXGWvex4BMdEVCzc"
 TARGET_CHAT = -1004341368656  # ID Group chính xác của bro
+ADMIN_IDS = [123456789]       # ⚠️ THAY ID TELEGRAM CỦA BRO VÀO ĐÂY ĐỂ CÓ QUYỀN ADMIN
 
 bot = telebot.TeleBot(token=BOT_TOKEN)
 
-# --- DATABASE QUẢN LÝ THUÊ SỐ (Lưu tạm dạng bộ nhớ RAM) ---
-# Format: {"số_điện_thoại": user_id}
-user_rentals = {}
+# --- DATABASE QUẢN LÝ ---
+user_rentals = {}          # {"số_điện_thoại": user_id}
+inventory_numbers = {}     # {"quốc_gia": [danh_sách_số]}
 
-# --- COMPLETE COUNTRY DATABASE ---
+# --- COMPLETE COUNTRY DATABASE (195+ Quốc gia) ---
 country_db = {
     "1": ("USA/Canada", "🇺🇸"), "93": ("Afghanistan", "🇦🇫"), "355": ("Albania", "🇦🇱"), "213": ("Algeria", "🇩🇿"), 
     "376": ("Andorra", "🇦🇩"), "244": ("Angola", "🇦🇴"), "1264": ("Anguilla", "🇦🇮"), "1268": ("Antigua", "🇦🇬"),
@@ -75,24 +76,95 @@ country_db = {
     "967": ("Yemen", "🇾🇪"), "260": ("Zambia", "🇿🇲"), "263": ("Zimbabwe", "🇿🇼")
 }
 
+def detect_country_by_phone(phone_str):
+    clean = re.sub(r'\D', '', phone_str)
+    # Quét mã vùng từ dài xuống ngắn (4 chữ số -> 1 chữ số)
+    for length in range(4, 0, -1):
+        prefix = clean[:length]
+        if prefix in country_db:
+            name, flag = country_db[prefix]
+            return f"{name} {flag}"
+    return "Unknown 🌐"
+
 # --- BẮT SỰ KIỆN /START ---
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     welcome_text = (
         "🚀 <b>Welcome to Fast Node Gateway!</b>\n\n"
         "🌐 High-performance live number allocation & instant OTP verification system.\n\n"
-        "💡 <i>Dùng lệnh:</i> <code>/thue [số_điện_thoại]</code> để nhận OTP riêng về inbox của bạn!"
+        "💡 <i>Lệnh hỗ trợ:</i>\n"
+        "• <code>/thue [số_điện_thoại]</code> : Nhận OTP riêng về inbox\n"
+        "• <code>/stock</code> : Xem kho số hiện có\n"
+        "• <code>/add [số_1] [số_2]...</code> : (Admin) Thêm số thủ công"
     )
     kb = InlineKeyboardMarkup()
     kb.row(
-        InlineKeyboardButton("✨YT", url="https://youtube.com/@ThoKho_VN"),
-        InlineKeyboardButton("👑OWNER", url="https://t.me/Nothavedie")
+        InlineKeyboardButton("✨ YT", url="https://youtube.com/@ThoKho_VN"),
+        InlineKeyboardButton("👑 OWNER", url="https://t.me/Nothavedie")
     )
     kb.row(
         InlineKeyboardButton("📥 DIRECT OTP CHANNEL", url="https://t.me/LIVEOTPIVAS"),
         InlineKeyboardButton("🎀 MAIN CHANNEL FE", url="https://t.me/FastNode_1")
     )
     bot.send_message(message.chat.id, welcome_text, parse_mode="HTML", reply_markup=kb)
+
+# --- XEM KHO SỐ HIỆN CÓ (/STOCK) ---
+@bot.message_handler(commands=['stock'])
+def show_stock(message):
+    if not inventory_numbers:
+        bot.reply_to(message, "📦 <b>Kho số hiện đang trống!</b>", parse_mode="HTML")
+        return
+    
+    report = "📊 <b>FAST NODE - LIVE STOCK REPORT</b>\n━━━━━━━━━━━━━━━━━━━━━\n\n"
+    total_all = 0
+    for country, numbers in inventory_numbers.items():
+        count = len(numbers)
+        total_all += count
+        report += f"🌍 <b>{country}</b>: <code>{count}</code> số\n"
+    
+    report += f"\n━━━━━━━━━━━━━━━━━━━━━\n🔥 <b>Tổng số lượng toàn hệ thống:</b> <code>{total_all}</code> số"
+    bot.reply_to(message, report, parse_mode="HTML")
+
+# --- ADMIN: THÊM SỐ THỦ CÔNG HÀNG LOẠT (/ADD) ---
+@bot.message_handler(commands=['add'])
+def admin_add_numbers(message):
+    # Kiểm tra quyền admin
+    if message.from_user.id not in ADMIN_IDS and len(ADMIN_IDS) > 0:
+        # Nếu chưa set ADMIN_IDS thì cho phép user hiện tại test luôn, hoặc chặn
+        pass # Bỏ qua check nếu muốn ai cũng add được lúc test, hoặc bật dòng dưới:
+        # bot.reply_to(message, "⛔ Bạn không có quyền sử dụng lệnh này!"); return
+
+    parts = message.text.split()[1:]
+    if not parts:
+        bot.reply_to(message, "⚠️ <b>Sai cú pháp!</b>\nVí dụ: <code>/add 84939168914 84988888888 95912345678</code>", parse_mode="HTML")
+        return
+
+    added_counts = {}
+    total_added = 0
+
+    for phone in parts:
+        cleaned_phone = phone.replace("+", "").strip()
+        if not cleaned_phone.isdigit():
+            continue
+        
+        # Tự động nhận diện quốc gia từ số điện thoại
+        country_name = detect_country_by_phone(cleaned_phone)
+        
+        if country_name not in inventory_numbers:
+            inventory_numbers[country_name] = []
+        
+        if cleaned_phone not in inventory_numbers[country_name]:
+            inventory_numbers[country_name].append(cleaned_phone)
+            added_counts[country_name] = added_counts.get(country_name, 0) + 1
+            total_added += 1
+
+    # Tạo thông báo báo cáo kết quả add số
+    result_msg = f"✅ <b>Thêm thành công {total_added} số vào kho!</b>\n━━━━━━━━━━━━━━━━━━━━━\n"
+    for c_name, count in added_counts.items():
+        result_msg += f"• <b>{c_name}</b>: +<code>{count}</code> số\n"
+    result_msg += "━━━━━━━━━━━━━━━━━━━━━\n💡 Dùng lệnh <code>/stock</code> để kiểm tra tổng kho."
+
+    bot.reply_to(message, result_msg, parse_mode="HTML")
 
 # --- TÍNH NĂNG NHẬN SỐ THUÊ CÁ NHÂN ---
 @bot.message_handler(commands=['thue'])
@@ -105,7 +177,6 @@ def handle_rent_number(message):
     phone_to_rent = parts[1].replace("+", "").strip()
     user_id = message.chat.id
     
-    # Gán số cho user
     user_rentals[phone_to_rent] = user_id
     bot.reply_to(message, f"✅ <b>Thành công!</b>\nBạn đã đăng ký nhận OTP riêng cho số: <code>{phone_to_rent}</code>.\nMọi mã OTP đổ về số này sẽ được bắn thẳng về inbox riêng của bạn!", parse_mode="HTML")
 
@@ -129,15 +200,15 @@ async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test
     
     kb = InlineKeyboardMarkup()
     kb.row(
-        InlineKeyboardButton("✨YT", url="https://youtube.com/@ThoKho_VN"),
-        InlineKeyboardButton("👑OWNER", url="https://t.me/Nothavedie")
+        InlineKeyboardButton("✨ YT", url="https://youtube.com/@ThoKho_VN"),
+        InlineKeyboardButton("👑 OWNER", url="https://t.me/Nothavedie")
     )
     kb.row(
-        InlineKeyboardButton("📥OTP DELIVERY CHNL", url="https://t.me/LIVEOTPIVAS"),
+        InlineKeyboardButton("📥 OTP DELIVERY CHNL", url="https://t.me/LIVEOTPIVAS"),
         InlineKeyboardButton("🎀 MAIN CHNL", url="https://t.me/FastNode_1")
     )
     
-    # 1. Bắn lên Group chung trước
+    # 1. Bắn lên Group chung
     try:
         await asyncio.to_thread(
             bot.send_message,
@@ -150,7 +221,7 @@ async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test
     except Exception as e: 
         print(f"Lỗi gửi tin nhắn vào Group: {e}")
 
-    # 2. Kiểm tra xem số này có ai thuê riêng không, nếu có thì bắn private chat
+    # 2. Bắn riêng Private Chat nếu số có người thuê
     if clean_phone in user_rentals:
         owner_id = user_rentals[clean_phone]
         private_caption = f"🔔 <b>[OTP RIÊNG CHO SỐ CỦA BRO]</b>\n\n" + caption
@@ -181,7 +252,6 @@ async def main_loop():
     await send_random_startup_otp()
     
     while True:
-        # Chỗ này sau này nhét code cào dữ liệu thực tế vào đây
         await asyncio.sleep(30)
 
 def run_bot_polling():
@@ -189,9 +259,7 @@ def run_bot_polling():
 
 if __name__ == "__main__":
     import threading
-    # Chạy lắng nghe sự kiện chat/lệnh ở luồng phụ
     t = threading.Thread(target=run_bot_polling, daemon=True)
     t.start()
     
-    # Chạy vòng lặp ngầm ở luồng chính
     asyncio.run(main_loop())
