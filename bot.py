@@ -1,264 +1,197 @@
-from curl_cffi import requests as c_requests
-import time
-import os
+import asyncio
+import random
 import re
 import html
-import json
-import threading
+import time
+import requests
+import telebot
+from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-# ==========================================
-# Configuration (Fast Node Auto-Save Cookie Engine)
-# ==========================================
+# --- CONFIGURATION ---
 BOT_TOKEN = "9139656226:AAF3G3Kll7E0DipP80mnXGWvex4BMdEVCzc"
-ADMIN_ID = 6726769296
-TARGET_CHAT = '-1004341368656'
-BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/"
+TARGET_CHAT = -1004341368656  # ID Group chính xác của bro
 
-IVASMS_GET_SMS_URL = "https://www.ivasms.com/portal/sms/getsms"
-CONFIG_FILE = "cookie_config.json"
+bot = telebot.TeleBot(token=BOT_TOKEN)
 
-PREMIUM_APPS = {
-    "Facebook": "📘 Facebook",
-    "WhatsApp": "💬 WhatsApp",
-    "Telegram": "✈️ Telegram",
-    "Instagram": "📸 Instagram",
-    "Google": "🔍 Google",
-    "Microsoft": "🪟 Microsoft",
-    "TikTok": "🎵 TikTok",
-    "Shopee": "🛍️ Shopee",
-    "Lazada": "📦 Lazada",
-    "Zalo": "💬 Zalo",
-    "Twitter": "🐦 Twitter",
-    "Binance": "💱 Binance",
-    "Discord": "🎬 Discord",
-    "Other": "📶 Other / General"
-}
+# --- DATABASE QUẢN LÝ THUÊ SỐ (Lưu tạm dạng bộ nhớ RAM) ---
+# Format: {"số_điện_thoại": user_id}
+user_rentals = {}
 
+# --- COMPLETE COUNTRY DATABASE ---
 country_db = {
-    "1": ("USA/Canada", "🇺🇸"), "7": ("Russia/Kazakhstan", "🇷🇺"), "20": ("Egypt", "🇪🇬"), "27": ("South Africa", "🇿🇦"),
-    "30": ("Greece", "🇬🇷"), "31": ("Netherlands", "🇳🇱"), "32": ("Belgium", "🇧🇪"), "33": ("France", "🇫🇷"),
-    "34": ("Spain", "🇪🇸"), "36": ("Hungary", "🇭🇺"), "39": ("Italy", "🇮🇹"), "40": ("Romania", "🇷🇴"),
-    "41": ("Switzerland", "🇨🇭"), "43": ("Austria", "🇦🇹"), "44": ("UK", "🇬🇧"), "45": ("Denmark", "🇩🇰"),
-    "46": ("Sweden", "🇸🇪"), "47": ("Norway", "🇳🇴"), "48": ("Poland", "🇵🇱"), "49": ("Germany", "🇩🇪"),
-    "51": ("Peru", "🇵🇪"), "52": ("Mexico", "🇲🇽"), "53": ("Cuba", "🇨🇺"), "54": ("Argentina", "🇦🇷"),
-    "55": ("Brazil", "🇧🇷"), "56": ("Chile", "🇨🇱"), "57": ("Colombia", "🇨🇴"), "58": ("Venezuela", "🇻🇪"),
-    "60": ("Malaysia", "🇲🇾"), "61": ("Australia", "🇦🇺"), "62": ("Indonesia", "🇮🇩"), "63": ("Philippines", "🇵🇭"),
-    "64": ("New Zealand", "🇳🇿"), "65": ("Singapore", "🇸🇬"), "66": ("Thailand", "🇹🇭"), "81": ("Japan", "🇯🇵"),
-    "82": ("South Korea", "🇰🇷"), "84": ("Vietnam", "🇻🇳"), "86": ("China", "🇨🇳"), "90": ("Turkey", "🇹🇷"),
-    "91": ("India", "🇮🇳"), "92": ("Pakistan", "🇵🇰"), "93": ("Afghanistan", "🇦🇫"), "94": ("Sri Lanka", "🇱🇰"),
-    "95": ("Myanmar", "🇲🇲"), "98": ("Iran", "🇮🇷"), "212": ("Morocco", "🇲🇦"), "213": ("Algeria", "🇩🇿"),
-    "216": ("Tunisia", "🇹🇳"), "218": ("Libya", "🇱🇾"), "220": ("Gambia", "🇬🇲"), "221": ("Senegal", "🇸🇳"),
-    "222": ("Mauritania", "🇲🇷"), "223": ("Mali", "🇲🇱"), "224": ("Guinea", "🇬🇳"), "225": ("Ivory Coast", "🇨🇮"),
-    "226": ("Burkina Faso", "🇧🇫"), "227": ("Niger", "🇳🇪"), "228": ("Togo", "🇹🇬"), "229": ("Benin", "🇧🇯"),
-    "230": ("Mauritius", "🇲🇺"), "231": ("Liberia", "🇱🇷"), "232": ("Sierra Leone", "🇸🇱"), "233": ("Ghana", "🇬🇭"),
-    "234": ("Nigeria", "🇳🇬"), "235": ("Chad", "🇹🇩"), "236": ("CAR", "🇨🇫"), "237": ("Cameroon", "🇨🇲"),
-    "238": ("Cape Verde", "🇨🇻"), "239": ("Sao Tome", "🇸🇹"), "240": ("Equatorial Guinea", "🇬🇶"), "241": ("Gabon", "🇬🇦"),
-    "242": ("Congo", "🇨🇬"), "243": ("DRC", "🇨🇩"), "244": ("Angola", "🇦🇴"), "245": ("Guinea-Bissau", "🇬🇼"),
-    "246": ("Diego Garcia", "🇮🇴"), "248": ("Seychelles", "🇸🇨"), "249": ("Sudan", "🇸🇩"), "250": ("Rwanda", "🇷🇼"),
-    "251": ("Ethiopia", "🇪🇹"), "252": ("Somalia", "🇸🇴"), "253": ("Djibouti", "🇩🇯"), "254": ("Kenya", "🇰🇪"),
-    "255": ("Tanzania", "🇹🇿"), "256": ("Uganda", "🇺🇬"), "257": ("Burundi", "🇧🇮"), "258": ("Mozambique", "🇲🇿"),
-    "260": ("Zambia", "🇿🇲"), "261": ("Madagascar", "🇲🇬"), "262": ("Reunion", "🇷🇪"), "263": ("Zimbabwe", "🇿🇼"),
-    "264": ("Namibia", "🇳🇦"), "265": ("Malawi", "🇲🇼"), "266": ("Lesotho", "🇱🇸"), "267": ("Botswana", "🇧🇼"),
-    "268": ("Swaziland", "🇸🇿"), "269": ("Comoros", "🇰🇲"), "291": ("Eritrea", "🇪🇷"), "297": ("Aruba", "🇦🇼"),
-    "298": ("Faroe Islands", "🇫🇴"), "299": ("Greenland", "🇬🇱"), "350": ("Gibraltar", "🇬🇮"), "351": ("Portugal", "🇵🇹"),
-    "352": ("Luxembourg", "🇱🇺"), "353": ("Ireland", "🇮🇪"), "354": ("Iceland", "🇮🇸"), "355": ("Albania", "🇦🇱"),
-    "356": ("Malta", "🇲🇹"), "357": ("Cyprus", "🇨🇾"), "358": ("Finland", "🇫🇮"), "359": ("Bulgaria", "🇧🇬"),
-    "370": ("Lithuania", "🇱🇹"), "371": ("Latvia", "🇱🇻"), "372": ("Estonia", "🇪🇪"), "373": ("Moldova", "🇲🇩"),
-    "374": ("Armenia", "🇦🇲"), "375": ("Belarus", "🇧🇾"), "376": ("Andorra", "🇦🇩"), "377": ("Monaco", "🇲🇨"),
-    "378": ("San Marino", "🇸🇲"), "380": ("Ukraine", "🇺🇦"), "381": ("Serbia", "🇷🇸"), "382": ("Montenegro", "🇲🇪"),
-    "383": ("Kosovo", "🇽🇰"), "385": ("Croatia", "🇭🇷"), "386": ("Slovenia", "🇸🇮"), "387": ("Bosnia", "🇧🇦"),
-    "389": ("Macedonia", "🇲🇰"), "420": ("Czech Republic", "🇨🇿"), "421": ("Slovakia", "🇸🇰"), "423": ("Liechtenstein", "🇱🇮"),
-    "500": ("Falkland Islands", "🇫🇰"), "501": ("Belize", "🇧🇿"), "502": ("Guatemala", "🇬🇹"), "503": ("El Salvador", "🇸🇻"),
-    "504": ("Honduras", "🇭🇳"), "505": ("Nicaragua", "🇳🇮"), "506": ("Costa Rica", "🇨🇷"), "507": ("Panama", "🇵🇦"),
-    "508": ("St Pierre & Miquelon", "pm"), "509": ("Haiti", "🇭🇹"), "590": ("Guadeloupe", "🇬🇵"), "591": ("Bolivia", "🇧🇴"),
-    "592": ("Guyana", "🇬🇾"), "593": ("Ecuador", "🇪🇨"), "594": ("French Guiana", "🇬🇫"), "595": ("Paraguay", "🇵🇾"),
-    "597": ("Suriname", "🇸🇷"), "598": ("Uruguay", "🇺🇾"), "599": ("Curacao", "🇨🇼"), "670": ("East Timor", "🇹🇱"),
-    "673": ("Brunei", "🇧🇳"), "674": ("Nauru", "🇳🇷"), "675": ("Papua New Guinea", "🇵🇬"), "676": ("Tonga", "🇹🇴"),
-    "677": ("Solomon Islands", "🇸🇧"), "678": ("Vanuatu", "🇻🇺"), "679": ("Fiji", "🇫🇯"), "680": ("Palau", "🇵🇼"),
-    "681": ("Wallis & Futuna", "🇼🇫"), "682": ("Cook Islands", "🇨🇰"), "683": ("Niue", "🇳🇺"), "685": ("Samoa", "🇼🇸"),
-    "686": ("Kiribati", "🇰🇮"), "687": ("New Caledonia", "🇳🇨"), "688": ("Tuvalu", "🇹🇻"), "689": ("French Polynesia", "🇵🇫"),
-    "690": ("Tokelau", "🇹🇰"), "691": ("Micronesia", "🇫🇲"), "692": ("Marshall Islands", "🇲🇭"), "850": ("North Korea", "🇰🇵"),
-    "852": ("Hong Kong", "🇭🇰"), "853": ("Macau", "🇲🇴"), "855": ("Cambodia", "🇰🇭"), "856": ("Laos", "🇱🇦"),
-    "880": ("Bangladesh", "🇧🇩"), "886": ("Taiwan", "🇹🇼"), "960": ("Maldives", "🇲🇻"), "961": ("Lebanon", "🇱🇧"),
-    "962": ("Jordan", "🇯🇴"), "963": ("Syria", "🇸🇾"), "964": ("Iraq", "🇮🇶"), "965": ("Kuwait", "🇰🇼"),
-    "966": ("Saudi Arabia", "🇸🇦"), "967": ("Yemen", "🇾🇪"), "968": ("Oman", "🇴🇲"), "970": ("Palestine", "🇸🇵"),
-    "971": ("UAE", "🇦🇪"), "972": ("Israel", "🇮🇱"), "973": ("Bahrain", "🇧🇭"), "974": ("Qatar", "🇶🇦"),
-    "975": ("Bhutan", "🇧🇹"), "976": ("Mongolia", "🇲🇳"), "977": ("Nepal", "🇳🇵"), "992": ("Tajikistan", "🇹🇯"),
-    "993": ("Turkmenistan", "🇹🇲"), "994": ("Azerbaijan", "🇦🇿"), "995": ("Georgia", "🇬🇪"), "996": ("Kyrgyzstan", "🇰🇬"),
-    "998": ("Uzbekistan", "🇺🇿")
+    "1": ("USA/Canada", "🇺🇸"), "93": ("Afghanistan", "🇦🇫"), "355": ("Albania", "🇦🇱"), "213": ("Algeria", "🇩🇿"), 
+    "376": ("Andorra", "🇦🇩"), "244": ("Angola", "🇦🇴"), "1264": ("Anguilla", "🇦🇮"), "1268": ("Antigua", "🇦🇬"),
+    "54": ("Argentina", "🇦🇷"), "374": ("Armenia", "🇦🇲"), "297": ("Aruba", "🇦🇼"), "61": ("Australia", "🇦🇺"),
+    "43": ("Austria", "🇦🇹"), "994": ("Azerbaijan", "🇦🇿"), "1242": ("Bahamas", "🇧🇸"), "973": ("Bahrain", "🇧🇭"),
+    "880": ("Bangladesh", "🇧🇩"), "1246": ("Barbados", "🇧🇧"), "375": ("Belarus", "🇧🇾"), "32": ("Belgium", "🇧🇪"),
+    "501": ("Belize", "🇧🇿"), "229": ("Benin", "🇧🇯"), "1441": ("Bermuda", "🇧🇲"), "975": ("Bhutan", "🇧🇹"),
+    "591": ("Bolivia", "🇧🇴"), "387": ("Bosnia", "🇧🇦"), "267": ("Botswana", "🇧🇼"), "55": ("Brazil", "🇧🇷"),
+    "673": ("Brunei", "🇧🇳"), "359": ("Bulgaria", "🇧🇬"), "226": ("Burkina", "🇧🇫"), "257": ("Burundi", "🇧🇮"),
+    "855": ("Cambodia", "🇰🇭"), "237": ("Cameroon", "🇨🇲"), "238": ("Cape Verde", "🇨🇻"), "1345": ("Cayman", "🇰🇾"),
+    "236": ("CAR", "🇨🇫"), "235": ("Chad", "🇹🇩"), "56": ("Chile", "🇨🇱"), "86": ("China", "🇨🇳"),
+    "57": ("Colombia", "🇨🇴"), "269": ("Comoros", "🇰🇲"), "242": ("Congo", "🇨🇬"), "243": ("DRC", "🇨🇩"),
+    "506": ("Costa Rica", "🇨🇷"), "385": ("Croatia", "🇭🇷"), "53": ("Cuba", "🇨🇺"), "357": ("Cyprus", "🇨🇾"),
+    "420": ("Czech", "🇨🇿"), "45": ("Denmark", "🇩🇰"), "253": ("Djibouti", "🇩🇯"), "1767": ("Dominica", "🇩🇲"),
+    "1849": ("Dominican", "🇩🇴"), "593": ("Ecuador", "🇪🇨"), "20": ("Egypt", "🇪🇬"), "503": ("El Salvador", "🇸🇻"),
+    "240": ("Equatorial", "🇬🇶"), "291": ("Eritrea", "🇪🇷"), "372": ("Estonia", "🇪🇪"), "251": ("Ethiopia", "🇪🇹"),
+    "679": ("Fiji", "🇫🇯"), "358": ("Finland", "🇫🇮"), "33": ("France", "🇫🇷"), "594": ("French Guiana", "🇬🇫"),
+    "689": ("French Poly", "🇵🇫"), "241": ("Gabon", "🇬🇦"), "220": ("Gambia", "🇬🇲"), "995": ("Georgia", "🇬🇪"),
+    "49": ("Germany", "🇩🇪"), "233": ("Ghana", "🇬🇭"), "350": ("Gibraltar", "🇬🇮"), "30": ("Greece", "🇬🇷"),
+    "299": ("Greenland", "🇬🇱"), "1473": ("Grenada", "🇬🇩"), "590": ("Guadeloupe", "🇬🇵"), "1671": ("Guam", "🇬🇺"),
+    "502": ("Guatemala", "🇬🇹"), "224": ("Guinea", "🇬🇳"), "245": ("Guinea-Bissau", "🇬🇼"), "592": ("Guyana", "🇬🇾"),
+    "509": ("Haiti", "🇭🇹"), "504": ("Honduras", "🇭🇳"), "852": ("Hong Kong", "🇭🇰"), "36": ("Hungary", "🇭🇺"),
+    "354": ("Iceland", "🇮🇸"), "91": ("India", "🇮🇳"), "62": ("Indonesia", "🇮🇩"), "98": ("Iran", "🇮🇷"),
+    "964": ("Iraq", "🇮🇶"), "353": ("Ireland", "🇮🇪"), "972": ("Israel", "🇮🇱"), "39": ("Italy", "🇮🇹"),
+    "1876": ("Jamaica", "🇯🇲"), "81": ("Japan", "🇯🇵"), "962": ("Jordan", "🇯🇴"), "7": ("Kazakhstan", "🇰🇿"),
+    "254": ("Kenya", "🇰🇪"), "686": ("Kiribati", "🇰🇮"), "383": ("Kosovo", "🇽🇰"), "965": ("Kuwait", "🇰🇼"),
+    "996": ("Kyrgyzstan", "🇰🇬"), "856": ("Laos", "🇱🇦"), "371": ("Latvia", "🇱🇻"), "961": ("Lebanon", "🇱🇧"),
+    "266": ("Lesotho", "🇱🇸"), "231": ("Liberia", "🇱🇷"), "218": ("Libya", "🇱🇾"), "423": ("Liechtenstein", "🇱🇮"),
+    "370": ("Lithuania", "🇱🇹"), "352": ("Luxembourg", "🇱🇺"), "853": ("Macau", "🇲🇴"), "389": ("Macedonia", "🇲🇰"),
+    "261": ("Madagascar", "🇲🇬"), "265": ("Malawi", "🇲🇼"), "60": ("Malaysia", "🇲🇾"), "960": ("Maldives", "🇲🇻"),
+    "223": ("Mali", "🇲🇱"), "356": ("Malta", "🇲🇹"), "692": ("Marshall", "🇲🇭"), "596": ("Martinique", "🇲🇶"),
+    "222": ("Mauritania", "🇲🇷"), "230": ("Mauritius", "🇲🇺"), "262": ("Mayotte", "🇾🇹"), "52": ("Mexico", "🇲🇽"),
+    "691": ("Micronesia", "🇫🇲"), "373": ("Moldova", "🇲🇩"), "377": ("Monaco", "🇲🇨"), "976": ("Mongolia", "🇲🇳"),
+    "382": ("Montenegro", "🇲🇪"), "1664": ("Montserrat", "🇲🇸"), "212": ("Morocco", "🇲🇦"), "258": ("Mozambique", "🇲🇿"),
+    "95": ("Myanmar", "🇲🇲"), "264": ("Namibia", "🇳🇦"), "674": ("Nauru", "🇳🇷"), "977": ("Nepal", "🇳🇵"),
+    "31": ("Netherlands", "🇳🇱"), "687": ("New Caledonia", "🇳🇨"), "64": ("New Zealand", "🇳🇿"), "505": ("Nicaragua", "🇳🇮"),
+    "227": ("Niger", "🇳🇪"), "234": ("Nigeria", "🇳🇬"), "683": ("Niue", "🇳🇺"), "850": ("North Korea", "🇰🇵"),
+    "47": ("Norway", "🇳🇴"), "968": ("Oman", "🇴🇲"), "92": ("Pakistan", "🇵🇰"), "680": ("Palau", "🇵🇼"),
+    "970": ("Palestine", "🇵🇸"), "507": ("Panama", "🇵🇦"), "675": ("PNG", "🇵🇬"), "595": ("Paraguay", "🇵🇾"),
+    "51": ("Peru", "🇵🇪"), "63": ("Philippines", "🇵🇭"), "48": ("Poland", "🇵🇱"), "351": ("Portugal", "🇵🇹"),
+    "1787": ("Puerto Rico", "🇵🇷"), "974": ("Qatar", "🇶🇦"), "40": ("Romania", "🇷🇴"), "7": ("Russia", "🇷🇺"),
+    "250": ("Rwanda", "🇷🇼"), "685": ("Samoa", "🇼🇸"), "378": ("San Marino", "🇸🇲"), "239": ("Sao Tome", "🇸🇹"),
+    "966": ("Saudi Arabia", "🇸🇦"), "221": ("Senegal", "🇸🇳"), "381": ("Serbia", "🇷🇸"), "248": ("Seychelles", "🇸🇨"),
+    "232": ("Sierra Leone", "🇸🇱"), "65": ("Singapore", "🇸🇬"), "421": ("Slovakia", "🇸🇰"), "386": ("Slovenia", "🇸🇮"),
+    "677": ("Solomon", "🇸🇧"), "252": ("Somalia", "🇸🇴"), "27": ("South Africa", "🇿🇦"), "82": ("South Korea", "🇰🇷"),
+    "211": ("South Sudan", "🇸🇸"), "34": ("Spain", "🇪🇸"), "94": ("Sri Lanka", "🇱🇰"), "249": ("Sudan", "🇸🇩"),
+    "597": ("Suriname", "🇸🇷"), "268": ("Swaziland", "🇸🇿"), "46": ("Sweden", "🇸🇪"), "41": ("Switzerland", "🇨🇭"),
+    "963": ("Syria", "🇸🇾"), "886": ("Taiwan", "🇹🇼"), "992": ("Tajikistan", "🇹🇯"), "255": ("Tanzania", "🇹🇿"),
+    "66": ("Thailand", "🇹🇭"), "670": ("Timor-Leste", "🇹🇱"), "228": ("Togo", "🇹🇬"), "690": ("Tokelau", "🇹🇰"),
+    "676": ("Tonga", "🇹🇴"), "1868": ("Trinidad", "🇹🇹"), "216": ("Tunisia", "🇹🇳"), "90": ("Turkey", "🇹🇷"),
+    "993": ("Turkmenistan", "🇹🇲"), "1649": ("Turks", "🇹🇨"), "688": ("Tuvalu", "🇹🇻"), "256": ("Uganda", "🇺🇬"),
+    "380": ("Ukraine", "🇺🇦"), "971": ("UAE", "🇦🇪"), "44": ("UK", "🇬🇧"), "598": ("Uruguay", "🇺🇾"),
+    "998": ("Uzbekistan", "🇺🇿"), "678": ("Vanuatu", "🇻🇺"), "379": ("Vatican", "🇻🇦"), "58": ("Venezuela", "🇻🇪"),
+    "84": ("Vietnam", "🇻🇳"), "1284": ("Virgin (British)", "🇻🇬"), "1340": ("Virgin (US)", "🇻🇮"),
+    "967": ("Yemen", "🇾🇪"), "260": ("Zambia", "🇿🇲"), "263": ("Zimbabwe", "🇿🇼")
 }
 
-def detect_service(msg_text):
-    msg_lower = str(msg_text).lower()
-    for srv_name in PREMIUM_APPS.keys():
-        if srv_name.lower() in msg_lower:
-            return PREMIUM_APPS[srv_name]
-    return PREMIUM_APPS["Other"]
+# --- BẮT SỰ KIỆN /START ---
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    welcome_text = (
+        "🚀 <b>Welcome to Fast Node Gateway!</b>\n\n"
+        "🌐 High-performance live number allocation & instant OTP verification system.\n\n"
+        "💡 <i>Dùng lệnh:</i> <code>/thue [số_điện_thoại]</code> để nhận OTP riêng về inbox của bạn!"
+    )
+    kb = InlineKeyboardMarkup()
+    kb.row(
+        InlineKeyboardButton("✨YT", url="https://youtube.com/@TEAMSYEDHALER"),
+        InlineKeyboardButton("👑OWNER", url="https://t.me/syed_hacker_official")
+    )
+    kb.row(
+        InlineKeyboardButton("📥NO. CHNL", url="https://t.me/syednum"),
+        InlineKeyboardButton("🎀 MAIN CHNL", url="https://t.me/syedhacks")
+    )
+    bot.send_message(message.chat.id, welcome_text, parse_mode="HTML", reply_markup=kb)
 
-def load_cookie_header():
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, "r") as f:
-                return json.load(f).get("cookie_string", "").strip()
-        except Exception:
-            pass
-    return ""
-
-def save_cookie_header(val):
-    with open(CONFIG_FILE, "w") as f:
-        json.dump({"cookie_string": val.strip()}, f)
-
-def verify_cookie(cookie_str):
-    try:
-        today = time.strftime("%Y-%m-%d")
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
-            "Referer": "https://www.ivasms.com/portal/sms",
-            "X-Requested-With": "XMLHttpRequest",
-            "Cookie": cookie_str
-        }
-        r = c_requests.post(
-            IVASMS_GET_SMS_URL, 
-            data={"start_date": today, "end_date": today}, 
-            headers=headers,
-            impersonate="chrome", 
-            timeout=10
-        )
-        return r.status_code == 200
-    except Exception:
-        return False
-
-def telegram_listener():
-    print("🚀 Telegram Auto-Save Listener Active...")
-    offset = 0
-    while True:
-        try:
-            r = c_requests.get(f"{BASE_URL}getUpdates", params={"offset": offset, "timeout": 25}, timeout=30, impersonate="chrome")
-            if r.status_code == 200:
-                data = r.json()
-                for result in data.get("result", []):
-                    offset = result["update_id"] + 1
-                    msg = result.get("message", {})
-                    chat_id = msg.get("chat", {}).get("id")
-                    text = msg.get("text", "").strip()
-                    
-                    if chat_id == ADMIN_ID and text:
-                        if "ivas_sms_session=" in text or "cf_clearance=" in text:
-                            c_requests.post(f"{BASE_URL}sendMessage", json={
-                                "chat_id": ADMIN_ID,
-                                "text": "⏳ Đang nhận toàn bộ Cookie và test vượt rào Cloudflare...",
-                                "parse_mode": "HTML"
-                            }, impersonate="chrome")
-                            
-                            if verify_cookie(text):
-                                save_cookie_header(text)
-                                c_requests.post(f"{BASE_URL}sendMessage", json={
-                                    "chat_id": ADMIN_ID,
-                                    "text": "🟢 <b>LƯU COOKIE THÀNH CÔNG!</b> Đã vượt rào Cloudflare mượt mà. Bot tự động cào OTP ngay lập tức! 🚀",
-                                    "parse_mode": "HTML"
-                                }, impersonate="chrome")
-                            else:
-                                c_requests.post(f"{BASE_URL}sendMessage", json={
-                                    "chat_id": ADMIN_ID,
-                                    "text": "🔴 <b>COOKIE BỊ TẺO / 403!</b> Cloudflare từ chối. Bro kiểm tra lại chuỗi cookie nhé.",
-                                    "parse_mode": "HTML"
-                                }, impersonate="chrome")
-        except Exception as e:
-            print(f"Listener error: {e}")
-        time.sleep(1)
-
-def main():
-    threading.Thread(target=telegram_listener, daemon=True).start()
-    print("🚀 Fast Node Auto-Cookie Engine Started...")
+# --- TÍNH NĂNG NHẬN SỐ THUÊ CÁ NHÂN ---
+@bot.message_handler(commands=['thue'])
+def handle_rent_number(message):
+    parts = message.text.split()
+    if len(parts) < 2:
+        bot.reply_to(message, "⚠️ <b>Sai cú pháp!</b>\nVui lòng nhập: <code>/thue 84939168914</code>", parse_mode="HTML")
+        return
     
-    last_seen_id = None
-    alert_sent = False
+    phone_to_rent = parts[1].replace("+", "").strip()
+    user_id = message.chat.id
+    
+    # Gán số cho user
+    user_rentals[phone_to_rent] = user_id
+    bot.reply_to(message, f"✅ <b>Thành công!</b>\nBạn đã đăng ký nhận OTP riêng cho số: <code>{phone_to_rent}</code>.\nMọi mã OTP đổ về số này sẽ được bắn thẳng về inbox riêng của bạn!", parse_mode="HTML")
 
-    while True:
-        cookie_str = load_cookie_header()
-        if not cookie_str or not verify_cookie(cookie_str):
-            if not alert_sent:
-                c_requests.post(f"{BASE_URL}sendMessage", json={
-                    "chat_id": ADMIN_ID,
-                    "text": "⚠️ <b>CẢNH BÁO:</b> Chưa có Cookie hoặc Cookie đã hết hạn! Bro hãy <b>paste thẳng nguyên cục cookie dài</b> vào khung chat này, bot sẽ tự lưu và chạy nhé.",
-                    "parse_mode": "HTML"
-                }, impersonate="chrome")
-                alert_sent = True
-            time.sleep(15)
-            continue
+async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test=False):
+    clean_phone = str(phone).replace("+", "")
+    masked = clean_phone[:6] + "****" + clean_phone[-3:] if len(clean_phone) > 7 else clean_phone
+    match = re.search(r'\d{3}[-\s]?\d{3}|\d{4,8}', str(msg))
+    code = match.group(0) if match else "N/A"
 
-        alert_sent = False
+    header = "🧪 <b>『 ᴛᴇsᴛ ᴏᴛᴘ sᴇɴᴛ 』</b> 🧪" if is_test else "💐 <b>『 ɴᴇᴡ ᴏᴛᴘ ʀᴇᴄᴇɪᴠᴇᴅ 』</b> ✨"
+
+    caption = (f"{header}\n"
+               f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+               f"<b>⌚ ᴛɪᴍᴇ:</b> <code>{html.escape(str(timestamp))}</code>\n"
+               f"<b>🌍 ᴄᴏᴜɴᴛʀʏ:</b> {html.escape(str(country))} {flag}\n"
+               f"<b>📱 ɴᴜᴍʙᴇՐ:</b> <code>{html.escape(str(masked))}</code>\n"
+               f"<b>🛠 ꜱᴇʀᴠɪᴄᴇ:</b> <code>{html.escape(str(service))}</code>\n"
+               f"<b>🔑 ᴄᴏᴅᴇ:</b> <code>{html.escape(str(code))}</code>\n\n"
+               f"<b>💬 ᴍᴇssᴀɢᴇ:</b>\n<pre>{html.escape(str(msg))}</pre>\n\n"
+               f"━━━━━━━━━━━━━━━━━━━━━")
+    
+    kb = InlineKeyboardMarkup()
+    kb.row(
+        InlineKeyboardButton("✨YT", url="https://youtube.com/@TEAMSYEDHALER"),
+        InlineKeyboardButton("👑OWNER", url="https://t.me/syed_hacker_official")
+    )
+    kb.row(
+        InlineKeyboardButton("📥NO. CHNL", url="https://t.me/syednum"),
+        InlineKeyboardButton("🎀 MAIN CHNL", url="https://t.me/syedhacks")
+    )
+    
+    # 1. Bắn lên Group chung trước
+    try:
+        await asyncio.to_thread(
+            bot.send_message,
+            chat_id=TARGET_CHAT,
+            text=caption,
+            parse_mode="HTML",
+            reply_markup=kb,
+            disable_web_page_preview=True
+        )
+    except Exception as e: 
+        print(f"Lỗi gửi tin nhắn vào Group: {e}")
+
+    # 2. Kiểm tra xem số này có ai thuê riêng không, nếu có thì bắn private chat
+    if clean_phone in user_rentals:
+        owner_id = user_rentals[clean_phone]
+        private_caption = f"🔔 <b>[OTP RIÊNG CHO SỐ CỦA BRO]</b>\n\n" + caption
         try:
-            today = time.strftime("%Y-%m-%d")
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
-                "Referer": "https://www.ivasms.com/portal/sms",
-                "X-Requested-With": "XMLHttpRequest",
-                "Cookie": cookie_str
-            }
-            
-            r = c_requests.post(
-                IVASMS_GET_SMS_URL, 
-                data={"start_date": today, "end_date": today}, 
-                headers=headers,
-                impersonate="chrome", 
-                timeout=10
+            await asyncio.to_thread(
+                bot.send_message,
+                chat_id=owner_id,
+                text=private_caption,
+                parse_mode="HTML",
+                reply_markup=kb,
+                disable_web_page_preview=True
             )
-            
-            if r.status_code in [401, 403]:
-                c_requests.post(f"{BASE_URL}sendMessage", json={
-                    "chat_id": ADMIN_ID,
-                    "text": "⚠️ <b>CẢNH BÁO 403:</b> Cookie đã bị Cloudflare đá! Bro hãy paste ngay cục cookie mới vào đây.",
-                    "parse_mode": "HTML"
-                }, impersonate="chrome")
-                time.sleep(30)
-                continue
-
-            if r.status_code == 200:
-                data = r.json()
-                sms_list = data.get("data", []) if isinstance(data, dict) else data
-                if isinstance(sms_list, list):
-                    for item in sms_list:
-                        msg_id = item.get("id", item.get("timestamp", ""))
-                        if last_seen_id is None or str(msg_id) > str(last_seen_id):
-                            phone = item.get("num", item.get("phone", ""))
-                            msg_text = item.get("message", item.get("text", ""))
-                            ts = item.get("dt", time.strftime("%Y-%m-%d %H:%M:%S"))
-                            
-                            raw_num = str(phone).lstrip("+")
-                            info = ("Global", "🌍")
-                            for l in range(4, 0, -1):
-                                if raw_num[:l] in country_db:
-                                    info = country_db[raw_num[:l]]
-                                    break
-                            
-                            detected_service = detect_service(msg_text)
-                            clean_phone = str(phone).replace("+", "")
-                            masked = clean_phone[:6] + "****" + clean_phone[-3:] if len(clean_phone) > 7 else clean_phone
-                            match = re.search(r'\d{3}[-\s]?\d{3}', str(msg_text))
-                            code = match.group(0) if match else "N/A"
-
-                            caption = (f"💐 <b>『 FAST NODE DIRECT OTP 』</b> ✨\n"
-                                       f"━━━━━━━━━━━━━━━━━━━━━\n\n"
-                                       f"<b>⌚ ᴛɪᴍᴇ:</b> <code>{html.escape(str(ts))}</code>\n"
-                                       f"<b>🌍 ᴄᴏᴜɴᴛʀʏ:</b> {html.escape(str(info[0]))} {info[1]}\n"
-                                       f"<b>📱 ɴ🇺🇲🇧ᴇ🇷:</b> <code>{html.escape(str(masked))}</code>\n"
-                                       f"<b>🛠 ꜱᴇʀᴠɪᴄᴇ:</b> <code>{html.escape(str(detected_service))}</code>\n"
-                                       f"<b>🔑 ᴄᴏᴅᴇ:</b> <code>{html.escape(str(code))}</code>\n\n"
-                                       f"<b>💬 ᴍᴇssᴀɢᴇ:</b>\n<pre>{html.escape(str(msg_text))}</pre>\n\n"
-                                       f"━━━━━━━━━━━━━━━━━━━━━")
-                            
-                            c_requests.post(f"{BASE_URL}sendMessage", json={
-                                "chat_id": TARGET_CHAT,
-                                "text": caption,
-                                "parse_mode": "HTML",
-                                "disable_web_page_preview": True
-                            }, impersonate="chrome")
-                            last_seen_id = msg_id
         except Exception as e:
-            print(f"Loop error: {e}")
-        
-        time.sleep(3)
+            print(f"Lỗi gửi tin nhắn riêng cho user {owner_id}: {e}")
+
+async def send_random_startup_otp():
+    services = ["WhatsApp", "Telegram", "Google", "Instagram", "TikTok"]
+    random_srv = random.choice(services)
+    random_num = "849" + "".join([str(random.randint(0, 9)) for _ in range(8)])
+    random_code = f"{random.randint(100, 999)}-{random.randint(100, 999)}"
+    msg = f"Your {random_srv} code is {random_code}. Don't share it with anyone."
+    curr_time = time.strftime("%Y-%m-%d %H:%M:%S")
+    
+    await dispatch_update(random_srv, random_num, msg, curr_time, "Vietnam", "🇻🇳", is_test=True)
+
+async def main_loop():
+    print("🚀 Fast Node Engine Started Successfully!")
+    await send_random_startup_otp()
+    
+    while True:
+        # Chỗ này sau này nhét code cào dữ liệu thực tế vào đây
+        await asyncio.sleep(30)
+
+def run_bot_polling():
+    bot.infinity_polling(skip_pending=True)
 
 if __name__ == "__main__":
-    main()
+    import threading
+    # Chạy lắng nghe sự kiện chat/lệnh ở luồng phụ
+    t = threading.Thread(target=run_bot_polling, daemon=True)
+    t.start()
+    
+    # Chạy vòng lặp ngầm ở luồng chính
+    asyncio.run(main_loop())
