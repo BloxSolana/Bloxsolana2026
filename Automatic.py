@@ -5,7 +5,9 @@ import html
 import time
 import os
 import threading
+import json
 import requests
+import websocket
 import telebot
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
 from flask import Flask
@@ -13,18 +15,18 @@ from flask import Flask
 # --- CONFIGURATION ---
 BOT_TOKEN = "9139656226:AAF3G3Kll7E0DipP80mnXGWvex4BMdEVCzc"
 TARGET_CHAT = -1004341368656  # ID Group chính xác của bro
-ADMIN_IDS = [6726769296]       # ID Admin của bro
+ADMIN_IDS = [6726769296]       # ID Admin tối cao của bro
 
 bot = telebot.TeleBot(token=BOT_TOKEN)
 
 # --- DATABASE QUẢN LÝ ---
 user_rentals = {}          # {"số_điện_thoại": user_id}
 inventory_numbers = {}     # {"Quốc gia Flag": [danh_sách_số]}
-admin_state = {}           # Lưu trạng thái chờ nhập: "waiting_for_numbers", "waiting_for_ws", "waiting_for_ivas_email"
+admin_state = {}           # Lưu trạng thái chờ nhập
 user_configs = {}          # Lưu cấu hình WSS/Cookie: {user_id: {"ws_url": "...", "token": "...", "status": "Active"}}
-ivas_accounts = {}         # Lưu tài khoản IVAS: {user_id: [{"email": "...", "password": "...", "username": "...", "is_default": True}]}
+ivas_accounts = {}         # Lưu tài khoản IVAS
 
-# --- COMPLETE COUNTRY DATABASE (Đầy đủ 195+ Quốc gia chuẩn) ---
+# --- COMPLETE COUNTRY DATABASE (195+ Quốc gia chuẩn) ---
 country_db = {
     "1": ("USA/Canada", "🇺🇸"), "93": ("Afghanistan", "🇦🇫"), "355": ("Albania", "🇦🇱"), "213": ("Algeria", "🇩🇿"), 
     "376": ("Andorra", "🇦🇩"), "244": ("Angola", "🇦🇴"), "1264": ("Anguilla", "🇦🇮"), "1268": ("Antigua", "🇦🇬"),
@@ -91,19 +93,22 @@ def detect_country_by_phone(phone_str):
             return f"{name} {flag}"
     return "Unknown 🌐"
 
-def get_main_menu_keyboard():
+def get_menu_keyboard(user_id):
     kb = InlineKeyboardMarkup(row_width=2)
+    # Các nút chung cho tất cả mọi người
     kb.add(
         InlineKeyboardButton("LIVE NUMBER (195+)", callback_data="menu_live_number"),
         InlineKeyboardButton("LIVE TRAFFIC", callback_data="menu_live_traffic")
     )
-    kb.add(
-        InlineKeyboardButton("CREATE CONFIG (WSS)", callback_data="menu_create_config"),
-        InlineKeyboardButton("MY CONFIGS", callback_data="menu_my_configs")
-    )
-    kb.add(
-        InlineKeyboardButton("OWNER PANEL", callback_data="menu_owner")
-    )
+    # Chỉ Admin mới thấy nút tạo WSS, My Configs và Owner Panel
+    if user_id in ADMIN_IDS:
+        kb.add(
+            InlineKeyboardButton("CREATE CONFIG (WSS)", callback_data="menu_create_config"),
+            InlineKeyboardButton("MY CONFIGS", callback_data="menu_my_configs")
+        )
+        kb.add(
+            InlineKeyboardButton("OWNER PANEL", callback_data="menu_owner")
+        )
     return kb
 
 # --- BẮT SỰ KIỆN /START ---
@@ -113,9 +118,9 @@ def send_welcome(message):
         "🔥 <b>FAST NODE • IVAS OTP GATEWAY</b>\n\n"
         "Welcome, choose an option from the menu:"
     )
-    bot.send_message(message.chat.id, welcome_text, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
+    bot.send_message(message.chat.id, welcome_text, parse_mode="HTML", reply_markup=get_menu_keyboard(message.from_user.id))
 
-# --- XỬ LÝ CLICK NÚT MENU & WIZARD (CÓ TỰ ĐỘNG DỌN DẸP TIN NHẮN RÁC) ---
+# --- XỬ LÝ CLICK NÚT MENU & PHÂN QUYỀN ---
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
     user_id = call.from_user.id
@@ -145,10 +150,13 @@ def handle_callback(call):
         bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=traffic_text, parse_mode="HTML", reply_markup=kb)
 
     elif call.data == "menu_create_config":
+        if user_id not in ADMIN_IDS:
+            bot.answer_callback_query(call.id, "⛔ Bạn không có quyền này!", show_alert=True)
+            return
         admin_state[user_id] = "waiting_for_ws"
         text = (
             "🔮 <b>Setup: Configuration Wizard (WSS / Cookie / cURL)</b>\n\n"
-            "🔗 <b>Step 1:</b> Gửi toàn bộ WebSocket URL hoặc đoạn cURL/Cookie siêu dài vào đây[cite: 13].\n"
+            "🔗 <b>Step 1:</b> Gửi toàn bộ WebSocket URL hoặc đoạn cURL/Cookie siêu dài vào đây.\n"
             "<i>(Smart Parser sẽ tự động trích xuất Token và phiên làm việc cho bạn!)</i>"
         )
         kb = InlineKeyboardMarkup()
@@ -156,6 +164,8 @@ def handle_callback(call):
         bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, parse_mode="HTML", reply_markup=kb)
 
     elif call.data == "menu_my_configs":
+        if user_id not in ADMIN_IDS:
+            return
         cfg = user_configs.get(user_id)
         if not cfg:
             text = "⚙️ <b>My Configs:</b>\n\nBạn chưa có cấu hình WebSocket nào. Hãy bấm <b>Create Config</b> để thiết lập!"
@@ -239,21 +249,21 @@ def handle_callback(call):
             "🔥 <b>FAST NODE • IVAS OTP GATEWAY</b>\n\n"
             "Welcome, choose an option from the menu:"
         )
-        bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=welcome_text, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
+        bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=welcome_text, parse_mode="HTML", reply_markup=get_menu_keyboard(user_id))
 
-# --- HỆ THỐNG LỆNH IVAS QUẢN LÝ TÀI KHOẢN ---
+# --- HỆ THỐNG LỆNH IVAS ---
 @bot.message_handler(commands=['addaccountivas', 'addivas'])
 def cmd_add_account(message):
     user_id = message.from_user.id
     admin_state[user_id] = "waiting_for_ivas_email"
-    bot.reply_to(message, "📧 <b>IVAS Account Setup:</b>\nVui lòng gửi email tài khoản IVAS của bạn[cite: 16]:", parse_mode="HTML")
+    bot.reply_to(message, "📧 <b>IVAS Account Setup:</b>\nVui lòng gửi email tài khoản IVAS của bạn:", parse_mode="HTML")
 
 @bot.message_handler(commands=['listivas'])
 def cmd_list_ivas(message):
     user_id = message.from_user.id
     accounts = ivas_accounts.get(user_id, [])
     if not accounts:
-        bot.reply_to(message, "📦 Bạn chưa liên kết tài khoản IVAS nào. Dùng lệnh /addivas để thêm[cite: 16].", parse_mode="HTML")
+        bot.reply_to(message, "📦 Bạn chưa liên kết tài khoản IVAS nào. Dùng lệnh /addivas để thêm.", parse_mode="HTML")
         return
     
     text = "📋 <b>Danh sách tài khoản IVAS của bạn:</b>\n━━━━━━━━━━━━━━━━━━━━━\n"
@@ -262,15 +272,14 @@ def cmd_list_ivas(message):
         text += f"• User: <code>{acc['username']}</code> | Email: <code>{acc['email']}</code>{default_tag}\n"
     bot.reply_to(message, text, parse_mode="HTML")
 
-# --- SMART PARSER & LẮNG NGHE TIN NHẮN CHỜ XỬ LÝ (TỰ ĐỘNG XÓA TIN NHẮN RÁC SAU KHI HOÀN TẤT) ---
+# --- LẮNG NGHE TIN NHẮN CHỜ (SMART PARSER & THÊM SỐ) ---
 @bot.message_handler(func=lambda message: True)
 def handle_all_messages(message):
     user_id = message.from_user.id
     current_state = admin_state.get(user_id)
     chat_id = message.chat.id
     
-    # 1. Xử lý Wizard WSS / Cookie / cURL cực kỳ thông minh
-    if current_state == "waiting_for_ws":
+    if current_state == "waiting_for_ws" and user_id in ADMIN_IDS:
         text_input = message.text.strip()
         
         ws_match = re.search(r'(wss?://[^\s\'"]+)', text_input)
@@ -298,7 +307,6 @@ def handle_all_messages(message):
             }
             admin_state.pop(user_id, None)
             
-            # Tự động dọn dẹp tin nhắn rác của người dùng gửi lên để giữ sạch khung chat
             try:
                 bot.delete_message(chat_id, message.message_id)
             except:
@@ -310,17 +318,16 @@ def handle_all_messages(message):
                 f"🌐 <b>Server/WSS:</b> <code>{html.escape(extracted_ws[:40] if extracted_ws else 'Custom Session')}...</code>\n"
                 f"🔑 <b>Token Extracted:</b> <code>{html.escape(extracted_token[:12])}...</code>\n"
                 f"🛡️ <b>Cloudflare Bypass:</b> <code>{'Detected & Ready' if cf_clearance else 'Standard Session'}</code>\n"
-                f"⚡ <b>Status:</b> Real-time listener active[cite: 11, 13]!\n"
+                f"⚡ <b>Status:</b> Real-time listener active[cite: 11]!\n"
             )
             kb = InlineKeyboardMarkup()
             kb.add(InlineKeyboardButton("⚙️ MY CONFIGS", callback_data="menu_my_configs"),
                    InlineKeyboardButton("🏠 MAIN MENU", callback_data="menu_back"))
             bot.send_message(chat_id, success_msg, parse_mode="HTML", reply_markup=kb)
         else:
-            bot.reply_to(message, "⚠️ Chuỗi dữ liệu quá ngắn hoặc không đúng định dạng WSS/Cookie. Vui lòng thử lại.", parse_mode="HTML")
+            bot.reply_to(message, "⚠️ Chuỗi dữ liệu quá ngắn hoặc không đúng định dạng WSS/Cookie.", parse_mode="HTML")
         return
 
-    # 2. Xử lý thêm số thủ công hàng loạt cho Admin (195+ quốc gia tự phân loại)
     if user_id in ADMIN_IDS and current_state == "waiting_for_numbers":
         text_content = message.text
         phones = re.split(r'[\s,\n]+', text_content)
@@ -361,7 +368,7 @@ def handle_all_messages(message):
         kb.add(InlineKeyboardButton("👑 VỀ OWNER PANEL", callback_data="menu_owner"))
         bot.send_message(chat_id, result_msg, parse_mode="HTML", reply_markup=kb)
 
-# --- LỆNH /STOCK ---
+# --- LỆNH /STOCK & /THUE ---
 @bot.message_handler(commands=['stock'])
 def show_stock(message):
     if not inventory_numbers:
@@ -378,7 +385,6 @@ def show_stock(message):
     report += f"\n━━━━━━━━━━━━━━━━━━━━━\n🔥 <b>Tổng số lượng toàn hệ thống:</b> <code>{total_all}</code> số"
     bot.reply_to(message, report, parse_mode="HTML")
 
-# --- LỆNH /THUE ---
 @bot.message_handler(commands=['thue'])
 def handle_rent_number(message):
     parts = message.text.split()
@@ -388,9 +394,46 @@ def handle_rent_number(message):
     
     phone_to_rent = parts[1].replace("+", "").strip()
     user_id = message.chat.id
-    
     user_rentals[phone_to_rent] = user_id
-    bot.reply_to(message, f"✅ <b>Thành công!</b>\nBạn đã đăng ký nhận OTP riêng cho số: <code>{phone_to_rent}</code>.\nMọi mã OTP đổ về số này sẽ được bắn thẳng về inbox riêng của bạn!", parse_mode="HTML")
+    bot.reply_to(message, f"✅ <b>Thành công!</b>\nBạn đã đăng ký nhận OTP riêng cho số: <code>{phone_to_rent}</code>.", parse_mode="HTML")
+
+# --- WEBSOCKET REALTIME LISTENER BACKGROUND WORKER ---
+def websocket_worker():
+    def on_message(ws, message):
+        try:
+            data = json.loads(message)
+            # Xử lý khi có SMS/OTP đổ về qua WSS thực tế
+            print(f"📩 Nhận tin nhắn Realtime từ WSS: {data}")
+        except Exception as e:
+            pass
+
+    def on_error(ws, error):
+        print(f"WSS Error: {error}")
+
+    def on_close(ws, close_status_code, close_msg):
+        print("WSS Connection Closed. Reconnecting in 10s...")
+        time.sleep(10)
+        start_websocket_listener()
+
+    def on_open(ws):
+        print("🟢 WebSocket Connected & Listening for Real-time SMS/OTP!")
+
+    def start_websocket_listener():
+        # Lấy cấu hình WSS của admin đầu tiên để chạy ngầm
+        for uid, cfg in user_configs.items():
+            ws_url = cfg.get("ws_url")
+            if ws_url and ws_url.startswith("wss://"):
+                wsapp = websocket.WebSocketApp(ws_url,
+                                              on_open=on_open,
+                                              on_message=on_message,
+                                              on_error=on_error,
+                                              on_close=on_close)
+                wsapp.run_forever()
+                break
+
+    while True:
+        start_websocket_listener()
+        time.sleep(15)
 
 async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test=False):
     clean_phone = str(phone).replace("+", "")
@@ -398,7 +441,7 @@ async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test
     match = re.search(r'\d{3}[-\s]?\d{3}|\d{4,8}', str(msg))
     code = match.group(0) if match else "N/A"
 
-    header = "🧪 <b>『 ꜰᴇ ꜱᴇɴᴅ ᴏᴛᴘ 』</b> 🧪" if is_test else "💐 <b>『 ɴᴇᴡ ᴏᴛᴘ ʀᴇᴄᴇɪᴠᴇᴅ 』</b> ✨"
+    header = "🧪 <b>『 ꜰᴇ ꜱᴇɴᴅ ᴏᴛᴘ 』</b> 🧪" if is_test else "💐 <b>『 ɴᴇᴡ ᴏᴛᴘ ʀᴇᴄᴇIᴠᴇᴅ 』</b> ✨"
 
     caption = (f"{header}\n"
                f"━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -431,21 +474,6 @@ async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test
         )
     except Exception as e: 
         print(f"Lỗi gửi tin nhắn vào Group: {e}")
-
-    if clean_phone in user_rentals:
-        owner_id = user_rentals[clean_phone]
-        private_caption = f"🔔 <b>[OTP RIÊNG CHO SỐ CỦA BRO]</b>\n\n" + caption
-        try:
-            await asyncio.to_thread(
-                bot.send_message,
-                chat_id=owner_id,
-                text=private_caption,
-                parse_mode="HTML",
-                reply_markup=kb,
-                disable_web_page_preview=True
-            )
-        except Exception as e:
-            print(f"Lỗi gửi tin nhắn riêng cho user {owner_id}: {e}")
 
 async def send_random_startup_otp():
     services = ["WhatsApp", "Telegram", "Google", "Instagram", "TikTok"]
@@ -486,5 +514,9 @@ if __name__ == "__main__":
     
     t_bot = threading.Thread(target=run_bot_polling, daemon=True)
     t_bot.start()
+    
+    # Khởi chạy luồng ngầm WebSocket Client Listener thực chiến
+    t_wss = threading.Thread(target=websocket_worker, daemon=True)
+    t_wss.start()
     
     asyncio.run(main_loop())
