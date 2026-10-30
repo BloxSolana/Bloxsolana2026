@@ -125,6 +125,13 @@ def parse_service_name(msg_text):
     elif "ZALO" in text_upper: return "Zalo"
     return "AUTHMSG"
 
+def get_reply_keyboard():
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    markup.add(KeyboardButton("🌍 LIVE NUMBER"), KeyboardButton("📈 LIVE TRAFFIC"))
+    markup.add(KeyboardButton("👥 INVITE FRIEND"), KeyboardButton("💳 WALLET"))
+    markup.add(KeyboardButton("🏆 LEADERBOARD"))
+    return markup
+
 def get_menu_keyboard(user_id):
     kb = InlineKeyboardMarkup(row_width=2)
     kb.add(
@@ -168,7 +175,30 @@ def send_welcome(message):
         "🔥 <b>FAST NODE • IVAS OTP GATEWAY PORTAL</b>\n\n"
         "Welcome to the ultimate real-time secure OTP platform!"
     )
+    # Gửi menu inline kèm theo 5 nút reply keyboard bên dưới chuẩn Ảnh 1
     bot.send_message(message.chat.id, welcome_text, parse_mode="HTML", reply_markup=get_menu_keyboard(uid))
+    bot.send_message(message.chat.id, "👇 Quick menu options below:", reply_markup=get_reply_keyboard())
+
+@bot.message_handler(func=lambda msg: msg.text in ["🌍 LIVE NUMBER", "📈 LIVE TRAFFIC", "👥 INVITE FRIEND", "💳 WALLET", "🏆 LEADERBOARD"])
+def handle_reply_buttons(message):
+    uid = message.from_user.id
+    if uid not in user_wallets:
+        user_wallets[uid] = {"balance": 0.0, "ref_count": 0, "ref_earnings": 0.0}
+        
+    text = message.text
+    if "LIVE NUMBER" in text:
+        available_total = sum(1 for data in inventory_numbers.values() for item in data["numbers"] if not item.get("locked_by"))
+        bot.reply_to(message, f"🌍 <b>LIVE STOCK (195+ Countries):</b>\n\n📦 Available numbers: <code>{available_total}</code>\nOpen Web App to get numbers!", parse_mode="HTML")
+    elif "LIVE TRAFFIC" in text:
+        bot.reply_to(message, "📈 <b>LIVE TRAFFIC MONITOR:</b>\n\nAll systems operating normally via Fast Node Gateway v3 API.", parse_mode="HTML")
+    elif "INVITE FRIEND" in text:
+        ref_link = f"https://t.me/FastNode_Bot?start=ref{uid}"
+        bot.reply_to(message, f"👥 <b>REFERRAL PROGRAM</b>\n\nInvite friends and earn <b>$0.005</b> per referral!\n\n🔗 Your Link:\n<code>{ref_link}</code>\n\n📊 Total Invited: <b>{user_wallets[uid]['ref_count']}</b>\n💰 Total Earned: <b>${user_wallets[uid]['ref_earnings']:.3f}</b>", parse_mode="HTML")
+    elif "WALLET" in text:
+        bal = user_wallets[uid]["balance"]
+        bot.reply_to(message, f"💳 <b>YOUR WALLET</b>\n\n💰 Balance: <b>${bal:.3f} USDT</b>\nMin withdraw: $5.00 (TON Network).", parse_mode="HTML")
+    elif "LEADERBOARD" in text:
+        bot.reply_to(message, f"🏆 <b>YOUR ACTIVITY STATUS</b>\n\n📊 Your Balance: <b>${user_wallets[uid]['balance']:.3f}</b>\n👥 Referrals: <b>{user_wallets[uid]['ref_count']} users</b>", parse_mode="HTML")
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
@@ -263,7 +293,7 @@ def handle_all_messages(message):
             "balance": "$0.00"
         }
         admin_state.pop(user_id, None)
-        bot.reply_to(message, "✅ WebSocket WSS Configuration saved successfully!", parse_mode="HTML")
+        bot.reply_to(message, "✅ WebSocket WSS Configuration saved successfully!", parse_mode="HTML", reply_markup=get_reply_keyboard())
         return
 
     if current_state == "waiting_for_numbers" and user_id in ADMIN_IDS:
@@ -272,7 +302,6 @@ def handle_all_messages(message):
         duplicates = []
         added_summary = {}
         
-        # Tạo tập hợp chứa tất cả các số đã có sẵn trong hệ thống để kiểm tra trùng lặp
         all_existing_phones = set()
         for data in inventory_numbers.values():
             for item in data["numbers"]:
@@ -295,7 +324,7 @@ def handle_all_messages(message):
         admin_state.pop(user_id, None)
         summary_str = "\n".join([f"• {k}: <b>+{v} numbers</b>" for k, v in added_summary.items()])
         dup_str = f"\n\n⚠️ <b>Đã trùng có trước đó ({len(duplicates)} số):</b> <code>{', '.join(duplicates[:10])}{'...' if len(duplicates)>10 else ''}</code>" if duplicates else ""
-        bot.reply_to(message, f"✅ <b>Successfully auto-added {total_added} numbers!</b>\n\n{summary_str}{dup_str}", parse_mode="HTML")
+        bot.reply_to(message, f"✅ <b>Successfully auto-added {total_added} numbers!</b>\n\n{summary_str}{dup_str}", parse_mode="HTML", reply_markup=get_reply_keyboard())
         return
 
 @bot.message_handler(commands=['thue'])
@@ -312,7 +341,7 @@ def handle_rent_number(message):
                 item["expires"] = time.time() + 900
                 item["locked_by"] = user_id
                 break
-    bot.reply_to(message, f"✅ Successfully rented number <code>{phone_to_rent}</code> for 15 minutes! OTP will be delivered here privately.", parse_mode="HTML")
+    bot.reply_to(message, f"✅ Successfully rented number <code>{phone_to_rent}</code> for 15 minutes! OTP will be delivered here privately.", parse_mode="HTML", reply_markup=get_reply_keyboard())
 
 def background_cleanup_and_wss():
     global last_reset_time, app_stats
@@ -459,7 +488,6 @@ def api_delete_bulk_country():
     key = data.get("key")
     count = int(data.get("count", 100))
     if key in inventory_numbers:
-        # Xóa số lượng định mức (ví dụ 100 số hoặc toàn bộ)
         removed_count = min(count, len(inventory_numbers[key]["numbers"]))
         inventory_numbers[key]["numbers"] = inventory_numbers[key]["numbers"][removed_count:]
         return jsonify({"success": True, "removed": removed_count})
@@ -628,11 +656,9 @@ def home():
                     <button class="btn" onclick="submitBulkNumbers()">Auto-Deploy & Categorize Numbers</button>
                 </div>
 
-                <!-- KHUNG QUẢN LÝ XÓA SỐ MỚI (Đúng phần bro tô đỏ) -->
                 <div class="widget-card">
                     <div class="widget-title" style="color:#ef4444;">🗑 Number Deletion Management</div>
                     
-                    <!-- Mục 1: Xóa từng số -->
                     <div style="margin-bottom: 12px;">
                         <label style="font-size: 12px; font-weight: bold; color: #38bdf8; display: block; margin-bottom: 4px;">🗑 Delete Specific Numbers</label>
                         <div style="display:flex; gap:6px;">
@@ -641,7 +667,6 @@ def home():
                         </div>
                     </div>
 
-                    <!-- Mục 2: Xóa 100 số theo quốc gia (Bung ra 195+ nước) -->
                     <div>
                         <label style="font-size: 12px; font-weight: bold; color: #f59e0b; display: block; margin-bottom: 4px;">⚡ Delete 100 Numbers by Country (195+)</label>
                         <select id="countryDeleteSelect" class="input-box" style="margin-bottom:6px;">
