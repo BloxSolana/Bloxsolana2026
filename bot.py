@@ -85,12 +85,12 @@ def send_welcome(message):
     )
     kb = InlineKeyboardMarkup()
     kb.row(
-        InlineKeyboardButton("✨YT", url="https://youtube.com/@TEAMSYEDHALER"),
-        InlineKeyboardButton("👑OWNER", url="https://t.me/syed_hacker_official")
+        InlineKeyboardButton("✨YT", url="https://youtube.com/@ThoKho_VN"),
+        InlineKeyboardButton("👑OWNER", url="https://t.me/Nothavedie")
     )
     kb.row(
-        InlineKeyboardButton("📥NO. CHNL", url="https://t.me/syednum"),
-        InlineKeyboardButton("🎀 MAIN CHNL", url="https://t.me/syedhacks")
+        InlineKeyboardButton("📥 DIRECT OTP CHANNEL", url="https://t.me/LIVEOTPIVAS"),
+        InlineKeyboardButton("🎀 MAIN CHANNEL FE", url="https://t.me/FastNode_1")
     )
     bot.send_message(message.chat.id, welcome_text, parse_mode="HTML", reply_markup=kb)
 
@@ -115,7 +115,7 @@ async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test
     match = re.search(r'\d{3}[-\s]?\d{3}|\d{4,8}', str(msg))
     code = match.group(0) if match else "N/A"
 
-    header = "🧪 <b>『 ᴛᴇsᴛ ᴏᴛᴘ sᴇɴᴛ 』</b> 🧪" if is_test else "💐 <b>『 ɴᴇᴡ ᴏᴛᴘ ʀᴇᴄᴇɪᴠᴇᴅ 』</b> ✨"
+    header = "🧪 <b>『 ꜰᴇ ꜱᴇɴᴅ ᴏᴛᴘ 』</b> 🧪" if is_test else "💐 <b>『 ɴᴇᴡ ᴏᴛᴘ ʀᴇᴄᴇɪᴠᴇᴅ 』</b> ✨"
 
     caption = (f"{header}\n"
                f"━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -129,12 +129,12 @@ async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test
     
     kb = InlineKeyboardMarkup()
     kb.row(
-        InlineKeyboardButton("✨YT", url="https://youtube.com/@TEAMSYEDHALER"),
-        InlineKeyboardButton("👑OWNER", url="https://t.me/syed_hacker_official")
+        InlineKeyboardButton("✨YT", url="https://youtube.com/@ThoKho_VN"),
+        InlineKeyboardButton("👑OWNER", url="https://t.me/Nothavedie")
     )
     kb.row(
-        InlineKeyboardButton("📥NO. CHNL", url="https://t.me/syednum"),
-        InlineKeyboardButton("🎀 MAIN CHNL", url="https://t.me/syedhacks")
+        InlineKeyboardButton("📥OTP DELIVERY CHNL", url="https://t.me/LIVEOTPIVAS"),
+        InlineKeyboardButton("🎀 MAIN CHNL", url="https://t.me/FastNode_1")
     )
     
     # 1. Bắn lên Group chung trước
