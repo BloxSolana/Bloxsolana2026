@@ -290,7 +290,7 @@ def handle_all_messages(message):
                 f"🌐 <b>Server/WSS:</b> <code>{html.escape(extracted_ws[:40] if extracted_ws else 'Custom Session')}...</code>\n"
                 f"🔑 <b>Token Extracted:</b> <code>{html.escape(extracted_token[:12])}...</code>\n"
                 f"💰 <b>Số dư hiện tại:</b> <code>250,000 VND</code>\n"
-                f"⚡ <b>Status:</b> Real-time listener active[cite: 11]!\n"
+                f"⚡ <b>Status:</b> Real-time listener active!\n"
             )
             kb = InlineKeyboardMarkup()
             kb.add(InlineKeyboardButton("⚙️ MY CONFIGS", callback_data="menu_my_configs"),
@@ -382,7 +382,6 @@ async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test
     match = re.search(r'\d{3}[-\s]?\d{3}|\d{4,8}', str(msg))
     code = match.group(0) if match else "N/A"
 
-    # Tin nhắn bắn vào Group chung cho người dùng xem hoàn toàn bằng TIẾNG ANH
     header = "🧪 <b>『 ꜰᴇ ꜱᴇɴᴅ ᴏᴛᴘ 』</b> 🧪" if is_test else "💐 <b>『 ɴᴇᴡ ᴏᴛᴘ ʀᴇᴄᴇɪᴠᴇᴅ 』</b> ✨"
     caption = (f"{header}\n"
                f"━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -450,7 +449,7 @@ def websocket_worker():
                     pass
         time.sleep(15)
 
-# --- FLASK SERVER & WEB APP MARKETPLACE (DASHBOARD DROPDOWN, GET NUMBER, TIẾNG ANH CHO USER, NÚT EXIT APP) ---
+# --- FLASK SERVER & WEB APP MARKETPLACE ---
 app = Flask(__name__)
 
 @app.route('/')
@@ -482,7 +481,6 @@ def home():
             .header { display: flex; justify-content: space-between; align-items: center; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; margin-bottom: 12px; }
             .balance-amount { font-size: 15px; font-weight: bold; color: var(--green); }
             
-            /* Dashboard Dropdown Menu Style */
             .dashboard-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; margin-bottom: 12px; overflow: hidden; }
             .dashboard-header { padding: 14px 16px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; background: #1e293b; font-weight: bold; font-size: 15px; color: var(--accent); }
             .dashboard-dropdown { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; padding: 0 16px; background: #0f172a; }
@@ -510,7 +508,6 @@ def home():
     </head>
     <body>
         <div class="container">
-            <!-- Header -->
             <div class="header">
                 <div>
                     <div style="font-weight: bold; font-size: 14px;">⚡ Fast Node Gateway</div>
@@ -522,7 +519,6 @@ def home():
                 </div>
             </div>
 
-            <!-- DASHBOARD DROPDOWN MENU -->
             <div class="dashboard-card">
                 <div class="dashboard-header" onclick="toggleDashboard()">
                     <span>📊 Dashboard Menu</span>
@@ -535,13 +531,11 @@ def home():
                 </div>
             </div>
 
-            <!-- GET NUMBER / COUNTRIES MARKETPLACE -->
             <div class="card" id="getNumberSection">
                 <h3>🌍 195+ Countries Marketplace</h3>
                 <div class="grid-countries" id="countryGrid"></div>
             </div>
 
-            <!-- NUMBER DETAILS VIEW -->
             <div class="card" id="detailCard" style="display:none;">
                 <h3 id="detailTitleText">Number Details</h3>
                 <div id="numberListContainer"></div>
@@ -636,11 +630,14 @@ def run_web():
     app.run(host="0.0.0.0", port=port)
 
 def run_bot_polling():
+    # Buộc xóa Webhook cũ và ngắt kết nối xung đột phiên trước đó để tránh lỗi 409
     try:
         bot.remove_webhook()
+        requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?offset=-1")
         time.sleep(1)
     except:
         pass
+    
     print("🚀 Telegram Bot Polling Started Successfully!")
     bot.infinity_polling(skip_pending=True, interval=0, timeout=20)
 
