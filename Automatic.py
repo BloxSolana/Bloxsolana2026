@@ -132,18 +132,21 @@ def get_reply_keyboard():
     markup.add(KeyboardButton("🏆 LEADERBOARD"))
     return markup
 
+# Gộp gọn các nút inline theo Ảnh 1 (mỗi hàng 2 nút hoặc tối ưu gọn gàng)
 def get_menu_keyboard(user_id):
-    kb = InlineKeyboardMarkup(row_width=1)
+    kb = InlineKeyboardMarkup(row_width=2)
     kb.add(
-        InlineKeyboardButton("🚀 OPEN WEB APP PORTAL", web_app=WebAppInfo(url=WEBAPP_URL)),
-        InlineKeyboardButton("📦 LIVE STOCK (195+)", callback_data="menu_live_number")
+        InlineKeyboardButton("🚀 OPEN WEB APP", web_app=WebAppInfo(url=WEBAPP_URL)),
+        InlineKeyboardButton("📦 LIVE STOCK", callback_data="menu_live_number")
     )
     if user_id in ADMIN_IDS:
         kb.add(
-            InlineKeyboardButton("👑 DUYỆT RÚT TIỀN (ADMIN)", callback_data="admin_withdrawals"),
-            InlineKeyboardButton("⚙️ TẠO WSS CONFIG", callback_data="menu_create_config"),
-            InlineKeyboardButton("📊 LIST PANEL (WSS/COOKIE)", callback_data="menu_list_panel"),
-            InlineKeyboardButton("➕ ADD NUMBERS (ADMIN)", callback_data="menu_add_numbers")
+            InlineKeyboardButton("👑 DUYỆT RÚT", callback_data="admin_withdrawals"),
+            InlineKeyboardButton("⚙️ TẠO WSS", callback_data="menu_create_config")
+        )
+        kb.add(
+            InlineKeyboardButton("📊 LIST PANEL", callback_data="menu_list_panel"),
+            InlineKeyboardButton("➕ ADD NUMBERS", callback_data="menu_add_numbers")
         )
     return kb
 
@@ -439,7 +442,7 @@ def websocket_worker():
                         except: pass
         time.sleep(15)
 
-# --- FLASK SERVER & WEB APP ---
+# --- FLASK SERVER & WEB APP (VỚI TÍNH NĂNG ADD NUMBERS TRONG SIDEBAR) ---
 app = Flask(__name__)
 
 @app.route('/')
@@ -464,7 +467,7 @@ def home():
             .top-bar { background: var(--orange-bar); color: #000; padding: 12px 16px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; }
             .hamburger-btn { background: none; border: none; font-size: 20px; cursor: pointer; color: #000; font-weight: bold; }
             
-            .sidebar { position: fixed; top: 0; left: -260px; width: 250px; height: 100%; background: #131c2e; border-right: 1px solid var(--border); transition: 0.3s ease; z-index: 1000; padding-top: 20px; box-shadow: 4px 0 15px rgba(0,0,0,0.5); }
+            .sidebar { position: fixed; top: 0; left: -260px; width: 250px; height: 100%; background: #131c2e; border-right: 1px solid var(--border); transition: 0.3s ease; z-index: 1000; padding-top: 20px; box-shadow: 4px 0 15px rgba(0,0,0,0.5); overflow-y: auto; }
             .sidebar.open { left: 0; }
             .sidebar-header { padding: 0 16px 15px 16px; border-bottom: 1px solid var(--border); font-size: 16px; font-weight: bold; color: #38bdf8; display: flex; justify-content: space-between; align-items: center; }
             .menu-link { display: block; padding: 14px 16px; color: var(--text); text-decoration: none; font-weight: bold; font-size: 14px; border-bottom: 1px solid var(--border); cursor: pointer; transition: 0.2s; }
@@ -496,6 +499,7 @@ def home():
             .btn-gray { background: #475569; }
 
             .input-box { width: 100%; padding: 10px; background: #0f172a; border: 1px solid var(--border); border-radius: 8px; color: white; margin-bottom: 10px; box-sizing: border-box; font-size: 14px; }
+            .textarea-box { width: 100%; height: 120px; padding: 10px; background: #0f172a; border: 1px solid var(--border); border-radius: 8px; color: white; margin-bottom: 10px; box-sizing: border-box; font-size: 13px; resize: vertical; }
             .warning-box { background: rgba(239, 68, 68, 0.1); border: 1px solid var(--red); padding: 10px; border-radius: 8px; font-size: 12px; color: #fca5a5; margin-bottom: 10px; line-height: 1.4; }
         </style>
     </head>
@@ -517,6 +521,7 @@ def home():
             <a class="menu-link" onclick="switchView('getNumberView')">🌍 Get Number (195+)</a>
             <a class="menu-link" onclick="switchView('withdrawView')">💸 Withdraw (TON USDT)</a>
             <a class="menu-link" onclick="switchView('referralView')">👥 Referral Program</a>
+            <a class="menu-link" onclick="switchView('addNumbersView')" style="color:#f59e0b;">➕ Add Numbers (Admin)</a>
             <a class="menu-link" onclick="window.open('https://t.me/LIVEOTPIVAS', '_blank')">📢 Official Channel</a>
             <a class="menu-link" style="color:var(--red);" onclick="exitApp()">❌ Exit App</a>
         </div>
@@ -590,6 +595,17 @@ def home():
                             <div id="refEarningsDisplay" style="font-size: 18px; font-weight: bold; color: var(--green); margin-top: 4px;">$0.000</div>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <div id="addNumbersView" class="view-section">
+                <div class="widget-card">
+                    <div class="widget-title">➕ Auto-Add Numbers (Admin)</div>
+                    <p style="font-size: 12px; color: var(--muted); line-height: 1.4;">
+                        Paste your list of numbers below. System will automatically detect country codes (+84 for Vietnam, +1 for USA, etc.) and sort them into respective inventories!
+                    </p>
+                    <textarea id="bulkNumbersInput" class="textarea-box" placeholder="Paste numbers here (separated by spaces, commas, or new lines)..."></textarea>
+                    <button class="btn" onclick="submitBulkNumbers()">Auto-Deploy & Categorize Numbers</button>
                 </div>
             </div>
 
@@ -698,6 +714,17 @@ def home():
             function rentNumber(phone) {
                 tg.sendData(`/thue ${phone}`);
                 tg.showAlert(`Successfully rented number ${phone} for 15 minutes!`);
+                tg.close();
+            }
+
+            function submitBulkNumbers() {
+                let text = document.getElementById('bulkNumbersInput').value.trim();
+                if (!text) {
+                    tg.showAlert("Please enter or paste phone numbers!");
+                    return;
+                }
+                tg.sendData(text);
+                tg.showAlert("Numbers sent to bot for auto-deployment!");
                 tg.close();
             }
 
