@@ -132,7 +132,6 @@ def get_reply_keyboard():
     markup.add(KeyboardButton("🏆 LEADERBOARD"))
     return markup
 
-# Gộp gọn các nút inline theo Ảnh 1 (mỗi hàng 2 nút hoặc tối ưu gọn gàng)
 def get_menu_keyboard(user_id):
     kb = InlineKeyboardMarkup(row_width=2)
     kb.add(
@@ -442,8 +441,16 @@ def websocket_worker():
                         except: pass
         time.sleep(15)
 
-# --- FLASK SERVER & WEB APP (VỚI TÍNH NĂNG ADD NUMBERS TRONG SIDEBAR) ---
+# --- FLASK SERVER & WEB APP ---
 app = Flask(__name__)
+
+@app.route('/api/inventory', methods=['GET'])
+def api_inventory():
+    countries_data = []
+    for key, data in inventory_numbers.items():
+        available_numbers = [{"phone": item["phone"], "expires": item["expires"]} for item in data["numbers"] if not item.get("locked_by")]
+        countries_data.append({"key": key, "name": data["name"], "flag": data["flag"], "numbers": available_numbers})
+    return jsonify(countries_data)
 
 @app.route('/')
 def home():
@@ -553,8 +560,8 @@ def home():
                     <h3 id="detailTitleText" style="color:#38bdf8; font-size:14px; margin-bottom:8px;">Number Details</h3>
                     <div id="numberListContainer"></div>
                     <div style="display:flex; gap:6px; margin-top:10px;">
-                        <button class="btn btn-gray" onclick="goBackToGrid()">🔙 Back</button>
-                        <button class="btn" onclick="location.reload()">🔄 Refresh</button>
+                        <button class="btn btn-gray" style="flex:1; margin:0;" onclick="goBackToGrid()">🔙 Back</button>
+                        <button class="btn" style="flex:1; margin:0;" onclick="refreshInventory()">🔄 Refresh</button>
                     </div>
                 </div>
             </div>
@@ -626,6 +633,7 @@ def home():
             let topRanges = {{ top_ranges_data | tojson }};
             let countriesData = {{ countries_data | tojson }};
             let currentSelectedCountry = null;
+            let currentSelectedCountryKey = null;
 
             function toggleSidebar() {
                 document.getElementById('sidebarDrawer').classList.toggle('open');
@@ -685,6 +693,7 @@ def home():
             }
 
             function selectCountry(key) {
+                currentSelectedCountryKey = key;
                 currentSelectedCountry = countriesData.find(c => c.key === key);
                 document.getElementById('detailTitleText').innerText = `${currentSelectedCountry.flag} ${currentSelectedCountry.name} (${currentSelectedCountry.numbers.length} Available)`;
                 document.getElementById('detailCard').style.display = 'block';
@@ -706,9 +715,23 @@ def home():
                 });
             }
 
+            function refreshInventory() {
+                fetch('/api/inventory').then(res => res.json()).then(data => {
+                    countriesData = data;
+                    renderCountries();
+                    if (currentSelectedCountryKey) {
+                        selectCountry(currentSelectedCountryKey);
+                    }
+                    tg.showAlert("Inventory refreshed successfully!");
+                }).catch(() => {
+                    tg.showAlert("Failed to refresh inventory.");
+                });
+            }
+
             function goBackToGrid() {
                 document.getElementById('detailCard').style.display = 'none';
                 currentSelectedCountry = null;
+                currentSelectedCountryKey = null;
             }
 
             function rentNumber(phone) {
