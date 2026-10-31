@@ -3,28 +3,26 @@ import hmac
 import hashlib
 import json
 import time
-import httpx
-
-from fastapi import FastAPI, Request, HTTPException
+import requests
+from flask import Flask, request, jsonify
 from database import init_db, save_event
 
-app = FastAPI()
+app = Flask(__name__)
 
-SECRET = os.environ["BRIDGE_SECRET"]
-TG_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
+SECRET = os.environ.get("BRIDGE_SECRET", "")
+TG_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
-@app.on_event("startup")
-async def startup():
+with app.app_context():
     init_db()
 
-@app.get("/")
-async def health():
-    return {"status": "online"}
+@app.route("/", methods=["GET"])
+def health():
+    return jsonify({"status": "online"})
 
-@app.post("/webhook")
-async def webhook(request: Request):
-    body = await request.body()
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    body = request.get_data()
 
     timestamp = request.headers.get("X-Bridge-Timestamp", "")
     signature = request.headers.get("X-Bridge-Signature", "")
@@ -32,13 +30,12 @@ async def webhook(request: Request):
     try:
         ts = int(timestamp)
     except ValueError:
-        raise HTTPException(401, "Invalid timestamp")
+        return jsonify({"error": "Invalid timestamp"}), 401
 
     if abs(time.time() - ts) > 300:
-        raise HTTPException(401, "Expired request")
+        return jsonify({"error": "Expired request"}), 401
 
     signed = timestamp.encode() + b"." + body
-
     expected = hmac.new(
         SECRET.encode(),
         signed,
@@ -46,22 +43,21 @@ async def webhook(request: Request):
     ).hexdigest()
 
     if not hmac.compare_digest(expected, signature):
-        raise HTTPException(401, "Invalid signature")
+        return jsonify({"error": "Invalid signature"}), 401
 
     try:
         data = json.loads(body)
     except Exception:
-        raise HTTPException(400, "Invalid JSON")
+        return jsonify({"error": "Invalid JSON"}), 400
 
-    # Chỉ chấp nhận metadata thống kê, loại bỏ các trường nhạy cảm
     if any(k in data for k in ("message", "phone", "otp", "code")):
-        raise HTTPException(400, "Sensitive fields not accepted")
+        return jsonify({"error": "Sensitive fields not accepted"}), 400
 
     if not data.get("event_id"):
-        raise HTTPException(400, "Missing event_id")
+        return jsonify({"error": "Missing event_id"}), 400
 
     if not save_event(data):
-        return {"status": "duplicate"}
+        return jsonify({"status": "duplicate"})
 
     text = (
         "IVAS Monitor\n\n"
@@ -71,12 +67,16 @@ async def webhook(request: Request):
         f"Revenue: {data.get('revenue', 'Unknown')}"
     )
 
-    async with httpx.AsyncClient(timeout=15) as client:
-        response = await client.post(
+    try:
+        requests.post(
             f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
-            json={"chat_id": CHAT_ID, "text": text}
+            json={"chat_id": CHAT_ID, "text": text},
+            timeout=15
         )
-        response.raise_for_status()
+    except Exception:
+        pass
 
-    return {"status": "success"}
-  
+    return jsonify({"status": "success"})
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8000)
