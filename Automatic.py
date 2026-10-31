@@ -6,17 +6,36 @@ import time
 import os
 import threading
 import json
+import hmac
+import hashlib
+from functools import wraps
+from urllib.parse import parse_qsl
+
 import requests
 import websocket
 import telebot
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, ReplyKeyboardMarkup, KeyboardButton
 from flask import Flask, render_template_string, request, jsonify
 
-# --- CONFIGURATION ---
-BOT_TOKEN = "9139656226:AAF3G3Kll7E0DipP80mnXGWvex4BMdEVCzc"
-TARGET_CHAT = -1004341368656  # ID Group chính xác của bro
-ADMIN_IDS = [6726769296]       # ID Admin tối cao của bro
-WEBAPP_URL = "https://bloxsolana2026.onrender.com"  # Link WebApp trên Render
+# --- CONFIGURATION & SECURITY ENVIRONMENT VARIABLES ---
+def get_required_env(name):
+    value = os.getenv(name)
+    if not value:
+        raise RuntimeError(f"Thiếu biến môi trường bắt buộc: {name}")
+    return value
+
+BOT_TOKEN = get_required_env("BOT_TOKEN")
+FLASK_SECRET_KEY = get_required_env("FLASK_SECRET_KEY")
+
+# Admin IDs: Định dạng chuỗi phân cách bằng dấu phẩy, ví dụ: "6726769296,123456789"
+ADMIN_IDS = {
+    int(item.strip())
+    for item in get_required_env("ADMIN_IDS").split(",")
+    if item.strip()
+}
+
+TARGET_CHAT = int(os.getenv("TARGET_CHAT", "-1004341368656"))  # ID Group chính xác của bro
+WEBAPP_URL = os.getenv("WEBAPP_URL", "https://bloxsolana2026.onrender.com")  # Link WebApp trên Render
 
 bot = telebot.TeleBot(token=BOT_TOKEN)
 
@@ -90,7 +109,7 @@ country_db = {
     "676": ("Tonga", "🇹🇴"), "1868": ("Trinidad & Tobago", "🇹🇹"), "216": ("Tunisia", "🇹🇳"), "90": ("Turkey", "🇹🇷"),
     "993": ("Turkmenistan", "🇹🇲"), "1649": ("Turks & Caicos", "🇹🇨"), "688": ("Tuvalu", "🇹🇻"), "256": ("Uganda", "🇺🇬"),
     "380": ("Ukraine", "🇺🇦"), "971": ("UAE", "🇦🇪"), "44": ("United Kingdom", "🇬🇧"), "598": ("Uruguay", "🇺🇾"),
-    "998": ("Uzbekistan", "🇺🇿"), "678": ("Vanuatu", "🇻🇺"), "379": ("Vatican City", "🇻🇦"), "58": ("Venezuela", "🇻🇪"),
+    "998": ("Uzbekistan", "UZ"), "678": ("Vanuatu", "🇻🇺"), "379": ("Vatican City", "🇻🇦"), "58": ("Venezuela", "🇻🇪"),
     "84": ("Vietnam", "🇻🇳"), "1284": ("Virgin Islands (UK)", "🇻🇬"), "1340": ("Virgin Islands (US)", "🇻🇮"),
     "967": ("Yemen", "🇾🇪"), "260": ("Zambia", "🇿🇲"), "263": ("Zimbabwe", "🇿🇼")
 }
@@ -175,7 +194,6 @@ def send_welcome(message):
         "🔥 <b>FAST NODE • IVAS OTP GATEWAY PORTAL</b>\n\n"
         "Welcome to the ultimate real-time secure OTP platform!"
     )
-    # Gửi menu inline kèm theo 5 nút reply keyboard bên dưới chuẩn Ảnh 1
     bot.send_message(message.chat.id, welcome_text, parse_mode="HTML", reply_markup=get_menu_keyboard(uid))
     bot.send_message(message.chat.id, "👇 Quick menu options below:", reply_markup=get_reply_keyboard())
 
@@ -460,6 +478,69 @@ def websocket_worker():
 
 # --- FLASK SERVER & WEB APP ---
 app = Flask(__name__)
+app.config["SECRET_KEY"] = FLASK_SECRET_KEY
+
+# --- TELEGRAM WEBAPP AUTHENTICATION DECORATOR ---
+def verify_telegram_init_data(init_data: str):
+    if not init_data or not BOT_TOKEN:
+        return None
+    try:
+        parsed = dict(parse_qsl(init_data, keep_blank_values=True))
+        received_hash = parsed.pop("hash", None)
+        if not received_hash:
+            return None
+
+        data_check_string = "\n".join(
+            f"{key}={value}"
+            for key, value in sorted(parsed.items())
+        )
+
+        secret_key = hmac.new(
+            key=b"WebAppData",
+            msg=BOT_TOKEN.encode("utf-8"),
+            digestmod=hashlib.sha256
+        ).digest()
+
+        calculated_hash = hmac.new(
+            key=secret_key,
+            msg=data_check_string.encode("utf-8"),
+            digestmod=hashlib.sha256
+        ).hexdigest()
+
+        if not hmac.compare_digest(calculated_hash, received_hash):
+            return None
+
+        auth_date = int(parsed.get("auth_date", "0"))
+        now = int(time.time())
+        if auth_date <= 0 or now - auth_date > 300: # Hết hạn sau 5 phút
+            return None
+        if auth_date > now + 30:
+            return None
+
+        user_data = json.loads(parsed.get("user", "{}"))
+        user_id = int(user_data.get("id", 0))
+        if user_id <= 0:
+            return None
+
+        return {"user_id": user_id, "user": user_data}
+    except Exception:
+        return None
+
+def require_admin(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        init_data = request.headers.get("X-Telegram-Init-Data", "")
+        auth_result = verify_telegram_init_data(init_data)
+        
+        if not auth_result:
+            return jsonify({"success": False, "error": "Unauthorized / Invalid initData"}), 401
+            
+        if auth_result["user_id"] not in ADMIN_IDS:
+            return jsonify({"success": False, "error": "Forbidden: Admin access required"}), 403
+            
+        return f(*args, **kwargs)
+    return decorated
+
 
 @app.route('/api/inventory', methods=['GET'])
 def api_inventory():
@@ -470,8 +551,9 @@ def api_inventory():
     return jsonify(countries_data)
 
 @app.route('/api/admin/delete_number', methods=['POST'])
+@require_admin
 def api_delete_number():
-    data = request.json
+    data = request.json or {}
     phone = data.get("phone")
     deleted = False
     for key, val in inventory_numbers.items():
@@ -483,8 +565,9 @@ def api_delete_number():
     return jsonify({"success": deleted})
 
 @app.route('/api/admin/delete_bulk_country', methods=['POST'])
+@require_admin
 def api_delete_bulk_country():
-    data = request.json
+    data = request.json or {}
     key = data.get("key")
     count = int(data.get("count", 100))
     if key in inventory_numbers:
@@ -825,14 +908,17 @@ def home():
                     if (confirmed) {
                         fetch('/api/admin/delete_number', {
                             method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-Telegram-Init-Data': tg.initData
+                            },
                             body: JSON.stringify({phone: phone})
                         }).then(res => res.json()).then(data => {
                             if(data.success) {
                                 tg.showAlert("Number deleted permanently!");
                                 refreshInventory();
                             } else {
-                                tg.showAlert("Failed to delete number.");
+                                tg.showAlert("Failed to delete number (Unauthorized).");
                             }
                         });
                     }
@@ -859,14 +945,17 @@ def home():
                     if (confirmed) {
                         fetch('/api/admin/delete_bulk_country', {
                             method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-Telegram-Init-Data': tg.initData
+                            },
                             body: JSON.stringify({key: key, count: 100})
                         }).then(res => res.json()).then(data => {
                             if(data.success) {
                                 tg.showAlert(`Successfully deleted ${data.removed} numbers permanently!`);
                                 refreshInventory();
                             } else {
-                                tg.showAlert("Failed to delete numbers.");
+                                tg.showAlert("Failed to delete numbers (Unauthorized).");
                             }
                         });
                     }
@@ -918,7 +1007,7 @@ def home():
 
 @app.route('/api/withdraw', methods=['POST'])
 def api_withdraw():
-    data = request.json
+    data = request.json or {}
     uid = data.get("user_id")
     amount = data.get("amount")
     address = data.get("address")
@@ -928,7 +1017,8 @@ def api_withdraw():
     })
     
     try:
-        bot.send_message(ADMIN_IDS[0], f"🚨 <b>CÓ ĐƠN RÚT TIỀN MỚI!</b>\n\n👤 User ID: <code>{uid}</code>\n💵 Số tiền: <b>${amount}</b>\n📬 Ví TON: <code>{address}</code>\n⏰ Lúc: {time.strftime('%Y-%m-%d %H:%M:%S')}", parse_mode="HTML")
+        admin_target = list(ADMIN_IDS)[0] if ADMIN_IDS else TARGET_CHAT
+        bot.send_message(admin_target, f"🚨 <b>CÓ ĐƠN RÚT TIỀN MỚI!</b>\n\n👤 User ID: <code>{uid}</code>\n💵 Số tiền: <b>${amount}</b>\n📬 Ví TON: <code>{address}</code>\n⏰ Lúc: {time.strftime('%Y-%m-%d %H:%M:%S')}", parse_mode="HTML")
     except: pass
     return jsonify({"success": True})
 
