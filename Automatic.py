@@ -1038,14 +1038,27 @@ def run_bot_polling():
             print(f"⚠️ Bot polling restart due to error: {e}")
             time.sleep(5)
 
+# --- KHỞI CHẠY CHO GUNICORN HOẶC LOCAL ---
 if __name__ == "__main__":
-    t_web = threading.Thread(target=run_web, daemon=True)
-    t_web.start()
-    
     t_wss = threading.Thread(target=websocket_worker, daemon=True)
     t_wss.start()
 
     t_clean = threading.Thread(target=background_cleanup_and_wss, daemon=True)
     t_clean.start()
     
-    run_bot_polling()
+    # Chạy bot polling ngầm khi chạy trực tiếp qua python Automatic.py
+    t_bot = threading.Thread(target=run_bot_polling, daemon=True)
+    t_bot.start()
+    
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
+else:
+    # Trường hợp chạy qua Gunicorn trên Render, khởi động các background thread ở đây
+    t_wss = threading.Thread(target=websocket_worker, daemon=True)
+    t_wss.start()
+
+    t_clean = threading.Thread(target=background_cleanup_and_wss, daemon=True)
+    t_clean.start()
+    
+    t_bot = threading.Thread(target=run_bot_polling, daemon=True)
+    t_bot.start()
