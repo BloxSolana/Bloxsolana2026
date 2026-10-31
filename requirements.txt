@@ -1,10 +1,13 @@
-pyTelegramBotAPI
-requests
+beautifulsoup4
+cloudscraper
 curl_cffi
+fastapi
 firebase-admin
 flask
 gunicorn
-beautifulsoup4
+httpx
 pyotp
+pyTelegramBotAPI
+requests
+uvicorn
 websocket-client
-cloudscraper
