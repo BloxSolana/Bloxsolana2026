@@ -11,7 +11,14 @@ import hashlib
 import logging
 import tempfile
 import atexit
-import fcntl
+import platform
+
+_IS_WINDOWS = platform.system() == "Windows"
+if not _IS_WINDOWS:
+    import fcntl
+else:
+    fcntl = None
+    
 import signal
 from datetime import datetime, timedelta
 from functools import wraps
@@ -137,14 +144,30 @@ def _write_cookie_to_file(cookie_str: str) -> bool:
         logger.warning(f"IVAS: cannot persist cookie: {e}")
         return False
 
+_ivas_cookie_mtime = None
+
 def _load_ivas_cookie() -> str:
-    file_cookie = _read_cookie_from_file()
-    if file_cookie:
-        return file_cookie
+    global _ivas_cookie_mtime
+
+    if os.path.exists(IVAS_COOKIE_FILE):
+        try:
+            mtime = os.path.getmtime(IVAS_COOKIE_FILE)
+            with open(IVAS_COOKIE_FILE, "r", encoding="utf-8") as f:
+                content = f.read().strip()
+            if content:
+                if mtime != _ivas_cookie_mtime:
+                    logger.info(
+                        f"IVAS: cookie file changed (mtime={mtime}), reloading."
+                    )
+                    _ivas_cookie_mtime = mtime
+                return content
+        except Exception as e:
+            logger.warning(f"IVAS: cannot read cookie file: {e}")
+
     env_cookie = os.getenv(IVAS_COOKIE_ENV, "").strip()
     if env_cookie:
-        logger.info("IVAS: cookie loaded from env var")
         return env_cookie
+    logger.error("IVAS: no cookie in file or env var")
     return ""
 
 def _build_session_from_cookie(cookie_str: str):
