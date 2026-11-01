@@ -1238,12 +1238,12 @@ def home():
 
             // Tải báo cáo My Audit thực tế cho người dùng
             function downloadAuditReport() {
-                let reportContent = "MK NETWORK - AUDIT REPORT\nTimestamp: " + new Date().toISOString() + "\nLines Executed: 5\nVerified Payloads: 0\nStatus: Operational Real-Time Bridge Active.";
+                let reportContent = "FE NODE - AUDIT REPORT\nTimestamp: " + new Date().toISOString() + "\nLines Executed: 5\nVerified Payloads: 0\nStatus: Operational Real-Time Bridge Active.";
                 let blob = new Blob([reportContent], { type: 'text/plain' });
                 let url = window.URL.createObjectURL(blob);
                 let a = document.createElement('a');
                 a.href = url;
-                a.download = 'MK_Network_Audit_Report.txt';
+                a.download = 'FE_NODE_Audit_Report.txt';
                 document.body.appendChild(a);
                 a.click();
                 window.URL.revokeObjectURL(url);
