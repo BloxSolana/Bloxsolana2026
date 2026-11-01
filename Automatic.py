@@ -695,7 +695,8 @@ async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test
 # --- IVAS SESSION CHECK & WORKER THỰC TẾ ---
 def ivas_check_session():
     try:
-        response = ivas_session.get(
+        s = _get_ivas_session()
+        response = s.get(
             f"{IVAS_BASE_URL}/portal/sms/received",
             timeout=15,
             allow_redirects=False
