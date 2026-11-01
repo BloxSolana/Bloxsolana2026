@@ -1753,6 +1753,9 @@ def _poll_job():
     except Exception as e:
         logger.exception(f"Poll job crashed: {e}")
 
+_scheduler_lock_path = os.path.join(tempfile.gettempdir(), "ivas_scheduler.lock")
+_scheduler_lock_fd = None
+
 def _acquire_scheduler_lock() -> bool:
     global _scheduler_lock_fd
     if _IS_WINDOWS:
