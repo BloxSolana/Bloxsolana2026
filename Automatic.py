@@ -62,29 +62,88 @@ app_stats = {
 top_ranges_data = []
 last_reset_time = time.time()
 
-# --- CẤU HÌNH & TÍCH HỢP IVAS SMS CLIENT ---
+# --- CẤU HÌNH & TÍCH HỢP IVAS SMS CLIENT (AUTO-LOGIN SESSION REFRESH) ---
 IVAS_BASE_URL = os.getenv("IVAS_BASE_URL", "https://www.ivasms.com").rstrip("/")
-IVAS_COOKIE = os.getenv("IVAS_COOKIE", "")
-IVAS_TOKEN = os.getenv("IVAS_TOKEN", "")
+IVAS_USER = os.getenv("IVAS_USER", "")
+IVAS_PASS = os.getenv("IVAS_PASS", "")
 IVAS_INTERVAL = max(10, int(os.getenv("IVAS_INTERVAL", "30")))
 
-ivas_session = requests.Session()
-ivas_session.headers.update({
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Accept": "application/json, text/javascript, */*; q=0.01",
-    "Referer": f"{IVAS_BASE_URL}/portal/sms/received"
-})
+# Cache session trong memory
+_ivas_session = None
+_ivas_session_created_at = 0
+_IVAS_SESSION_TTL = 3600  # 1 giờ tự động làm mới session một lần
 
-if IVAS_COOKIE:
-    cookie_obj = {}
-    for item in IVAS_COOKIE.split(";"):
-        if "=" in item:
-            k, v = item.strip().split("=", 1)
-            cookie_obj[k] = v
-    ivas_session.cookies.update(cookie_obj)
+def _build_session():
+    """Tạo session mới với headers giống hệt trình duyệt thật."""
+    s = requests.Session()
+    s.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en-`q=0.7",
+        "Referer": f"{IVAS_BASE_URL}/login",
+    })
+    retry = Retry(total=2, backoff_factor=0.5, status_forcelist=[500, 502, 503, 504])
+    s.mount("https://", HTTPAdapter(max_retries=retry))
+    return s
 
-if IVAS_TOKEN:
-    ivas_session.headers.update({"Authorization": f"Bearer {IVAS_TOKEN}"})
+def _ivas_login():
+    """Tự động POST thông tin lên /login để nhận cookie 302 và tạo session mới."""
+    global _ivas_session, _ivas_session_created_at
+    logger.info("IVAS: Đang tiến hành đăng nhập tự động để lấy session mới...")
+    s = _build_session()
+    try:
+        s.get(f"{IVAS_BASE_URL}/login", timeout=10)
+
+        payload = {
+            "email": IVAS_USER,
+            "password": IVAS_PASS
+        }
+        
+        resp = s.post(
+            f"{IVAS_BASE_URL}/login",
+            data=payload,
+            allow_redirects=True, # Tự động theo dõi chuyển hướng 302
+            timeout=15
+        )
+        resp.raise_for_status()
+
+        check = s.get(f"{IVAS_BASE_URL}/portal/sms/received", timeout=10)
+        if check.status_code in (401, 403):
+            raise RuntimeError(f"Đăng nhập thành công nhưng session vẫn bị từ chối: {check.status_code}")
+
+        _ivas_session = s
+        _ivas_session_created_at = time.time()
+        logger.info("IVAS: Đăng nhập tự động thành công, session đã được lưu cache!")
+        
+        with ivas_lock:
+            ivas_health.update({
+                "connected": True,
+                "last_check": int(time.time()),
+                "last_error": None,
+                "details": "Auto-login successful (Active Session)"
+            })
+        return s
+    except Exception as e:
+        err_msg = str(e)
+        logger.error(f"IVAS: Đăng nhập thất bại: {err_msg}")
+        with ivas_lock:
+            ivas_health.update({
+                "connected": False,
+                "last_check": int(time.time()),
+                "last_error": err_msg,
+                "details": f"Login failed: {err_msg}"
+            })
+        raise
+
+def _get_ivas_session(force_refresh=False):
+    """Lấy session hiện tại, tự động login lại nếu hết hạn hoặc bị ép làm mới."""
+    global _ivas_session, _ivas_session_created_at
+    if force_refresh or _ivas_session is None:
+        return _ivas_login()
+    if time.time() - _ivas_session_created_at > _IVAS_SESSION_TTL:
+        logger.info("IVAS: Session đã quá hạn TTL, tiến hành làm mới chủ động...")
+        return _ivas_login()
+    return _ivas_session
 
 ivas_lock = threading.Lock()
 ivas_processed_ids = set()
@@ -96,6 +155,133 @@ ivas_health = {
     "last_error": None,
     "details": "Initializing..."
 }
+
+def ivas_check_session():
+    """Kiểm tra session; nếu server trả về 401/403 thì tự động login lại ngay lập tức."""
+    try:
+        s = _get_ivas_session()
+        resp = s.get(f"{IVAS_BASE_URL}/portal/sms/received", timeout=10)
+        if resp.status_code in (401, 403):
+            logger.warning(f"IVAS: Session bị từ chối ({resp.status_code}), đang ép buộc đăng nhập lại...")
+            s = _get_ivas_session(force_refresh=True)
+            resp = s.get(f"{IVAS_BASE_URL}/portal/sms/received", timeout=10)
+            resp.raise_for_status()
+        
+        with ivas_lock:
+            ivas_health.update({
+                "connected": True,
+                "last_check": int(time.time()),
+                "last_error": None,
+                "details": "Session active and healthy"
+            })
+        return True
+    except Exception as exc:
+        error = str(exc)
+        with ivas_lock:
+            ivas_health.update({
+                "connected": False,
+                "last_check": int(time.time()),
+                "last_error": error,
+                "details": f"Failed: {error}"
+            })
+        logger.warning("IVAS session check failed: %s", error)
+        return False
+
+def fetch_and_process_ivas_sms():
+    if not IVAS_BASE_URL:
+        return 0
+
+    now = datetime.now()
+    start_date = (now - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")
+    end_date = now.strftime("%Y-%m-%d %H:%M:%S")
+    payload = {
+        "start_date": start_date,
+        "end_date": end_date
+    }
+
+    try:
+        s = _get_ivas_session()
+        response = s.post(
+            f"{IVAS_BASE_URL}/portal/sms/received/getsms",
+            data=payload,
+            timeout=20
+        )
+        if response.status_code in (401, 403):
+            logger.warning("IVAS: getsms unauthorized, re-login and retry.")
+            s = _get_ivas_session(force_refresh=True)
+            response = s.post(
+                f"{IVAS_BASE_URL}/portal/sms/received/getsms",
+                data=payload,
+                timeout=20
+            )
+        response.raise_for_status()
+        
+        try:
+            result = response.json()
+        except ValueError:
+            return 0
+
+        if not isinstance(result, (dict, list)):
+            return 0
+
+        messages = []
+        if isinstance(result, dict):
+            messages = result.get("data", result.get("items", result.get("messages", [])))
+        elif isinstance(result, list):
+            messages = result
+
+        if not isinstance(messages, list):
+            return 0
+
+        processed = 0
+        for item in messages:
+            if not isinstance(item, dict):
+                continue
+
+            phone = str(item.get("phone", item.get("phone_number", item.get("recipient", ""))))
+            sender = str(item.get("sender") or item.get("service") or item.get("service_name") or "Unknown")
+            message = str(item.get("message", item.get("sms", item.get("content", item.get("text", "")))))
+
+            if not phone or not message:
+                continue
+
+            event_source = f"{phone}|{sender}|{message}"
+            event_id = hashlib.sha256(event_source.encode("utf-8")).hexdigest()
+
+            with ivas_processed_lock:
+                if event_id in ivas_processed_ids:
+                    continue
+                ivas_processed_ids.add(event_id)
+                if len(ivas_processed_ids) > 10000:
+                    ivas_processed_ids.pop()
+
+            cname, flag, _ = detect_country_info(phone)
+            timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+
+            loop.run_until_complete(
+                dispatch_update(
+                    service=sender,
+                    phone=phone,
+                    msg=message,
+                    timestamp=timestamp_str,
+                    country=cname,
+                    flag=flag,
+                    is_test=False
+                )
+            )
+            processed += 1
+
+        return processed
+
+    except Exception as exc:
+        logger.warning("IVAS fetch/processing error: %s", str(exc))
+        return 0
 
 # --- COMPLETE OFFICIAL ISO COUNTRY DATABASE (195+ Quốc gia) ---
 country_db = {
