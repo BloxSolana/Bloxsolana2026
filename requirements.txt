@@ -11,3 +11,4 @@ pyTelegramBotAPI
 requests
 uvicorn
 websocket-client
+apscheduler
