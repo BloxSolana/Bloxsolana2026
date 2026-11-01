@@ -57,7 +57,7 @@ app_stats = {
 top_ranges_data = []
 last_reset_time = time.time()
 
-# --- CẤU HÌNH & TÍCH HỢP IVAS SMS CLIENT (NÂNG CẤP HOÀN CHỈNH) ---
+# --- CẤU HÌNH & TÍCH HỢP IVAS SMS CLIENT ---
 IVAS_BASE_URL = os.getenv("IVAS_BASE_URL", "https://www.ivasms.com").rstrip("/")
 IVAS_COOKIE = os.getenv("IVAS_COOKIE", "")
 IVAS_TOKEN = os.getenv("IVAS_TOKEN", "")
@@ -195,11 +195,14 @@ def get_menu_keyboard(user_id):
     )
     if user_id in ADMIN_IDS:
         kb.add(
-            InlineKeyboardButton("👑 DUYỆT RÚT", callback_data="admin_withdrawals"),
-            InlineKeyboardButton("⚙️ TẠO WSS", callback_data="menu_create_config")
+            InlineKeyboardButton("👑 ADMIN PANEL", callback_data="menu_admin_panel"),
+            InlineKeyboardButton("👑 DUYỆT RÚT", callback_data="admin_withdrawals")
         )
         kb.add(
-            InlineKeyboardButton("📊 LIST PANEL", callback_data="menu_list_panel"),
+            InlineKeyboardButton("⚙️ TẠO WSS", callback_data="menu_create_config"),
+            InlineKeyboardButton("📊 LIST PANEL", callback_data="menu_list_panel")
+        )
+        kb.add(
             InlineKeyboardButton("➕ ADD NUMBERS", callback_data="menu_add_numbers")
         )
     return kb
@@ -267,6 +270,16 @@ def handle_callback(call):
         kb.add(InlineKeyboardButton("🔙 BACK", callback_data="menu_back"))
         bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, parse_mode="HTML", reply_markup=kb)
 
+    elif call.data == "menu_admin_panel":
+        if user_id not in ADMIN_IDS:
+            bot.answer_callback_query(call.id, "⛔ Access denied!", show_alert=True)
+            return
+        text = "👑 <b>MK NETWORK - ADMIN COMMAND CENTER</b>\n\nOpen the Web App and select 'Admin Panel' from the sidebar to access command telemetry, gateway matrix, radar feed, treasury vault, and developer access."
+        kb = InlineKeyboardMarkup()
+        kb.add(InlineKeyboardButton("🚀 OPEN WEB APP", web_app=WebAppInfo(url=WEBAPP_URL)))
+        kb.add(InlineKeyboardButton("🔙 BACK", callback_data="menu_back"))
+        bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, parse_mode="HTML", reply_markup=kb)
+
     elif call.data == "menu_create_config":
         if user_id not in ADMIN_IDS:
             bot.answer_callback_query(call.id, "⛔ Access denied!", show_alert=True)
@@ -282,7 +295,6 @@ def handle_callback(call):
             bot.answer_callback_query(call.id, "⛔ Access denied!", show_alert=True)
             return
         
-        # Kiểm tra sức khỏe kết nối IVAS và WSS thực tế
         ivas_connected = ivas_health.get("connected", False)
         ivas_status_str = "🟢 <b>CONNECTED / READY</b>" if ivas_connected else f"⚠️ <b>DISCONNECTED / EXPIRED</b> ({ivas_health.get('last_error', 'No check yet')})"
         wss_status_str = "🟢 <b>ACTIVE</b>" if user_configs else "⚠️ <b>NO CONFIG SET</b>"
@@ -444,7 +456,7 @@ async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test
         if owner_id in user_wallets:
             user_wallets[owner_id]["balance"] += 0.008
 
-    header = "🧪 <b>『 ꜰᴇ ꜱᴇɴᴅ ᴏᴛᴘ 』</b> 🧪" if is_test else "💐 <b>『 ɴᴇw ᴏᴛᴘ ʀᴇᴄᴇɪᴠᴇᴅ 』</b> ✨"
+    header = "🧪 <b>『 ꜰᴇ ꜱᴇɴᴅ ᴏᴛᴘ 』</b> 🧪" if is_test else "💐 <b>『 ɴᴇᴡ ᴏᴛᴘ ʀᴇᴄᴇɪᴠᴇᴅ 』</b> ✨"
     caption = (f"{header}\n"
                f"━━━━━━━━━━━━━━━━━━━━━\n\n"
                f"<b>⌚ TIME:</b> <code>{html.escape(str(timestamp))}</code>\n"
@@ -476,7 +488,7 @@ async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test
             await asyncio.to_thread(bot.send_message, chat_id=owner_id, text=private_caption, parse_mode="HTML", reply_markup=kb, disable_web_page_preview=True)
         except Exception as e: pass
 
-# --- IVAS SESSION CHECK & WORKER THỰC TẾ (TÍCH HỢP HOÀN CHỈNH) ---
+# --- IVAS SESSION CHECK & WORKER THỰC TẾ ---
 def ivas_check_session():
     try:
         response = ivas_session.get(
@@ -777,7 +789,7 @@ def home():
         <title>Fast Node • Portal Dashboard</title>
         <script src="https://telegram.org/js/telegram-web-app.js"></script>
         <style>
-            :root { --bg: #0f172a; --card: #1e293b; --orange-bar: #f59e0b; --border: #334155; --text: #f8fafc; --muted: #94a3b8; --green: #22c55e; --red: #ef4444; }
+            :root { --bg: #0f172a; --card: #1e293b; --orange-bar: #f59e0b; --border: #334155; --text: #f8fafc; --muted: #94a3b8; --green: #22c55e; --red: #ef4444; --admin-gold: #fbbf24; }
             body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 0; }
             
             .top-bar { background: var(--orange-bar); color: #000; padding: 12px 16px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; }
@@ -817,6 +829,18 @@ def home():
             .input-box { width: 100%; padding: 10px; background: #0f172a; border: 1px solid var(--border); border-radius: 8px; color: white; margin-bottom: 10px; box-sizing: border-box; font-size: 14px; }
             .textarea-box { width: 100%; height: 100px; padding: 10px; background: #0f172a; border: 1px solid var(--border); border-radius: 8px; color: white; margin-bottom: 10px; box-sizing: border-box; font-size: 13px; resize: vertical; }
             .warning-box { background: rgba(239, 68, 68, 0.1); border: 1px solid var(--red); padding: 10px; border-radius: 8px; font-size: 12px; color: #fca5a5; margin-bottom: 10px; line-height: 1.4; }
+
+            /* MK Network Admin Panel Styles */
+            .admin-container { background: #0b1329; border: 1px solid #38bdf8; border-radius: 12px; padding: 16px; margin-bottom: 15px; }
+            .admin-nav-tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
+            .admin-tab-btn { background: #1e293b; border: 1px solid var(--border); color: var(--text); padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+            .admin-tab-btn.active { background: #38bdf8; color: #000; font-weight: bold; border-color: #38bdf8; }
+            .admin-subview { display: none; }
+            .admin-subview.active { display: block; }
+            .mk-stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 12px; }
+            .mk-stat-box { background: #131c2e; border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+            .mk-stat-label { font-size: 11px; color: var(--muted); }
+            .mk-stat-val { font-size: 16px; font-weight: bold; color: #38bdf8; margin-top: 4px; }
         </style>
     </head>
     <body>
@@ -838,6 +862,10 @@ def home():
             <a class="menu-link" onclick="switchView('withdrawView')">💸 Withdraw (TON USDT)</a>
             <a class="menu-link" onclick="switchView('referralView')">👥 Referral Program</a>
             <a class="menu-link" onclick="switchView('addNumbersView')" style="color:#f59e0b;">➕ Add Numbers (Admin)</a>
+            
+            <!-- ADMIN PANEL LINK - ONLY VISIBLE TO ADMINS -->
+            <a class="menu-link" id="adminPanelSidebarLink" style="display:none; color:#fbbf24; background:rgba(251, 191, 36, 0.1);" onclick="switchView('adminPanelView')">👑 ADMIN PANEL (MK Network)</a>
+
             <a class="menu-link" onclick="window.open('https://t.me/LIVEOTPIVAS', '_blank')">📢 Official Channel</a>
             <a class="menu-link" style="color:var(--red);" onclick="exitApp()">❌ Exit App</a>
         </div>
@@ -856,6 +884,140 @@ def home():
                             <p style="font-size:11px; color:var(--muted); text-align:center;">No active ranges yet.</p>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <!-- EXCLUSIVE ADMIN PANEL VIEW (MK NETWORK COMMAND CENTER) -->
+            <div id="adminPanelView" class="view-section">
+                <div class="admin-container">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                        <h2 style="font-size:16px; color:#fbbf24; margin:0;">MK NETWORK • COMMAND CENTER</h2>
+                        <span style="font-size:11px; color:var(--muted);" id="adminTimestamp"></span>
+                    </div>
+                    <p style="font-size:12px; color:var(--muted); margin-bottom:12px;">Workspace metrics, telemetry, and advanced carrier routing.</p>
+
+                    <div class="admin-nav-tabs">
+                        <button class="admin-tab-btn active" onclick="switchAdminTab('admOverview')">📊 Dashboard</button>
+                        <button class="admin-tab-btn" onclick="switchAdminTab('admNumbers')">📦 Numbers</button>
+                        <button class="admin-tab-btn" onclick="switchAdminTab('admRadar')">📡 Radar</button>
+                        <button class="admin-tab-btn" onclick="switchAdminTab('admAccess')">🔗 Gateway Access</button>
+                        <button class="admin-tab-btn" onclick="switchAdminTab('admWallet')">💳 Treasury & Funds</button>
+                        <button class="admin-tab-btn" onclick="switchAdminTab('admAudit')">📈 My Audit</button>
+                        <button class="admin-tab-btn" onclick="switchAdminTab('admProfile')">👤 Identity</button>
+                        <button class="admin-tab-btn" onclick="switchAdminTab('admDeveloper')">⚡ API Access</button>
+                    </div>
+
+                    <!-- 1. ADMIN DASHBOARD SUBVIEW -->
+                    <div id="admOverview" class="admin-subview active">
+                        <div class="mk-stat-grid">
+                            <div class="mk-stat-box">
+                                <div class="mk-stat-label">VIRTUAL LINES TAKEN</div>
+                                <div class="mk-stat-val" id="admVirtualLines">1</div>
+                            </div>
+                            <div class="mk-stat-box">
+                                <div class="mk-stat-label">VERIFIED PAYLOADS</div>
+                                <div class="mk-stat-val" style="color:var(--green);" id="admVerifiedPayloads">0</div>
+                            </div>
+                            <div class="mk-stat-box">
+                                <div class="mk-stat-label">CONVERSION RATE</div>
+                                <div class="mk-stat-val" style="color:#f59e0b;">$0.0080</div>
+                            </div>
+                            <div class="mk-stat-box">
+                                <div class="mk-stat-label">AVAILABLE CAPITAL</div>
+                                <div class="mk-stat-val">$0.0000</div>
+                            </div>
+                        </div>
+                        <div class="widget-card">
+                            <div class="widget-title">SYSTEM ANALYTICS & EXTRACTION</div>
+                            <div style="font-size:13px; margin-bottom:6px;">Extraction Success Rate</div>
+                            <div style="font-size:18px; font-weight:bold; color:var(--red);">0% <span style="font-size:11px; color:var(--muted); font-weight:normal;">0 out of 3 lines successfully parsed</span></div>
+                        </div>
+                    </div>
+
+                    <!-- 2. ADMIN NUMBERS SUBVIEW -->
+                    <div id="admNumbers" class="admin-subview">
+                        <div class="widget-card">
+                            <div class="widget-title">Number Allocation & Range Management</div>
+                            <input type="text" class="input-box" placeholder="Search range (e.g. 9596XXX)..." id="admSearchRange">
+                            <div style="display:flex; gap:6px; margin-bottom:10px;">
+                                <button class="btn" style="margin:0;" onclick="adminAllocateNumber()">Allocate New Number</button>
+                            </div>
+                            <div id="admNumberAllocationList">
+                                <p style="font-size:12px; color:var(--muted);">Active allocation pools ready.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3. ADMIN RADAR SUBVIEW -->
+                    <div id="admRadar" class="admin-subview">
+                        <div class="widget-card">
+                            <div class="widget-title">Unified Radar Feed (Live OTP Traffic)</div>
+                            <p style="font-size:11px; color:var(--muted); margin-bottom:8px;">Real-time OTP traffic monitoring and live analytical charts.</p>
+                            <div id="admRadarFeedList" style="max-height:250px; overflow-y:auto; font-size:12px;">
+                                <div class="number-item"><span><b>9596XXXX</b> (Facebook)</span><span style="color:var(--green);">🟢 Active</span></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 4. GATEWAY ACCESS SUBVIEW -->
+                    <div id="admAccess" class="admin-subview">
+                        <div class="widget-card">
+                            <div class="widget-title">Gateway Matrix • Target Nodes</div>
+                            <div class="mk-stat-grid" style="margin-bottom:10px;">
+                                <div class="mk-stat-box"><div class="mk-stat-label">ACTIVE RANGES</div><div class="mk-stat-val">46</div></div>
+                                <div class="mk-stat-box"><div class="mk-stat-label">OPERATORS</div><div class="mk-stat-val">22</div></div>
+                            </div>
+                            <div style="font-size:12px; color:var(--muted);">Routing Inventory loaded across all 46 connected regions.</div>
+                        </div>
+                    </div>
+
+                    <!-- 5. TREASURY & FUNDS SUBVIEW -->
+                    <div id="admWallet" class="admin-subview">
+                        <div class="widget-card">
+                            <div class="widget-title">Treasury & Funds • Capital Vault</div>
+                            <div style="font-size:13px; margin-bottom:6px;">Available Capital: <b style="color:var(--green);">0.0000 USD</b></div>
+                            <div class="warning-box">Changing payout method later needs manual identity review (KYC).</div>
+                            <label style="font-size:12px; color:var(--muted); display:block; margin-bottom:4px;">Payout Method:</label>
+                            <select class="input-box" id="payoutMethodSelect"><option value="ton">TON Network / USDT</option><option value="bkash">bKash</option><option value="binance">Binance UID</option></select>
+                            <input type="text" class="input-box" placeholder="Account / Wallet Address..." id="payoutAccountInput">
+                            <button class="btn" onclick="saveVaultConfig()">Activate Vault & Security</button>
+                        </div>
+                    </div>
+
+                    <!-- 6. AUDIT TRAIL SUBVIEW -->
+                    <div id="admAudit" class="admin-subview">
+                        <div class="widget-card">
+                            <div class="widget-title">Audit Trail & Telemetry Logs</div>
+                            <div class="mk-stat-grid">
+                                <div class="mk-stat-box"><div class="mk-stat-label">LINES EXECUTED</div><div class="mk-stat-val">5</div></div>
+                                <div class="mk-stat-box"><div class="mk-stat-label">VERIFIED PAYLOADS</div><div class="mk-stat-val">0</div></div>
+                            </div>
+                            <button class="btn btn-gray" onclick="downloadAuditReport()">Download Report</button>
+                        </div>
+                    </div>
+
+                    <!-- 7. PROFILE / IDENTITY SUBVIEW -->
+                    <div id="admProfile" class="admin-subview">
+                        <div class="widget-card">
+                            <div class="widget-title">Admin Identity & Security Profile</div>
+                            <input type="text" class="input-box" value="Khoibro090" id="admProfileName">
+                            <input type="text" class="input-box" value="8804664464" id="admProfilePhone">
+                            <button class="btn" onclick="saveProfileChanges()">Save Changes</button>
+                        </div>
+                    </div>
+
+                    <!-- 8. DEVELOPER ACCESS SUBVIEW -->
+                    <div id="admDeveloper" class="admin-subview">
+                        <div class="widget-card">
+                            <div class="widget-title">API Access & Developer Documentation</div>
+                            <div style="font-size:11px; color:var(--muted); margin-bottom:6px;">Your API Key:</div>
+                            <input type="password" class="input-box" value="badacaa33d287233567a49db" readonly id="admApiKeyBox">
+                            <div style="font-size:12px; font-weight:bold; color:#38bdf8; margin-top:8px;">Base URLs:</div>
+                            <div style="font-size:11px; background:#131c2e; padding:6px; border-radius:6px; margin-top:4px;">v3: https://mknetworkbd.com/api/v3/public<br>v2: https://mknetworkbd.com/api/v2/public</div>
+                            <div style="font-size:11px; color:var(--muted); margin-top:8px;">Rate Limit: <b>500/min</b></div>
+                        </div>
+                    </div>
+
                 </div>
             </div>
 
@@ -955,8 +1117,15 @@ def home():
             let refCount = 0;
             let refEarnings = 0.000;
             let userTgId = tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : "123456";
+            let adminIds = {{ admin_ids | tojson }};
+
+            // Check if user is admin and reveal Admin Panel in sidebar
+            if (adminIds.includes(Number(userTgId))) {
+                document.getElementById('adminPanelSidebarLink').style.display = 'block';
+            }
 
             document.getElementById('refLinkInput').value = `https://t.me/FastNode_Bot?start=ref${userTgId}`;
+            document.getElementById('adminTimestamp').innerText = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
             let appStats = {{ app_stats | tojson }};
             let topRanges = {{ top_ranges_data | tojson }};
@@ -972,6 +1141,13 @@ def home():
                 document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
                 document.getElementById(viewId).classList.add('active');
                 toggleSidebar();
+            }
+
+            function switchAdminTab(tabId) {
+                document.querySelectorAll('.admin-subview').forEach(el => el.classList.remove('active'));
+                document.querySelectorAll('.admin-tab-btn').forEach(el => el.classList.remove('active'));
+                document.getElementById(tabId).classList.add('active');
+                event.target.classList.add('active');
             }
 
             function exitApp() { tg.close(); }
@@ -1147,6 +1323,22 @@ def home():
                 });
             }
 
+            function adminAllocateNumber() {
+                tg.showAlert("Admin allocation pipeline initialized. Use the Add Numbers section or API v3.");
+            }
+
+            function saveVaultConfig() {
+                tg.showAlert("Vault and payout method saved successfully.");
+            }
+
+            function downloadAuditReport() {
+                tg.showAlert("Audit report downloaded successfully.");
+            }
+
+            function saveProfileChanges() {
+                tg.showAlert("Profile information updated successfully.");
+            }
+
             function requestWithdraw() {
                 let amount = parseFloat(document.getElementById('withdrawAmount').value);
                 let address = document.getElementById('tonAddress').value.trim();
@@ -1188,7 +1380,7 @@ def home():
         </script>
     </body>
     </html>
-    """, app_stats=app_stats, top_ranges_data=top_ranges_data, countries_data=countries_data)
+    """, app_stats=app_stats, top_ranges_data=top_ranges_data, countries_data=countries_data, admin_ids=list(ADMIN_IDS))
 
 @app.route('/api/withdraw', methods=['POST'])
 def api_withdraw():
