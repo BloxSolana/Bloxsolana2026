@@ -220,7 +220,7 @@ def ivas_check_session() -> bool:
                 })
             return False
 
-                if resp.status_code == 302:
+        if resp.status_code == 302:
             logger.error("IVAS: SESSION EXPIRED — redirected to login")
             with _ivas_lock:
                 ivas_health.update({
@@ -230,7 +230,6 @@ def ivas_check_session() -> bool:
                     "details": "Redirected to login"
                 })
             return False
-
 
         if resp.status_code >= 400:
             logger.warning(f"IVAS: unexpected status {resp.status_code}")
