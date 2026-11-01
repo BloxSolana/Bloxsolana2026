@@ -160,6 +160,14 @@ for code, (cname, flag) in country_db.items():
     if full_key not in inventory_numbers:
         inventory_numbers[full_key] = {"flag": flag, "name": cname, "numbers": []}
 
+# Khởi tạo sẵn một vài số mẫu để kho không bị trống (tránh lỗi UI màn hình trắng)
+for default_code in ["84", "1", "44", "81", "91"]:
+    cname, flag = country_db[default_code]
+    full_key = f"{cname} {flag}"
+    if full_key in inventory_numbers and not inventory_numbers[full_key]["numbers"]:
+        sample_phone = default_code + "".join([str(random.randint(0, 9)) for _ in range(9)])
+        inventory_numbers[full_key]["numbers"].append({"phone": sample_phone, "expires": 0, "locked_by": None})
+
 def detect_country_info(phone_str):
     clean = re.sub(r'\D', '', phone_str)
     for length in range(4, 0, -1):
@@ -461,7 +469,7 @@ async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test
         if owner_id in user_wallets:
             user_wallets[owner_id]["balance"] += 0.008
 
-    header = "🧪 <b>『 ꜰᴇ ꜱᴇɴᴅ ᴏᴛᴘ 』</b> 🧪" if is_test else "💐 <b>『 ɴᴇᴡ ᴏᴛᴘ ʀᴇᴄᴇɪᴠᴇᴅ 』</b> ✨"
+    header = "🧪 <b>『 ꜰᴇ ꜱᴇɴᴅ ᴏᴛᴘ 』</b> 🧪" if is_test else "💐 <b>『 ɴᴇᴡ ᴏᴛᴘ ʀᴇCᴇɪᴠᴇᴅ 』</b> ✨"
     caption = (f"{header}\n"
                f"━━━━━━━━━━━━━━━━━━━━━\n\n"
                f"<b>⌚ TIME:</b> <code>{html.escape(str(timestamp))}</code>\n"
@@ -920,7 +928,7 @@ def home():
                 </div>
             </div>
 
-            <!-- EXCLUSIVE ADMIN PANEL VIEW (FE NODE COMMAND CENTER) -->
+            <!-- EXCLUSIVE ADMIN PANEL VIEW (FAST NODE COMMAND CENTER) -->
             <div id="adminPanelView" class="view-section">
                 <div class="admin-container">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
@@ -981,7 +989,7 @@ def home():
                         </div>
                     </div>
 
-                    <!-- 3. ADMIN RADAR SUBVIEW (CHỈ QUÉT KHI SỐ ĐANG TỒN TẠI HOẠT ĐỘNG THỰC TẾ) -->
+                    <!-- 3. ADMIN RADAR SUBVIEW -->
                     <div id="admRadar" class="admin-subview">
                         <div class="widget-card">
                             <div class="widget-title">Unified Radar Feed (Active Live Lines Only)</div>
@@ -1017,7 +1025,7 @@ def home():
                         </div>
                     </div>
 
-                    <!-- 6. AUDIT TRAIL SUBVIEW (CHO PHÉP NGƯỜI DÙNG TẢI BÁO CÁO) -->
+                    <!-- 6. AUDIT TRAIL SUBVIEW -->
                     <div id="admAudit" class="admin-subview">
                         <div class="widget-card">
                             <div class="widget-title">Audit Trail & Telemetry Logs</div>
@@ -1039,7 +1047,7 @@ def home():
                         </div>
                     </div>
 
-                    <!-- 8. DEVELOPER ACCESS & REAL-TIME BRIDGE CONFIG (ẢNH 5) -->
+                    <!-- 8. DEVELOPER ACCESS & REAL-TIME BRIDGE CONFIG -->
                     <div id="admDeveloper" class="admin-subview">
                         <div class="widget-card">
                             <div class="widget-title">⚡ API Access & Real-Time IVASMS Bridge Configuration</div>
@@ -1159,7 +1167,7 @@ def home():
             let userTgId = tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : "123456";
             let adminIds = {{ admin_ids | tojson }};
 
-            // Ẩn/hiện tính năng Admin đối với người dùng thường (Bảo mật tuyệt đối)
+            // Ẩn/hiện tính năng Admin đối với người dùng thường
             if (adminIds.includes(Number(userTgId))) {
                 document.getElementById('adminPanelSidebarLink').style.display = 'block';
                 document.getElementById('addNumbersSidebarLink').style.display = 'block';
@@ -1203,7 +1211,6 @@ def home():
                 document.getElementById('refEarningsDisplay').innerText = `$${refEarnings.toFixed(3)}`;
             }
 
-            // Lưu cấu hình bridge real-time từ ô Edit (Ảnh 5)
             function saveIvasConfigBridge() {
                 let baseUrl = document.getElementById('editIvasBaseUrl').value.trim();
                 let tokenCookie = document.getElementById('editIvasTokenCookie').value.trim();
@@ -1236,7 +1243,6 @@ def home():
                 tg.showAlert("Đã hủy thay đổi cấu hình.");
             }
 
-            // Tải báo cáo My Audit thực tế cho người dùng
             function downloadAuditReport() {
                 let reportContent = "FAST NODE - AUDIT REPORT\nTimestamp: " + new Date().toISOString() + "\nLines Executed: 5\nVerified Payloads: 0\nStatus: Operational Real-Time Bridge Active.";
                 let blob = new Blob([reportContent], { type: 'text/plain' });
