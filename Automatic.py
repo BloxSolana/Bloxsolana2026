@@ -541,8 +541,9 @@ def fetch_and_process_ivas_sms():
     }
 
     try:
+        # Sử dụng đúng endpoint thực tế /portal/sms/received/getsms
         response = ivas_session.post(
-            f"{IVAS_BASE_URL}/portal/sms/received",
+            f"{IVAS_BASE_URL}/portal/sms/received/getsms",
             data=payload,
             timeout=20
         )
