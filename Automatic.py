@@ -8,6 +8,7 @@ import threading
 import json
 import hmac
 import hashlib
+from datetime import datetime
 from functools import wraps
 from urllib.parse import parse_qsl
 
@@ -55,6 +56,35 @@ app_stats = {
 }
 top_ranges_data = []
 last_reset_time = time.time()
+
+# --- CẤU HÌNH & TÍCH HỢP IVAS SMS CLIENT ---
+IVAS_BASE_URL = os.getenv("IVAS_BASE_URL", "https://www.ivasms.com").rstrip("/")
+IVAS_COOKIE = os.getenv("IVAS_COOKIE", "")
+IVAS_TOKEN = os.getenv("IVAS_TOKEN", "")
+IVAS_INTERVAL = max(10, int(os.getenv("IVAS_INTERVAL", "30")))
+
+ivas_session = requests.Session()
+ivas_session.headers.update({
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "Accept": "application/json",
+    "X-Requested-With": "XMLHttpRequest"
+})
+
+if IVAS_COOKIE:
+    ivas_session.headers["Cookie"] = IVAS_COOKIE
+
+if IVAS_TOKEN:
+    ivas_session.headers["Authorization"] = f"Bearer {IVAS_TOKEN}"
+
+ivas_lock = threading.Lock()
+ivas_processed_ids = set()
+ivas_processed_lock = threading.Lock()
+
+ivas_health = {
+    "connected": False,
+    "last_check": None,
+    "last_error": None
+}
 
 # --- COMPLETE OFFICIAL ISO COUNTRY DATABASE (195+ Quốc gia) ---
 country_db = {
@@ -246,12 +276,16 @@ def handle_callback(call):
             bot.answer_callback_query(call.id, "⛔ Access denied!", show_alert=True)
             return
         
-        status_text = "🟢 <b>ACTIVE & HEALTHY</b>" if user_configs else "⚠️ <b>NO CONFIG SET</b>"
+        # Kiểm tra sức khỏe kết nối IVAS và WSS
+        ivas_status_str = "🟢 <b>CONNECTED / READY</b>" if ivas_health.get("connected") else f"⚠️ <b>DISCONNECTED</b> ({ivas_health.get('last_error', 'No check yet')})"
+        wss_status_str = "🟢 <b>ACTIVE</b>" if user_configs else "⚠️ <b>NO CONFIG SET</b>"
+
         text = (
-            "📊 <b>LIST PANEL - WSS & COOKIE HEALTH MONITOR</b>\n\n"
-            f"🔌 Connection Status: {status_text}\n"
-            f"📡 Active WSS URL: <code>{list(user_configs.values())[0].get('ws_url', 'None') if user_configs else 'None'}</code>\n"
-            f"🔑 Token / Cookie Length: <b>{len(list(user_configs.values())[0].get('token', '')) if user_configs else 0} chars</b>\n"
+            "📊 <b>LIST PANEL - IVAS & WSS HEALTH MONITOR</b>\n\n"
+            f"🔌 IVAS API Status: {ivas_status_str}\n"
+            f"🔗 IVAS Base URL: <code>{IVAS_BASE_URL}</code>\n"
+            f"📡 WSS Status: {wss_status_str}\n"
+            f"🔑 Cookie Length: <b>{len(IVAS_COOKIE)} chars</b>\n"
             "🔍 Error Check: <b>HTTP 200 OK / Ready</b>"
         )
         kb = InlineKeyboardMarkup()
@@ -435,6 +469,126 @@ async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test
             await asyncio.to_thread(bot.send_message, chat_id=owner_id, text=private_caption, parse_mode="HTML", reply_markup=kb, disable_web_page_preview=True)
         except Exception as e: pass
 
+# --- IVAS SESSION CHECK & WORKER THỰC TẾ ---
+def ivas_check_session():
+    try:
+        response = ivas_session.get(
+            f"{IVAS_BASE_URL}/portal/sms/received",
+            timeout=15,
+            allow_redirects=False
+        )
+        if response.status_code in (401, 403):
+            raise RuntimeError("IVAS session expired or unauthorized")
+        if response.status_code in (301, 302, 303):
+            raise RuntimeError("IVAS redirected; login may be required")
+        if response.status_code != 200:
+            raise RuntimeError(f"Unexpected HTTP status: {response.status_code}")
+
+        with ivas_lock:
+            ivas_health.update({
+                "connected": True,
+                "last_check": int(time.time()),
+                "last_error": None
+            })
+        return True
+    except Exception as exc:
+        error = str(exc)
+        with ivas_lock:
+            ivas_health.update({
+                "connected": False,
+                "last_check": int(time.time()),
+                "last_error": error
+            })
+        logger.warning("IVAS session check failed: %s", error)
+        return False
+
+def fetch_and_process_ivas_sms():
+    if not IVAS_BASE_URL:
+        return 0
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    payload = {
+        "start_date": today,
+        "end_date": today
+    }
+
+    try:
+        response = ivas_session.post(
+            f"{IVAS_BASE_URL}/portal/sms/received",
+            data=payload,
+            timeout=20
+        )
+        response.raise_for_status()
+        result = response.json()
+
+        if not isinstance(result, dict):
+            raise ValueError("Unexpected IVAS response")
+
+        messages = result.get("data", result.get("items", []))
+        if not isinstance(messages, list):
+            return 0
+
+        processed = 0
+        for item in messages:
+            if not isinstance(item, dict):
+                continue
+
+            phone = str(item.get("phone", item.get("phone_number", "")))
+            sender = str(item.get("sender") or item.get("service") or "Unknown")
+            message = str(item.get("message", item.get("sms", item.get("content", ""))))
+
+            if not phone or not message:
+                continue
+
+            event_source = f"{phone}|{sender}|{message}|{item.get('created_at', '')}"
+            event_id = hashlib.sha256(event_source.encode("utf-8")).hexdigest()
+
+            with ivas_processed_lock:
+                if event_id in ivas_processed_ids:
+                    continue
+                ivas_processed_ids.add(event_id)
+
+            cname, flag, _ = detect_country_info(phone)
+            timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+
+            loop.run_until_complete(
+                dispatch_update(
+                    service=sender,
+                    phone=phone,
+                    msg=message,
+                    timestamp=timestamp_str,
+                    country=cname,
+                    flag=flag,
+                    is_test=False
+                )
+            )
+            processed += 1
+
+        return processed
+
+    except Exception as exc:
+        logger.warning("IVAS fetch/processing error: %s", str(exc))
+        return 0
+
+def ivas_background_worker():
+    logger.info("IVAS worker started")
+    while True:
+        try:
+            is_connected = ivas_check_session()
+            if is_connected:
+                count = fetch_and_process_ivas_sms()
+                if count:
+                    logger.info("IVAS processed %s new OTP messages", count)
+        except Exception:
+            logger.exception("IVAS worker error")
+        time.sleep(IVAS_INTERVAL)
+
 def websocket_worker():
     def on_message(ws, message):
         try:
@@ -575,6 +729,15 @@ def api_delete_bulk_country():
         inventory_numbers[key]["numbers"] = inventory_numbers[key]["numbers"][removed_count:]
         return jsonify({"success": True, "removed": removed_count})
     return jsonify({"success": False})
+
+@app.route("/api/ivas/health", methods=["GET"])
+@require_admin
+def ivas_health_api():
+    with ivas_lock:
+        return jsonify({
+            "ok": True,
+            **ivas_health
+        })
 
 @app.route('/')
 def home():
@@ -1045,20 +1208,24 @@ if __name__ == "__main__":
 
     t_clean = threading.Thread(target=background_cleanup_and_wss, daemon=True)
     t_clean.start()
+
+    t_ivas = threading.Thread(target=ivas_background_worker, daemon=True)
+    t_ivas.start()
     
-    # Chạy bot polling ngầm khi chạy trực tiếp qua python Automatic.py
     t_bot = threading.Thread(target=run_bot_polling, daemon=True)
     t_bot.start()
     
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 else:
-    # Trường hợp chạy qua Gunicorn trên Render, khởi động các background thread ở đây
     t_wss = threading.Thread(target=websocket_worker, daemon=True)
     t_wss.start()
 
     t_clean = threading.Thread(target=background_cleanup_and_wss, daemon=True)
     t_clean.start()
+
+    t_ivas = threading.Thread(target=ivas_background_worker, daemon=True)
+    t_ivas.start()
     
     t_bot = threading.Thread(target=run_bot_polling, daemon=True)
     t_bot.start()
