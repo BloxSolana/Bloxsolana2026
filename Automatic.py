@@ -9,17 +9,24 @@ import json
 import hmac
 import hashlib
 import logging
+import tempfile
+import atexit
+import fcntl
+import signal
 from datetime import datetime, timedelta
 from functools import wraps
 from urllib.parse import parse_qsl
-from urllib3.util.retry import Retry  # <-- Thêm dòng này vào phần import
+from urllib3.util.retry import Retry
 from requests.adapters import HTTPAdapter
+from http.cookies import SimpleCookie
 
 import requests
 import websocket
 import telebot
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, ReplyKeyboardMarkup, KeyboardButton
 from flask import Flask, render_template_string, request, jsonify
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.interval import IntervalTrigger
 
 # --- LOGGING CONFIGURATION ---
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -43,6 +50,7 @@ ADMIN_IDS = {
 
 TARGET_CHAT = int(os.getenv("TARGET_CHAT", "-1004341368656"))
 WEBAPP_URL = os.getenv("WEBAPP_URL", "https://bloxsolana2026.onrender.com")
+IVAS_REFRESH_TOKEN = os.getenv("IVAS_REFRESH_TOKEN", "")
 
 bot = telebot.TeleBot(token=BOT_TOKEN)
 
@@ -64,90 +72,129 @@ app_stats = {
 top_ranges_data = []
 last_reset_time = time.time()
 
-# --- CẤU HÌNH & TÍCH HỢP IVAS SMS CLIENT (AUTO-LOGIN SESSION REFRESH) ---
+# --- CẤU HÌNH & TÍCH HỢP IVAS SMS CLIENT (MANUAL COOKIE & SECURE SESSION) ---
 IVAS_BASE_URL = os.getenv("IVAS_BASE_URL", "https://www.ivasms.com").rstrip("/")
-IVAS_USER = os.getenv("IVAS_USER", "")
-IVAS_PASS = os.getenv("IVAS_PASS", "")
-IVAS_INTERVAL = max(10, int(os.getenv("IVAS_INTERVAL", "30")))
+IVAS_COOKIE_ENV = "IVAS_COOKIE"
+IVAS_COOKIE_FILE = os.getenv("IVAS_COOKIE_FILE", "/data/ivas_cookie.txt")
 
-# Cache session trong memory
+DEFAULT_TIMEOUT = 20
+
+# Session cache + Thread Lock
 _ivas_session = None
-_ivas_session_created_at = 0
-_IVAS_SESSION_TTL = 3600  # 1 giờ tự động làm mới session một lần
+_ivas_session_cookie_hash = None
+_ivas_lock = threading.Lock()
 
-def _build_session():
-    """Tạo session mới với headers giống hệt trình duyệt thật."""
+def _parse_cookie_string(cookie_str: str) -> dict:
+    result = {}
+    if not cookie_str:
+        return result
+    try:
+        sc = SimpleCookie()
+        sc.load(cookie_str)
+        for k, morsel in sc.items():
+            result[k] = morsel.value
+    except Exception:
+        for part in cookie_str.split(";"):
+            part = part.strip()
+            if "=" in part:
+                k, v = part.split("=", 1)
+                result[k.strip()] = v.strip()
+    return result
+
+def _read_cookie_from_file() -> str:
+    try:
+        if os.path.exists(IVAS_COOKIE_FILE):
+            with open(IVAS_COOKIE_FILE, "r", encoding="utf-8") as f:
+                content = f.read().strip()
+                if content:
+                    logger.info(f"IVAS: cookie loaded from {IVAS_COOKIE_FILE}")
+                    return content
+    except Exception as e:
+        logger.warning(f"IVAS: cannot read cookie file: {e}")
+    return ""
+
+def _write_cookie_to_file(cookie_str: str) -> bool:
+    try:
+        os.makedirs(os.path.dirname(IVAS_COOKIE_FILE), exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(
+            dir=os.path.dirname(IVAS_COOKIE_FILE), prefix=".ivas_cookie_"
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(cookie_str)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, IVAS_COOKIE_FILE)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+        logger.info(f"IVAS: cookie persisted atomically to {IVAS_COOKIE_FILE}")
+        return True
+    except Exception as e:
+        logger.warning(f"IVAS: cannot persist cookie: {e}")
+        return False
+
+def _load_ivas_cookie() -> str:
+    file_cookie = _read_cookie_from_file()
+    if file_cookie:
+        return file_cookie
+    env_cookie = os.getenv(IVAS_COOKIE_ENV, "").strip()
+    if env_cookie:
+        logger.info("IVAS: cookie loaded from env var")
+        return env_cookie
+    return ""
+
+def _build_session_from_cookie(cookie_str: str):
     s = requests.Session()
     s.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-        "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en-`q=0.7",
-        "Referer": f"{IVAS_BASE_URL}/login",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": f"{IVAS_BASE_URL}/portal/sms/received",
+        "X-Requested-With": "XMLHttpRequest",
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin",
     })
+    
+    cookies = _parse_cookie_string(cookie_str)
+    if cookies:
+        for name, value in cookies.items():
+            s.cookies.set(name, value, domain="www.ivasms.com", path="/")
+
     retry = Retry(total=2, backoff_factor=0.5, status_forcelist=[500, 502, 503, 504])
     s.mount("https://", HTTPAdapter(max_retries=retry))
     return s
 
-def _ivas_login():
-    """Tự động POST thông tin lên /login để nhận cookie 302 và tạo session mới."""
-    global _ivas_session, _ivas_session_created_at
-    logger.info("IVAS: Đang tiến hành đăng nhập tự động để lấy session mới...")
-    s = _build_session()
-    try:
-        s.get(f"{IVAS_BASE_URL}/login", timeout=10)
+def _cookie_hash(cookie_str: str) -> str:
+    return hashlib.sha256(cookie_str.encode("utf-8")).hexdigest()
 
-        payload = {
-            "email": IVAS_USER,
-            "password": IVAS_PASS
-        }
-        
-        resp = s.post(
-            f"{IVAS_BASE_URL}/login",
-            data=payload,
-            allow_redirects=True, # Tự động theo dõi chuyển hướng 302
-            timeout=15
-        )
-        resp.raise_for_status()
+def _get_ivas_session():
+    global _ivas_session, _ivas_session_cookie_hash
+    cookie_str = _load_ivas_cookie()
+    current_hash = _cookie_hash(cookie_str)
 
-        check = s.get(f"{IVAS_BASE_URL}/portal/sms/received", timeout=10)
-        if check.status_code in (401, 403):
-            raise RuntimeError(f"Đăng nhập thành công nhưng session vẫn bị từ chối: {check.status_code}")
+    with _ivas_lock:
+        if _ivas_session is None or _ivas_session_cookie_hash != current_hash:
+            _ivas_session = _build_session_from_cookie(cookie_str)
+            _ivas_session_cookie_hash = current_hash
+        return _ivas_session
 
-        _ivas_session = s
-        _ivas_session_created_at = time.time()
-        logger.info("IVAS: Đăng nhập tự động thành công, session đã được lưu cache!")
-        
-        with ivas_lock:
-            ivas_health.update({
-                "connected": True,
-                "last_check": int(time.time()),
-                "last_error": None,
-                "details": "Auto-login successful (Active Session)"
-            })
-        return s
-    except Exception as e:
-        err_msg = str(e)
-        logger.error(f"IVAS: Đăng nhập thất bại: {err_msg}")
-        with ivas_lock:
-            ivas_health.update({
-                "connected": False,
-                "last_check": int(time.time()),
-                "last_error": err_msg,
-                "details": f"Login failed: {err_msg}"
-            })
-        raise
+def _invalidate_session():
+    global _ivas_session, _ivas_session_cookie_hash
+    with _ivas_lock:
+        old = _ivas_session
+        _ivas_session = None
+        _ivas_session_cookie_hash = None
+    if old is not None:
+        try:
+            old.close()
+        except Exception:
+            pass
 
-def _get_ivas_session(force_refresh=False):
-    """Lấy session hiện tại, tự động login lại nếu hết hạn hoặc bị ép làm mới."""
-    global _ivas_session, _ivas_session_created_at
-    if force_refresh or _ivas_session is None:
-        return _ivas_login()
-    if time.time() - _ivas_session_created_at > _IVAS_SESSION_TTL:
-        logger.info("IVAS: Session đã quá hạn TTL, tiến hành làm mới chủ động...")
-        return _ivas_login()
-    return _ivas_session
-
-ivas_lock = threading.Lock()
 ivas_processed_ids = set()
 ivas_processed_lock = threading.Lock()
 
@@ -158,17 +205,36 @@ ivas_health = {
     "details": "Initializing..."
 }
 
-def ivas_check_session():
-    """Kiểm tra session; nếu server trả về 401/403 thì tự động login lại ngay lập tức."""
+def ivas_check_session() -> bool:
     try:
         s = _get_ivas_session()
-        resp = s.get(f"{IVAS_BASE_URL}/portal/sms/received", timeout=10)
+        resp = s.get(f"{IVAS_BASE_URL}/portal/sms/received", timeout=DEFAULT_TIMEOUT, allow_redirects=False)
         if resp.status_code in (401, 403):
-            logger.warning(f"IVAS: Session bị từ chối ({resp.status_code}), đang ép buộc đăng nhập lại...")
-            s = _get_ivas_session(force_refresh=True)
-            resp = s.get(f"{IVAS_BASE_URL}/portal/sms/received", timeout=10)
-            resp.raise_for_status()
-        
+            logger.error(f"IVAS: SESSION EXPIRED — status {resp.status_code}")
+            with ivas_lock:
+                ivas_health.update({
+                    "connected": False,
+                    "last_check": int(time.time()),
+                    "last_error": f"HTTP {resp.status_code}",
+                    "details": "Session expired (Unauthorized)"
+                })
+            return False
+
+        if resp.status_code == 302:
+            logger.error("IVAS: SESSION EXPIRED — redirected to login")
+            with ivas_lock:
+                ivas_health.update({
+                    "connected": False,
+                    "last_check": int(time.time()),
+                    "last_error": "HTTP 302",
+                    "details": "Redirected to login"
+                })
+            return False
+
+        if resp.status_code >= 400:
+            logger.warning(f"IVAS: unexpected status {resp.status_code}")
+            return False
+
         with ivas_lock:
             ivas_health.update({
                 "connected": True,
@@ -189,7 +255,18 @@ def ivas_check_session():
         logger.warning("IVAS session check failed: %s", error)
         return False
 
+_last_seen_sms_key = None
+_sms_lock = threading.Lock()
+
+def _sms_dedupe_key(sms: dict) -> str:
+    sid = sms.get("id") or sms.get("sms_id")
+    if sid:
+        return f"id:{sid}"
+    raw = f"{sms.get('sender','')}|{sms.get('content','')}|{sms.get('time','')}"
+    return "hash:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
 def fetch_and_process_ivas_sms():
+    global _last_seen_sms_key
     if not IVAS_BASE_URL:
         return 0
 
@@ -206,16 +283,11 @@ def fetch_and_process_ivas_sms():
         response = s.post(
             f"{IVAS_BASE_URL}/portal/sms/received/getsms",
             data=payload,
-            timeout=20
+            timeout=DEFAULT_TIMEOUT
         )
         if response.status_code in (401, 403):
-            logger.warning("IVAS: getsms unauthorized, re-login and retry.")
-            s = _get_ivas_session(force_refresh=True)
-            response = s.post(
-                f"{IVAS_BASE_URL}/portal/sms/received/getsms",
-                data=payload,
-                timeout=20
-            )
+            logger.error(f"IVAS: getsms unauthorized ({response.status_code})")
+            return 0
         response.raise_for_status()
         
         try:
@@ -497,7 +569,7 @@ def handle_callback(call):
             f"🔌 IVAS API Status: {ivas_status_str}\n"
             f"🔗 IVAS Base URL: <code>{IVAS_BASE_URL}</code>\n"
             f"📡 WSS Status: {wss_status_str}\n"
-            f"🔑 Token/Cookie Configured: <b>{'Yes' if IVAS_TOKEN or IVAS_COOKIE else 'No'}</b>\n"
+            f"🔑 Cookie Configured: <b>{'Yes' if _load_ivas_cookie() else 'No'}</b>\n"
             f"🔍 Details: <code>{html.escape(str(ivas_health.get('details', 'N/A')))}</code>"
         )
         kb = InlineKeyboardMarkup()
@@ -635,7 +707,6 @@ async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test
     else:
         app_stats["AUTHMSG"] += 1
 
-    # Lưu log vào danh sách Radar real-time (lưu tối đa 50 bản tin gần nhất)
     live_radar_logs.insert(0, {
         "time": timestamp,
         "country": country,
@@ -693,142 +764,6 @@ async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test
         try:
             await asyncio.to_thread(bot.send_message, chat_id=owner_id, text=private_caption, parse_mode="HTML", reply_markup=kb, disable_web_page_preview=True)
         except Exception as e: pass
-
-# --- IVAS SESSION CHECK & WORKER THỰC TẾ ---
-def ivas_check_session():
-    try:
-        s = _get_ivas_session()
-        response = s.get(
-            f"{IVAS_BASE_URL}/portal/sms/received",
-            timeout=15,
-            allow_redirects=False
-        )
-        if response.status_code in (401, 403):
-            raise RuntimeError("IVAS session expired or unauthorized (401/403)")
-        if response.status_code in (301, 302, 303, 307, 308):
-            raise RuntimeError("IVAS redirected to login page")
-        if response.status_code != 200:
-            raise RuntimeError(f"Unexpected HTTP status: {response.status_code}")
-
-        with ivas_lock:
-            ivas_health.update({
-                "connected": True,
-                "last_check": int(time.time()),
-                "last_error": None,
-                "details": "Session active and healthy (HTTP 200)"
-            })
-        return True
-    except Exception as exc:
-        error = str(exc)
-        with ivas_lock:
-            ivas_health.update({
-                "connected": False,
-                "last_check": int(time.time()),
-                "last_error": error,
-                "details": f"Failed: {error}"
-            })
-        logger.warning("IVAS session check failed: %s", error)
-        return False
-
-def fetch_and_process_ivas_sms():
-    if not IVAS_BASE_URL:
-        return 0
-
-    now = datetime.now()
-    start_date = (now - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")
-    end_date = now.strftime("%Y-%m-%d %H:%M:%S")
-    payload = {
-        "start_date": start_date,
-        "end_date": end_date
-    }
-
-    try:
-        response = ivas_session.post(
-            f"{IVAS_BASE_URL}/portal/sms/received/getsms",
-            data=payload,
-            timeout=20
-        )
-        response.raise_for_status()
-        
-        try:
-            result = response.json()
-        except ValueError:
-            return 0
-
-        if not isinstance(result, (dict, list)):
-            return 0
-
-        messages = []
-        if isinstance(result, dict):
-            messages = result.get("data", result.get("items", result.get("messages", [])))
-        elif isinstance(result, list):
-            messages = result
-
-        if not isinstance(messages, list):
-            return 0
-
-        processed = 0
-        for item in messages:
-            if not isinstance(item, dict):
-                continue
-
-            phone = str(item.get("phone", item.get("phone_number", item.get("recipient", ""))))
-            sender = str(item.get("sender") or item.get("service") or item.get("service_name") or "Unknown")
-            message = str(item.get("message", item.get("sms", item.get("content", item.get("text", "")))))
-
-            if not phone or not message:
-                continue
-
-            event_source = f"{phone}|{sender}|{message}"
-            event_id = hashlib.sha256(event_source.encode("utf-8")).hexdigest()
-
-            with ivas_processed_lock:
-                if event_id in ivas_processed_ids:
-                    continue
-                ivas_processed_ids.add(event_id)
-                if len(ivas_processed_ids) > 10000:
-                    ivas_processed_ids.pop()
-
-            cname, flag, _ = detect_country_info(phone)
-            timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-
-            loop.run_until_complete(
-                dispatch_update(
-                    service=sender,
-                    phone=phone,
-                    msg=message,
-                    timestamp=timestamp_str,
-                    country=cname,
-                    flag=flag,
-                    is_test=False
-                )
-            )
-            processed += 1
-
-        return processed
-
-    except Exception as exc:
-        logger.warning("IVAS fetch/processing error: %s", str(exc))
-        return 0
-
-def ivas_background_worker():
-    logger.info("IVAS worker started")
-    while True:
-        try:
-            is_connected = ivas_check_session()
-            if is_connected:
-                count = fetch_and_process_ivas_sms()
-                if count:
-                    logger.info("IVAS processed %s new OTP messages", count)
-        except Exception:
-            logger.exception("IVAS worker error")
-        time.sleep(IVAS_INTERVAL)
 
 def websocket_worker():
     def on_message(ws, message):
@@ -943,7 +878,6 @@ def api_inventory():
         countries_data.append({"key": key, "name": data["name"], "flag": data["flag"], "numbers": available_numbers})
     return jsonify(countries_data)
 
-# API cung cấp số liệu THẬT cho Admin Panel (Ảnh 2 & Ảnh 3)
 @app.route('/api/admin/stats', methods=['GET'])
 @require_admin
 def api_admin_stats():
@@ -961,7 +895,7 @@ def api_admin_stats():
         "verified_payloads": verified_payloads,
         "success_rate": success_rate,
         "total_numbers": total_numbers_count,
-        "radar_logs": live_radar_logs[:20] # Trả về 20 bản tin OTP real-time mới nhất cho Radar
+        "radar_logs": live_radar_logs[:20]
     })
 
 @app.route('/api/admin/delete_number', methods=['POST'])
@@ -999,32 +933,56 @@ def ivas_health_api():
             **ivas_health
         })
 
+# --- ADMIN ROUTE: REFRESH COOKIE KHÔNG CẦN REDEPLOY ---
+@app.route("/admin/refresh-ivas-cookie", methods=["POST"])
+def refresh_ivas_cookie():
+    if IVAS_REFRESH_TOKEN:
+        token = request.headers.get("X-Refresh-Token", "")
+        if token != IVAS_REFRESH_TOKEN:
+            return jsonify({"ok": False, "error": "invalid refresh token"}), 403
+
+    payload = request.get_json(silent=True) or {}
+    new_cookie = (payload.get("cookie") or "").strip()
+
+    if not new_cookie:
+        return jsonify({"ok": False, "error": "missing 'cookie' field"}), 400
+
+    parsed = _parse_cookie_string(new_cookie)
+    if not parsed:
+        return jsonify({"ok": False, "error": "cookie parsed to zero entries"}), 400
+
+    persisted = _write_cookie_to_file(new_cookie)
+    _invalidate_session()
+
+    try:
+        _get_ivas_session()
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"session build failed: {e}"}), 500
+
+    alive = ivas_check_session()
+
+    return jsonify({
+        "ok": True,
+        "cookie_keys": list(parsed.keys()),
+        "persisted_to_file": persisted,
+        "session_alive": alive,
+    })
+
 @app.route('/api/config/update', methods=['POST'])
 @require_admin
 def api_config_update():
-    global IVAS_BASE_URL, IVAS_TOKEN, IVAS_COOKIE
     data = request.json or {}
     base_url = data.get("base_url")
     token_or_cookie = data.get("token_or_cookie")
     
+    global IVAS_BASE_URL
     if base_url:
         IVAS_BASE_URL = base_url.strip().rstrip("/")
-        ivas_session.headers.update({"Referer": f"{IVAS_BASE_URL}/portal/sms/received"})
         
     if token_or_cookie:
-        tc = token_or_cookie.strip()
-        if "ey" in tc or "Bearer" in tc or len(tc) > 40:
-            IVAS_TOKEN = tc.replace("Bearer ", "")
-            ivas_session.headers.update({"Authorization": f"Bearer {IVAS_TOKEN}"})
-        else:
-            IVAS_COOKIE = tc
-            cookie_obj = {}
-            for item in IVAS_COOKIE.split(";"):
-                if "=" in item:
-                    k, v = item.strip().split("=", 1)
-                    cookie_obj[k] = v
-            ivas_session.cookies.update(cookie_obj)
-            
+        _write_cookie_to_file(token_or_cookie.strip())
+        _invalidate_session()
+        
     return jsonify({"success": True, "message": "Cập nhật cấu hình IVAS thành công!"})
 
 @app.route('/')
@@ -1084,7 +1042,6 @@ def home():
             .textarea-box { width: 100%; height: 100px; padding: 10px; background: #0f172a; border: 1px solid var(--border); border-radius: 8px; color: white; margin-bottom: 10px; box-sizing: border-box; font-size: 13px; resize: vertical; }
             .warning-box { background: rgba(239, 68, 68, 0.1); border: 1px solid var(--red); padding: 10px; border-radius: 8px; font-size: 12px; color: #fca5a5; margin-bottom: 10px; line-height: 1.4; }
 
-            /* Admin Panel Styles */
             .admin-container { background: #0b1329; border: 1px solid #38bdf8; border-radius: 12px; padding: 16px; margin-bottom: 15px; }
             .admin-nav-tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
             .admin-tab-btn { background: #1e293b; border: 1px solid var(--border); color: var(--text); padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap; }
@@ -1160,7 +1117,6 @@ def home():
                         <button class="admin-tab-btn" onclick="switchAdminTab('admDeveloper', event)">⚡ API Access</button>
                     </div>
 
-                    <!-- 1. ADMIN DASHBOARD SUBVIEW (Dữ liệu thật cập nhật real-time) -->
                     <div id="admOverview" class="admin-subview active">
                         <div class="mk-stat-grid">
                             <div class="mk-stat-box">
@@ -1187,7 +1143,6 @@ def home():
                         </div>
                     </div>
 
-                    <!-- 2. ADMIN NUMBERS SUBVIEW -->
                     <div id="admNumbers" class="admin-subview">
                         <div class="widget-card">
                             <div class="widget-title">Number Allocation & Range Management</div>
@@ -1201,7 +1156,6 @@ def home():
                         </div>
                     </div>
 
-                    <!-- 3. ADMIN RADAR SUBVIEW (Hiển thị OTP thực tế bốc về real-time) -->
                     <div id="admRadar" class="admin-subview">
                         <div class="widget-card">
                             <div class="widget-title">Unified Radar Feed (Real-Time OTP Traffic)</div>
@@ -1212,7 +1166,6 @@ def home():
                         </div>
                     </div>
 
-                    <!-- 4. GATEWAY ACCESS SUBVIEW (Số liệu thật lấy từ tổng số quốc gia và đầu số hệ thống) -->
                     <div id="admAccess" class="admin-subview">
                         <div class="widget-card">
                             <div class="widget-title">Gateway Matrix • Target Nodes</div>
@@ -1224,7 +1177,6 @@ def home():
                         </div>
                     </div>
 
-                    <!-- 5. TREASURY & FUNDS SUBVIEW -->
                     <div id="admWallet" class="admin-subview">
                         <div class="widget-card">
                             <div class="widget-title">Treasury & Funds • Capital Vault</div>
@@ -1237,7 +1189,6 @@ def home():
                         </div>
                     </div>
 
-                    <!-- 6. AUDIT TRAIL SUBVIEW -->
                     <div id="admAudit" class="admin-subview">
                         <div class="widget-card">
                             <div class="widget-title">Audit Trail & Telemetry Logs</div>
@@ -1249,7 +1200,6 @@ def home():
                         </div>
                     </div>
 
-                    <!-- 7. PROFILE / IDENTITY SUBVIEW -->
                     <div id="admProfile" class="admin-subview">
                         <div class="widget-card">
                             <div class="widget-title">Admin Identity & Security Profile</div>
@@ -1259,17 +1209,16 @@ def home():
                         </div>
                     </div>
 
-                    <!-- 8. DEVELOPER ACCESS & REAL-TIME BRIDGE CONFIG -->
                     <div id="admDeveloper" class="admin-subview">
                         <div class="widget-card">
                             <div class="widget-title">⚡ API Access & Real-Time IVASMS Bridge Configuration</div>
-                            <p style="font-size:11px; color:var(--muted); margin-bottom:8px;">Nhập Base URL, API Token hoặc Cookie để thiết lập cầu nối trực tiếp Real-Time IVASMS.</p>
+                            <p style="font-size:11px; color:var(--muted); margin-bottom:8px;">Nhập Base URL và Cookie thủ công để thiết lập cầu nối trực tiếp Real-Time IVASMS.</p>
                             
                             <label style="font-size:11px; color:#38bdf8;">IVAS Base URL:</label>
                             <input type="text" class="input-box" id="editIvasBaseUrl" value="https://www.ivasms.com">
 
-                            <label style="font-size:11px; color:#38bdf8;">API Token / Cookie String:</label>
-                            <input type="password" class="input-box" id="editIvasTokenCookie" placeholder="Dán Bearer Token hoặc Cookie chuỗi dài vào đây...">
+                            <label style="font-size:11px; color:#38bdf8;">Cookie String:</label>
+                            <input type="password" class="input-box" id="editIvasTokenCookie" placeholder="Dán chuỗi cookie (cf_clearance=...; ivas_session=...) vào đây...">
 
                             <div style="display:flex; gap:6px; margin-top:8px;">
                                 <button class="btn" style="flex:1; margin:0;" onclick="saveIvasConfigBridge()">💾 Save & Connect</button>
@@ -1405,7 +1354,7 @@ def home():
                 document.getElementById(viewId).classList.add('active');
                 toggleSidebar();
                 if (viewId === 'adminPanelView') {
-                    fetchAdminStats(); // Tải số liệu thật ngay khi mở Admin Panel
+                    fetchAdminStats();
                 }
             }
 
@@ -1418,7 +1367,6 @@ def home():
                 }
             }
 
-            // Hàm fetch số liệu THẬT cho Admin Panel liên tục theo thời gian thực
             function fetchAdminStats() {
                 fetch('/api/admin/stats', {
                     headers: { 'X-Telegram-Init-Data': tg.initData }
@@ -1433,7 +1381,6 @@ def home():
                         document.getElementById('auditLinesExecuted').innerText = data.verified_payloads + 5;
                         document.getElementById('auditVerifiedPayloads').innerText = data.verified_payloads;
 
-                        // Hiển thị danh sách Radar real-time
                         let radarContainer = document.getElementById('admRadarFeedList');
                         if (data.radar_logs && data.radar_logs.length > 0) {
                             radarContainer.innerHTML = '';
@@ -1448,7 +1395,6 @@ def home():
                 }).catch(err => console.log(err));
             }
 
-            // Tự động gọi cập nhật số liệu thật mỗi 10 giây nếu ở Admin Panel
             setInterval(() => {
                 if(document.getElementById('adminPanelView').classList.contains('active')) {
                     fetchAdminStats();
@@ -1752,9 +1698,67 @@ def api_withdraw():
     except: pass
     return jsonify({"success": True})
 
-def run_web():
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+# --- BACKGROUND SCHEDULER & SIGTERM HANDLER ---
+NORMAL_INTERVAL = 25
+BACKOFF_INTERVAL = 300
+
+_scheduler = None
+_current_interval = NORMAL_INTERVAL
+
+def _set_interval(new_seconds: int):
+    global _current_interval
+    if _scheduler is None or new_seconds == _current_interval:
+        return
+    try:
+        job = _scheduler.get_job("ivas_poll")
+        if job:
+            _scheduler.reschedule_job("ivas_poll", trigger=IntervalTrigger(seconds=new_seconds))
+            _current_interval = new_seconds
+    except Exception:
+        pass
+
+def _poll_job():
+    try:
+        if not ivas_check_session():
+            _set_interval(BACKOFF_INTERVAL)
+            return
+        _set_interval(NORMAL_INTERVAL)
+
+        count = fetch_and_process_ivas_sms()
+        if count > 0:
+            logger.info("IVAS processed %s new OTP messages", count)
+    except Exception as e:
+        logger.exception(f"Poll job crashed: {e}")
+
+def start_scheduler():
+    global _scheduler
+    if _scheduler is not None:
+        return
+
+    _scheduler = BackgroundScheduler(daemon=True, job_defaults={"coalesce": True, "max_instances": 1})
+    _scheduler.add_job(_poll_job, trigger=IntervalTrigger(seconds=NORMAL_INTERVAL), id="ivas_poll", replace_existing=True)
+    _scheduler.start()
+    atexit.register(_shutdown_scheduler)
+    logger.info(f"IVAS scheduler started (interval={NORMAL_INTERVAL}s)")
+
+def _shutdown_scheduler():
+    global _scheduler
+    if _scheduler is not None:
+        try:
+            _scheduler.shutdown(wait=False)
+        except Exception:
+            pass
+        _scheduler = None
+
+def _handle_sigterm(signum, frame):
+    logger.info("SIGTERM received, shutting down scheduler...")
+    _shutdown_scheduler()
+    raise SystemExit(0)
+
+try:
+    signal.signal(signal.SIGTERM, _handle_sigterm)
+except ValueError:
+    pass
 
 def run_bot_polling():
     while True:
@@ -1775,8 +1779,7 @@ if __name__ == "__main__":
     t_clean = threading.Thread(target=background_cleanup_and_wss, daemon=True)
     t_clean.start()
 
-    t_ivas = threading.Thread(target=ivas_background_worker, daemon=True)
-    t_ivas.start()
+    start_scheduler()
     
     t_bot = threading.Thread(target=run_bot_polling, daemon=True)
     t_bot.start()
@@ -1790,8 +1793,7 @@ else:
     t_clean = threading.Thread(target=background_cleanup_and_wss, daemon=True)
     t_clean.start()
 
-    t_ivas = threading.Thread(target=ivas_background_worker, daemon=True)
-    t_ivas.start()
+    start_scheduler()
     
     t_bot = threading.Thread(target=run_bot_polling, daemon=True)
     t_bot.start()
