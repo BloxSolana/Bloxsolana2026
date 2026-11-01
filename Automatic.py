@@ -1155,11 +1155,13 @@ def home():
 
             let userBalance = 0.000;
             let refCount = 0;
-            let refEarnings = 0.000;
+            // Dòng này phải kết thúc bằng dấu chấm phẩy (;), KHÔNG có chữ H
+            let refEarnings = 0.000; 
             let userTgId = tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : "123456";
             let adminIds = {{ admin_ids | tojson }};
 
             // Ẩn/hiện tính năng Admin đối với người dùng thường (Bảo mật tuyệt đối)
+            // Ép kiểu userTgId sang số (Number) để so sánh chính xác với danh sách ADMIN_IDS
             if (adminIds.includes(Number(userTgId))) {
                 document.getElementById('adminPanelSidebarLink').style.display = 'block';
                 document.getElementById('addNumbersSidebarLink').style.display = 'block';
@@ -1168,6 +1170,7 @@ def home():
                 document.getElementById('addNumbersSidebarLink').style.display = 'none';
             }
 
+            // Các dòng này phải kết thúc bằng dấu chấm phẩy (;), KHÔNG gõ thêm chữ thừa!
             document.getElementById('refLinkInput').value = `https://t.me/FastNode_Bot?start=ref${userTgId}`;
             document.getElementById('adminTimestamp').innerText = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
