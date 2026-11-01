@@ -8,6 +8,7 @@ import threading
 import json
 import hmac
 import hashlib
+import logging
 from datetime import datetime, timedelta
 from functools import wraps
 from urllib.parse import parse_qsl
@@ -17,6 +18,10 @@ import websocket
 import telebot
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, ReplyKeyboardMarkup, KeyboardButton
 from flask import Flask, render_template_string, request, jsonify
+
+# --- LOGGING CONFIGURATION ---
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+logger = logging.getLogger("FastNodePortal")
 
 # --- CONFIGURATION & SECURITY ENVIRONMENT VARIABLES ---
 def get_required_env(name):
