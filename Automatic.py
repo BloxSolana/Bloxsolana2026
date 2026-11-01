@@ -12,6 +12,7 @@ import logging
 from datetime import datetime, timedelta
 from functools import wraps
 from urllib.parse import parse_qsl
+from urllib3.util.retry import Retry  # <-- Thêm dòng này vào phần import
 
 import requests
 import websocket
