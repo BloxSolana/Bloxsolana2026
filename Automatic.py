@@ -8,7 +8,7 @@ import threading
 import json
 import hmac
 import hashlib
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
 from urllib.parse import parse_qsl
 
@@ -57,7 +57,7 @@ app_stats = {
 top_ranges_data = []
 last_reset_time = time.time()
 
-# --- CẤU HÌNH & TÍCH HỢP IVAS SMS CLIENT ---
+# --- CẤU HÌNH & TÍCH HỢP IVAS SMS CLIENT (NÂNG CẤP HOÀN CHỈNH) ---
 IVAS_BASE_URL = os.getenv("IVAS_BASE_URL", "https://www.ivasms.com").rstrip("/")
 IVAS_COOKIE = os.getenv("IVAS_COOKIE", "")
 IVAS_TOKEN = os.getenv("IVAS_TOKEN", "")
@@ -65,16 +65,21 @@ IVAS_INTERVAL = max(10, int(os.getenv("IVAS_INTERVAL", "30")))
 
 ivas_session = requests.Session()
 ivas_session.headers.update({
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    "Accept": "application/json",
-    "X-Requested-With": "XMLHttpRequest"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/javascript, */*; q=0.01",
+    "Referer": f"{IVAS_BASE_URL}/portal/sms/received"
 })
 
 if IVAS_COOKIE:
-    ivas_session.headers["Cookie"] = IVAS_COOKIE
+    cookie_obj = {}
+    for item in IVAS_COOKIE.split(";"):
+        if "=" in item:
+            k, v = item.strip().split("=", 1)
+            cookie_obj[k] = v
+    ivas_session.cookies.update(cookie_obj)
 
 if IVAS_TOKEN:
-    ivas_session.headers["Authorization"] = f"Bearer {IVAS_TOKEN}"
+    ivas_session.headers.update({"Authorization": f"Bearer {IVAS_TOKEN}"})
 
 ivas_lock = threading.Lock()
 ivas_processed_ids = set()
@@ -83,7 +88,8 @@ ivas_processed_lock = threading.Lock()
 ivas_health = {
     "connected": False,
     "last_check": None,
-    "last_error": None
+    "last_error": None,
+    "details": "Initializing..."
 }
 
 # --- COMPLETE OFFICIAL ISO COUNTRY DATABASE (195+ Quốc gia) ---
@@ -276,8 +282,9 @@ def handle_callback(call):
             bot.answer_callback_query(call.id, "⛔ Access denied!", show_alert=True)
             return
         
-        # Kiểm tra sức khỏe kết nối IVAS và WSS
-        ivas_status_str = "🟢 <b>CONNECTED / READY</b>" if ivas_health.get("connected") else f"⚠️ <b>DISCONNECTED</b> ({ivas_health.get('last_error', 'No check yet')})"
+        # Kiểm tra sức khỏe kết nối IVAS và WSS thực tế
+        ivas_connected = ivas_health.get("connected", False)
+        ivas_status_str = "🟢 <b>CONNECTED / READY</b>" if ivas_connected else f"⚠️ <b>DISCONNECTED / EXPIRED</b> ({ivas_health.get('last_error', 'No check yet')})"
         wss_status_str = "🟢 <b>ACTIVE</b>" if user_configs else "⚠️ <b>NO CONFIG SET</b>"
 
         text = (
@@ -285,8 +292,8 @@ def handle_callback(call):
             f"🔌 IVAS API Status: {ivas_status_str}\n"
             f"🔗 IVAS Base URL: <code>{IVAS_BASE_URL}</code>\n"
             f"📡 WSS Status: {wss_status_str}\n"
-            f"🔑 Cookie Length: <b>{len(IVAS_COOKIE)} chars</b>\n"
-            "🔍 Error Check: <b>HTTP 200 OK / Ready</b>"
+            f"🔑 Token/Cookie Configured: <b>{'Yes' if IVAS_TOKEN or IVAS_COOKIE else 'No'}</b>\n"
+            f"🔍 Details: <code>{html.escape(str(ivas_health.get('details', 'N/A')))}</code>"
         )
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("🔄 RECHECK STATUS", callback_data="menu_list_panel"))
@@ -437,7 +444,7 @@ async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test
         if owner_id in user_wallets:
             user_wallets[owner_id]["balance"] += 0.008
 
-    header = "🧪 <b>『 ꜰᴇ ꜱᴇɴᴅ ᴏᴛᴘ 』</b> 🧪" if is_test else "💐 <b>『 ɴᴇᴡ ᴏᴛᴘ ʀᴇᴄᴇɪᴠᴇᴅ 』</b> ✨"
+    header = "🧪 <b>『 ꜰᴇ ꜱᴇɴᴅ ᴏᴛᴘ 』</b> 🧪" if is_test else "💐 <b>『 ɴᴇw ᴏᴛᴘ ʀᴇᴄᴇɪᴠᴇᴅ 』</b> ✨"
     caption = (f"{header}\n"
                f"━━━━━━━━━━━━━━━━━━━━━\n\n"
                f"<b>⌚ TIME:</b> <code>{html.escape(str(timestamp))}</code>\n"
@@ -469,7 +476,7 @@ async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test
             await asyncio.to_thread(bot.send_message, chat_id=owner_id, text=private_caption, parse_mode="HTML", reply_markup=kb, disable_web_page_preview=True)
         except Exception as e: pass
 
-# --- IVAS SESSION CHECK & WORKER THỰC TẾ ---
+# --- IVAS SESSION CHECK & WORKER THỰC TẾ (TÍCH HỢP HOÀN CHỈNH) ---
 def ivas_check_session():
     try:
         response = ivas_session.get(
@@ -478,9 +485,9 @@ def ivas_check_session():
             allow_redirects=False
         )
         if response.status_code in (401, 403):
-            raise RuntimeError("IVAS session expired or unauthorized")
-        if response.status_code in (301, 302, 303):
-            raise RuntimeError("IVAS redirected; login may be required")
+            raise RuntimeError("IVAS session expired or unauthorized (401/403)")
+        if response.status_code in (301, 302, 303, 307, 308):
+            raise RuntimeError("IVAS redirected to login page")
         if response.status_code != 200:
             raise RuntimeError(f"Unexpected HTTP status: {response.status_code}")
 
@@ -488,7 +495,8 @@ def ivas_check_session():
             ivas_health.update({
                 "connected": True,
                 "last_check": int(time.time()),
-                "last_error": None
+                "last_error": None,
+                "details": "Session active and healthy (HTTP 200)"
             })
         return True
     except Exception as exc:
@@ -497,7 +505,8 @@ def ivas_check_session():
             ivas_health.update({
                 "connected": False,
                 "last_check": int(time.time()),
-                "last_error": error
+                "last_error": error,
+                "details": f"Failed: {error}"
             })
         logger.warning("IVAS session check failed: %s", error)
         return False
@@ -506,10 +515,12 @@ def fetch_and_process_ivas_sms():
     if not IVAS_BASE_URL:
         return 0
 
-    today = datetime.now().strftime("%Y-%m-%d")
+    now = datetime.now()
+    start_date = (now - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")
+    end_date = now.strftime("%Y-%m-%d %H:%M:%S")
     payload = {
-        "start_date": today,
-        "end_date": today
+        "start_date": start_date,
+        "end_date": end_date
     }
 
     try:
@@ -519,12 +530,21 @@ def fetch_and_process_ivas_sms():
             timeout=20
         )
         response.raise_for_status()
-        result = response.json()
+        
+        try:
+            result = response.json()
+        except ValueError:
+            return 0
 
-        if not isinstance(result, dict):
-            raise ValueError("Unexpected IVAS response")
+        if not isinstance(result, (dict, list)):
+            return 0
 
-        messages = result.get("data", result.get("items", []))
+        messages = []
+        if isinstance(result, dict):
+            messages = result.get("data", result.get("items", result.get("messages", [])))
+        elif isinstance(result, list):
+            messages = result
+
         if not isinstance(messages, list):
             return 0
 
@@ -533,20 +553,22 @@ def fetch_and_process_ivas_sms():
             if not isinstance(item, dict):
                 continue
 
-            phone = str(item.get("phone", item.get("phone_number", "")))
-            sender = str(item.get("sender") or item.get("service") or "Unknown")
-            message = str(item.get("message", item.get("sms", item.get("content", ""))))
+            phone = str(item.get("phone", item.get("phone_number", item.get("recipient", ""))))
+            sender = str(item.get("sender") or item.get("service") or item.get("service_name") or "Unknown")
+            message = str(item.get("message", item.get("sms", item.get("content", item.get("text", "")))))
 
             if not phone or not message:
                 continue
 
-            event_source = f"{phone}|{sender}|{message}|{item.get('created_at', '')}"
+            event_source = f"{phone}|{sender}|{message}"
             event_id = hashlib.sha256(event_source.encode("utf-8")).hexdigest()
 
             with ivas_processed_lock:
                 if event_id in ivas_processed_ids:
                     continue
                 ivas_processed_ids.add(event_id)
+                if len(ivas_processed_ids) > 10000:
+                    ivas_processed_ids.pop()
 
             cname, flag, _ = detect_country_info(phone)
             timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
