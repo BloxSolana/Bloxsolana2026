@@ -211,7 +211,7 @@ def ivas_check_session() -> bool:
         resp = s.get(f"{IVAS_BASE_URL}/portal/sms/received", timeout=DEFAULT_TIMEOUT, allow_redirects=False)
         if resp.status_code in (401, 403):
             logger.error(f"IVAS: SESSION EXPIRED — status {resp.status_code}")
-            with ivas_lock:
+            with _ivas_lock:
                 ivas_health.update({
                     "connected": False,
                     "last_check": int(time.time()),
@@ -220,9 +220,9 @@ def ivas_check_session() -> bool:
                 })
             return False
 
-        if resp.status_code == 302:
+                if resp.status_code == 302:
             logger.error("IVAS: SESSION EXPIRED — redirected to login")
-            with ivas_lock:
+            with _ivas_lock:
                 ivas_health.update({
                     "connected": False,
                     "last_check": int(time.time()),
@@ -231,11 +231,12 @@ def ivas_check_session() -> bool:
                 })
             return False
 
+
         if resp.status_code >= 400:
             logger.warning(f"IVAS: unexpected status {resp.status_code}")
             return False
 
-        with ivas_lock:
+        with _ivas_lock:
             ivas_health.update({
                 "connected": True,
                 "last_check": int(time.time()),
@@ -245,7 +246,7 @@ def ivas_check_session() -> bool:
         return True
     except Exception as exc:
         error = str(exc)
-        with ivas_lock:
+        with _ivas_lock:
             ivas_health.update({
                 "connected": False,
                 "last_check": int(time.time()),
