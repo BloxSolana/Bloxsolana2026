@@ -33,26 +33,26 @@ def get_required_env(name):
 BOT_TOKEN = get_required_env("BOT_TOKEN")
 FLASK_SECRET_KEY = get_required_env("FLASK_SECRET_KEY")
 
-# Admin IDs: Định dạng chuỗi phân cách bằng dấu phẩy, ví dụ: "6726769296,123456789"
+# Admin IDs: Định dạng chuỗi phân cách bằng dấu phẩy
 ADMIN_IDS = {
     int(item.strip())
     for item in get_required_env("ADMIN_IDS").split(",")
     if item.strip()
 }
 
-TARGET_CHAT = int(os.getenv("TARGET_CHAT", "-1004341368656"))  # ID Group chính xác của bro
-WEBAPP_URL = os.getenv("WEBAPP_URL", "https://bloxsolana2026.onrender.com")  # Link WebApp trên Render
+TARGET_CHAT = int(os.getenv("TARGET_CHAT", "-1004341368656"))
+WEBAPP_URL = os.getenv("WEBAPP_URL", "https://bloxsolana2026.onrender.com")
 
 bot = telebot.TeleBot(token=BOT_TOKEN)
 
 # --- DATABASE QUẢN LÝ ---
-user_rentals = {}          # {"số_điện_thoại": user_id}
-inventory_numbers = {}     # Kho chứa số toàn cầu
-admin_state = {}           # Trạng thái chờ nhập của Admin
-user_configs = {}          # Cấu hình WSS / Cookie của Admin
+user_rentals = {}          
+inventory_numbers = {}     
+admin_state = {}           
+user_configs = {}          
 
-user_wallets = {}          # {user_id: {"balance": 0.0, "ref_count": 0, "ref_earnings": 0.0}}
-withdrawal_requests = []   # Danh sách đơn rút tiền chờ duyệt
+user_wallets = {}          
+withdrawal_requests = []   
 
 app_stats = {
     "WhatsApp": 0, "ClickBank": 0, "Apple": 0, "Shopee": 0, "Facebook": 0,
@@ -895,7 +895,7 @@ def home():
             <a class="menu-link" onclick="switchView('withdrawView')">💸 Withdraw (TON USDT)</a>
             <a class="menu-link" onclick="switchView('referralView')">👥 Referral Program</a>
             
-            <!-- ADMIN MENU LINKS - HIDDEN FOR NORMAL USERS -->
+            <!-- ADMIN MENU LINKS -->
             <a class="menu-link" id="addNumbersSidebarLink" style="display:none; color:#f59e0b;" onclick="switchView('addNumbersView')">➕ Add Numbers (Admin)</a>
             <a class="menu-link" id="adminPanelSidebarLink" style="display:none; color:#fbbf24; background:rgba(251, 191, 36, 0.1);" onclick="switchView('adminPanelView')">👑 ADMIN PANEL (Fast Node)</a>
 
@@ -920,8 +920,8 @@ def home():
                 </div>
             </div>
 
-            <!-- ADMIN PANEL VIEW (HIDDEN FOR NORMAL USERS) -->
-            <div id="adminPanelView" class="view-section" style="display:none;">
+            <!-- ADMIN PANEL VIEW -->
+            <div id="adminPanelView" class="view-section">
                 <div class="admin-container">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
                         <h2 style="font-size:16px; color:#fbbf24; margin:0;">FAST NODE • COMMAND CENTER</h2>
@@ -930,14 +930,14 @@ def home():
                     <p style="font-size:12px; color:var(--muted); margin-bottom:12px;">Workspace metrics, telemetry, and advanced carrier routing.</p>
 
                     <div class="admin-nav-tabs">
-                        <button class="admin-tab-btn active" onclick="switchAdminTab('admOverview')">📊 Dashboard</button>
-                        <button class="admin-tab-btn" onclick="switchAdminTab('admNumbers')">📦 Numbers</button>
-                        <button class="admin-tab-btn" onclick="switchAdminTab('admRadar')">📡 Radar</button>
-                        <button class="admin-tab-btn" onclick="switchAdminTab('admAccess')">🔗 Gateway Access</button>
-                        <button class="admin-tab-btn" onclick="switchAdminTab('admWallet')">💳 Treasury & Funds</button>
-                        <button class="admin-tab-btn" onclick="switchAdminTab('admAudit')">📈 My Audit</button>
-                        <button class="admin-tab-btn" onclick="switchAdminTab('admProfile')">👤 Identity</button>
-                        <button class="admin-tab-btn" onclick="switchAdminTab('admDeveloper')">⚡ API Access</button>
+                        <button class="admin-tab-btn active" onclick="switchAdminTab('admOverview', event)">📊 Dashboard</button>
+                        <button class="admin-tab-btn" onclick="switchAdminTab('admNumbers', event)">📦 Numbers</button>
+                        <button class="admin-tab-btn" onclick="switchAdminTab('admRadar', event)">📡 Radar</button>
+                        <button class="admin-tab-btn" onclick="switchAdminTab('admAccess', event)">🔗 Gateway Access</button>
+                        <button class="admin-tab-btn" onclick="switchAdminTab('admWallet', event)">💳 Treasury & Funds</button>
+                        <button class="admin-tab-btn" onclick="switchAdminTab('admAudit', event)">📈 My Audit</button>
+                        <button class="admin-tab-btn" onclick="switchAdminTab('admProfile', event)">👤 Identity</button>
+                        <button class="admin-tab-btn" onclick="switchAdminTab('admDeveloper', event)">⚡ API Access</button>
                     </div>
 
                     <!-- 1. ADMIN DASHBOARD SUBVIEW -->
@@ -981,7 +981,7 @@ def home():
                         </div>
                     </div>
 
-                    <!-- 3. ADMIN RADAR SUBVIEW (QUÉT SỐ ĐANG HOẠT ĐỘNG THỰC TẾ) -->
+                    <!-- 3. ADMIN RADAR SUBVIEW -->
                     <div id="admRadar" class="admin-subview">
                         <div class="widget-card">
                             <div class="widget-title">Unified Radar Feed (Active Live Lines Only)</div>
@@ -1017,7 +1017,7 @@ def home():
                         </div>
                     </div>
 
-                    <!-- 6. AUDIT TRAIL SUBVIEW (CHO PHÉP TẢI BÁO CÁO THỰC TẾ) -->
+                    <!-- 6. AUDIT TRAIL SUBVIEW -->
                     <div id="admAudit" class="admin-subview">
                         <div class="widget-card">
                             <div class="widget-title">Audit Trail & Telemetry Logs</div>
@@ -1039,7 +1039,7 @@ def home():
                         </div>
                     </div>
 
-                    <!-- 8. DEVELOPER ACCESS & REAL-TIME BRIDGE CONFIG (ẢNH 5: CÓ EDIT, SAVE & CANCEL) -->
+                    <!-- 8. DEVELOPER ACCESS & REAL-TIME BRIDGE CONFIG -->
                     <div id="admDeveloper" class="admin-subview">
                         <div class="widget-card">
                             <div class="widget-title">⚡ API Access & Real-Time IVASMS Bridge Configuration</div>
@@ -1116,7 +1116,7 @@ def home():
                 </div>
             </div>
 
-            <div id="addNumbersView" class="view-section" style="display:none;">
+            <div id="addNumbersView" class="view-section">
                 <div class="widget-card">
                     <div class="widget-title">➕ Auto-Add Numbers (Admin)</div>
                     <p style="font-size: 12px; color: var(--muted); line-height: 1.4;">
@@ -1155,14 +1155,11 @@ def home():
 
             let userBalance = 0.000;
             let refCount = 0;
-            // Dòng này phải kết thúc bằng dấu chấm phẩy (;), KHÔNG có chữ H
-            let refEarnings = 0.000; 
-            let userTgId = tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : "123456";
+            let refEarnings = 0.000;
+            let userTgId = tg.initDataUnsafe && tg.initDataUnsafe.user ? Number(tg.initDataUnsafe.user.id) : 0;
             let adminIds = {{ admin_ids | tojson }};
 
-            // Ẩn/hiện tính năng Admin đối với người dùng thường (Bảo mật tuyệt đối)
-            // Ép kiểu userTgId sang số (Number) để so sánh chính xác với danh sách ADMIN_IDS
-            if (adminIds.includes(Number(userTgId))) {
+            if (adminIds.includes(userTgId)) {
                 document.getElementById('adminPanelSidebarLink').style.display = 'block';
                 document.getElementById('addNumbersSidebarLink').style.display = 'block';
             } else {
@@ -1170,7 +1167,6 @@ def home():
                 document.getElementById('addNumbersSidebarLink').style.display = 'none';
             }
 
-            // Các dòng này phải kết thúc bằng dấu chấm phẩy (;), KHÔNG gõ thêm chữ thừa!
             document.getElementById('refLinkInput').value = `https://t.me/FastNode_Bot?start=ref${userTgId}`;
             document.getElementById('adminTimestamp').innerText = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
@@ -1190,11 +1186,13 @@ def home():
                 toggleSidebar();
             }
 
-            function switchAdminTab(tabId) {
+            function switchAdminTab(tabId, event) {
                 document.querySelectorAll('.admin-subview').forEach(el => el.classList.remove('active'));
                 document.querySelectorAll('.admin-tab-btn').forEach(el => el.classList.remove('active'));
                 document.getElementById(tabId).classList.add('active');
-                event.target.classList.add('active');
+                if (event && event.target) {
+                    event.target.classList.add('active');
+                }
             }
 
             function exitApp() { tg.close(); }
@@ -1206,7 +1204,6 @@ def home():
                 document.getElementById('refEarningsDisplay').innerText = `$${refEarnings.toFixed(3)}`;
             }
 
-            // Lưu cấu hình bridge real-time từ ô Edit (Ảnh 5)
             function saveIvasConfigBridge() {
                 let baseUrl = document.getElementById('editIvasBaseUrl').value.trim();
                 let tokenCookie = document.getElementById('editIvasTokenCookie').value.trim();
@@ -1240,7 +1237,6 @@ def home():
                 tg.showAlert("Đã hủy thay đổi cấu hình.");
             }
 
-            // Tải báo cáo My Audit thực tế cho người dùng
             function downloadAuditReport() {
                 let reportContent = "FAST NODE - AUDIT REPORT\\nTimestamp: " + new Date().toISOString() + "\\nLines Executed: 5\\nVerified Payloads: 0\\nStatus: Operational Real-Time Bridge Active.";
                 let blob = new Blob([reportContent], { type: 'text/plain' });
@@ -1257,6 +1253,7 @@ def home():
 
             function renderApps() {
                 let grid = document.getElementById('appsGrid');
+                if (!grid) return;
                 grid.innerHTML = '';
                 for (let [appName, count] of Object.entries(appStats)) {
                     let div = document.createElement('div');
@@ -1268,6 +1265,7 @@ def home():
 
             function renderTopRanges() {
                 let container = document.getElementById('topRangesContainer');
+                if (!container) return;
                 container.innerHTML = '';
                 if (!topRanges || topRanges.length === 0) {
                     container.innerHTML = '<p style="font-size:11px; color:var(--muted); text-align:center;">No active ranges yet.</p>';
@@ -1284,6 +1282,7 @@ def home():
             function renderCountries() {
                 let grid = document.getElementById('countryGrid');
                 let deleteSelect = document.getElementById('countryDeleteSelect');
+                if (!grid) return;
                 deleteSelect.innerHTML = '<option value="">-- Select Country to Delete (100 numbers) --</option>';
                 grid.innerHTML = '';
 
@@ -1311,6 +1310,7 @@ def home():
 
             function renderNumbers() {
                 let container = document.getElementById('numberListContainer');
+                if (!container) return;
                 container.innerHTML = '';
                 if (!currentSelectedCountry || currentSelectedCountry.numbers.length === 0) {
                     container.innerHTML = '<p style="color:var(--muted); text-align:center; font-size:12px;">No available numbers in this country!</p>';
@@ -1319,7 +1319,7 @@ def home():
                 currentSelectedCountry.numbers.forEach(item => {
                     let row = document.createElement('div');
                     row.className = 'number-item';
-                    let deleteBtnHtml = adminIds.includes(Number(userTgId)) ? `<button class="btn btn-red" style="width:auto; margin:0; padding:4px 8px; font-size:11px;" onclick="deleteSpecificNumberDirect('${item.phone}')">Delete</button>` : '';
+                    let deleteBtnHtml = adminIds.includes(userTgId) ? `<button class="btn btn-red" style="width:auto; margin:0; padding:4px 8px; font-size:11px;" onclick="deleteSpecificNumberDirect('${item.phone}')">Delete</button>` : '';
                     row.innerHTML = `<span><b>${item.phone}</b></span> <div style="display:flex; gap:4px;"><button class="btn" style="width:auto; margin:0; padding:4px 8px; font-size:11px;" onclick="rentNumber('${item.phone}')">Rent</button>${deleteBtnHtml}</div>`;
                     container.appendChild(row);
                 });
@@ -1508,7 +1508,6 @@ def run_bot_polling():
             print(f"⚠️ Bot polling restart due to error: {e}")
             time.sleep(5)
 
-# --- KHỞI CHẠY CHO GUNICORN HOẶC LOCAL ---
 if __name__ == "__main__":
     t_wss = threading.Thread(target=websocket_worker, daemon=True)
     t_wss.start()
