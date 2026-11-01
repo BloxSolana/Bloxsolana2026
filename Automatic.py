@@ -1753,11 +1753,30 @@ def _poll_job():
     except Exception as e:
         logger.exception(f"Poll job crashed: {e}")
 
+def _acquire_scheduler_lock() -> bool:
+    global _scheduler_lock_fd
+    if _IS_WINDOWS:
+        logger.info("IVAS scheduler: Windows mode — no file lock needed.")
+        return True
+    try:
+        fd = os.open(_scheduler_lock_path, os.O_CREAT | os.O_RDWR, 0o644)
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _scheduler_lock_fd = fd
+        logger.info("IVAS scheduler: lock acquired.")
+        return True
+    except (OSError, BlockingIOError):
+        if _scheduler_lock_fd is not None:
+            os.close(_scheduler_lock_fd)
+            _scheduler_lock_fd = None
+        logger.info("IVAS scheduler: another worker holds lock, skipping.")
+        return False
+
 def start_scheduler():
     global _scheduler
     if _scheduler is not None:
         return
-
+    if not _acquire_scheduler_lock():
+        return
     _scheduler = BackgroundScheduler(daemon=True, job_defaults={"coalesce": True, "max_instances": 1})
     _scheduler.add_job(_poll_job, trigger=IntervalTrigger(seconds=NORMAL_INTERVAL), id="ivas_poll", replace_existing=True)
     _scheduler.start()
