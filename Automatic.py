@@ -279,7 +279,7 @@ def handle_callback(call):
         if user_id not in ADMIN_IDS:
             bot.answer_callback_query(call.id, "⛔ Access denied!", show_alert=True)
             return
-        text = "👑 <b>MK NETWORK - ADMIN COMMAND CENTER</b>\n\nOpen the Web App and select 'Admin Panel' from the sidebar to access command telemetry, gateway matrix, radar feed, treasury vault, and developer access."
+        text = "👑 <b>FAST NODE - ADMIN COMMAND CENTER</b>\n\nOpen the Web App and select 'Admin Panel' from the sidebar to access command telemetry, gateway matrix, radar feed, treasury vault, and developer access."
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("🚀 OPEN WEB APP", web_app=WebAppInfo(url=WEBAPP_URL)))
         kb.add(InlineKeyboardButton("🔙 BACK", callback_data="menu_back"))
@@ -863,7 +863,7 @@ def home():
             .textarea-box { width: 100%; height: 100px; padding: 10px; background: #0f172a; border: 1px solid var(--border); border-radius: 8px; color: white; margin-bottom: 10px; box-sizing: border-box; font-size: 13px; resize: vertical; }
             .warning-box { background: rgba(239, 68, 68, 0.1); border: 1px solid var(--red); padding: 10px; border-radius: 8px; font-size: 12px; color: #fca5a5; margin-bottom: 10px; line-height: 1.4; }
 
-            /* MK Network Admin Panel Styles */
+            /* Fast Node Admin Panel Styles */
             .admin-container { background: #0b1329; border: 1px solid #38bdf8; border-radius: 12px; padding: 16px; margin-bottom: 15px; }
             .admin-nav-tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
             .admin-tab-btn { background: #1e293b; border: 1px solid var(--border); color: var(--text); padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap; }
@@ -897,7 +897,7 @@ def home():
             <a class="menu-link" onclick="switchView('addNumbersView')" style="color:#f59e0b;" id="addNumbersSidebarLink">➕ Add Numbers (Admin)</a>
             
             <!-- ADMIN PANEL LINK - ONLY VISIBLE TO ADMINS -->
-            <a class="menu-link" id="adminPanelSidebarLink" style="display:none; color:#fbbf24; background:rgba(251, 191, 36, 0.1);" onclick="switchView('adminPanelView')">👑 ADMIN PANEL (MK Network)</a>
+            <a class="menu-link" id="adminPanelSidebarLink" style="display:none; color:#fbbf24; background:rgba(251, 191, 36, 0.1);" onclick="switchView('adminPanelView')">👑 ADMIN PANEL (Fast Node)</a>
 
             <a class="menu-link" onclick="window.open('https://t.me/LIVEOTPIVAS', '_blank')">📢 Official Channel</a>
             <a class="menu-link" style="color:var(--red);" onclick="exitApp()">❌ Exit App</a>
@@ -924,7 +924,7 @@ def home():
             <div id="adminPanelView" class="view-section">
                 <div class="admin-container">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                        <h2 style="font-size:16px; color:#fbbf24; margin:0;">MK NETWORK • COMMAND CENTER</h2>
+                        <h2 style="font-size:16px; color:#fbbf24; margin:0;">FAST NODE • COMMAND CENTER</h2>
                         <span style="font-size:11px; color:var(--muted);" id="adminTimestamp"></span>
                     </div>
                     <p style="font-size:12px; color:var(--muted); margin-bottom:12px;">Workspace metrics, telemetry, and advanced carrier routing.</p>
@@ -1238,12 +1238,12 @@ def home():
 
             // Tải báo cáo My Audit thực tế cho người dùng
             function downloadAuditReport() {
-                let reportContent = "FE NODE - AUDIT REPORT\nTimestamp: " + new Date().toISOString() + "\nLines Executed: 5\nVerified Payloads: 0\nStatus: Operational Real-Time Bridge Active.";
+                let reportContent = "FAST NODE - AUDIT REPORT\nTimestamp: " + new Date().toISOString() + "\nLines Executed: 5\nVerified Payloads: 0\nStatus: Operational Real-Time Bridge Active.";
                 let blob = new Blob([reportContent], { type: 'text/plain' });
                 let url = window.URL.createObjectURL(blob);
                 let a = document.createElement('a');
                 a.href = url;
-                a.download = 'FE_NODE_Audit_Report.txt';
+                a.download = 'Fast_Node_Audit_Report.txt';
                 document.body.appendChild(a);
                 a.click();
                 window.URL.revokeObjectURL(url);
