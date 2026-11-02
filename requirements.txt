@@ -12,3 +12,6 @@ requests
 uvicorn
 websocket-client
 apscheduler
+aiogram==3.13.0
+aiosqlite==0.20.0
+aiohttp==3.9.5
