@@ -1,1917 +1,1001 @@
-# Automatic_5.py - Tích hợp đồng bộ dữ liệu Web App & Telegram Bot chuẩn xác
-import asyncio
+# app_fenode.py - Full Complete Code with FE NODE API, USDT TON, 195+ Countries & Admin Tools
+import requests
+import time
+import json
 import random
+import sqlite3
+import os
 import re
 import html
-import time
-import os
 import threading
-import json
-import hmac
-import hashlib
-import logging
-import tempfile
-import atexit
-import platform
-
-_IS_WINDOWS = platform.system() == "Windows"
-if not _IS_WINDOWS:
-    import fcntl
-else:
-    fcntl = None
-    
-import signal
-from datetime import datetime, timedelta
-from functools import wraps
-from urllib.parse import parse_qsl
-from urllib3.util.retry import Retry
-from requests.adapters import HTTPAdapter
-from http.cookies import SimpleCookie
-
-import requests
-import websocket
-import telebot
-from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, ReplyKeyboardMarkup, KeyboardButton
-from flask import Flask, render_template_string, request, jsonify
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.interval import IntervalTrigger
-
-# --- LOGGING CONFIGURATION ---
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-logger = logging.getLogger("FastNodePortal")
-
-# --- CONFIGURATION & SECURITY ENVIRONMENT VARIABLES ---
-def get_required_env(name):
-    value = os.getenv(name)
-    if not value:
-        raise RuntimeError(f"Thiếu biến môi trường bắt buộc: {name}")
-    return value
-
-BOT_TOKEN = get_required_env("BOT_TOKEN")
-FLASK_SECRET_KEY = get_required_env("FLASK_SECRET_KEY")
-
-ADMIN_IDS = {
-    int(item.strip())
-    for item in get_required_env("ADMIN_IDS").split(",")
-    if item.strip()
-}
-
-TARGET_CHAT = int(os.getenv("TARGET_CHAT", "-1004341368656"))
-WEBAPP_URL = os.getenv("WEBAPP_URL", "https://bloxsolana2026.onrender.com")
-IVAS_REFRESH_TOKEN = os.getenv("IVAS_REFRESH_TOKEN", "")
-
-# --- MK NETWORK API v3 CONFIG ---
-MK_BASE = os.getenv("MK_BASE_URL", "https://mknetworkbd.com/api/v3/public")
-MK_KEY = os.getenv("MKNETWORK_KEY", "badacaa33d287233567a49db")
-
-bot = telebot.TeleBot(token=BOT_TOKEN)
-
-# --- DATABASE QUẢN LÝ ---
-user_rentals = {}          
-inventory_numbers = {}     
-admin_state = {}           
-user_configs = {}          
-
-user_wallets = {}          
-withdrawal_requests = []   
-live_radar_logs = []
-
-app_stats = {
-    "WhatsApp": 0, "ClickBank": 0, "Apple": 0, "Shopee": 0, "Facebook": 0,
-    "TikTok": 0, "AUTHMSG": 0, "TALAPH": 0, "Uber": 0, "SPayLaterPH": 0,
-    "Telegram": 0, "Google": 0, "Instagram": 0, "Discord": 0, "Zalo": 0
-}
-top_ranges_data = []
-last_reset_time = time.time()
-
-# ============================================================
-# MK NETWORK API V3 CLIENT
-# ============================================================
-class MKClient:
-    def __init__(self, api_key: str = None, timeout: int = 30):
-        self.api_key = api_key or MK_KEY
-        self.timeout = timeout
-        self.session = requests.Session()
-        self.session.headers.update({
-            "mknetwork-key": self.api_key,
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-            "User-Agent": "FastNodePortal/3.0",
-        })
-
-    def _request(self, method: str, path: str, **kwargs):
-        url = f"{MK_BASE}{path}"
-        try:
-            resp = self.session.request(method, url, timeout=self.timeout, **kwargs)
-            body = resp.json()
-        except Exception as e:
-            logger.error(f"MK API {method} {path} error: {e}")
-            return None
-
-        meta = body.get("meta", {})
-        code = meta.get("code") or resp.status_code
-        if code in (200, 201):
-            return body.get("data")
-        logger.warning(f"MK API {path} returned code {code}: {body.get('message')}")
-        return None
-
-    def whoami(self):
-        return self._request("GET", "/whoami")
-
-    def access_list(self, country: str = None, operator: str = None, q: str = None, health: str = None, limit: int = 100, offset: int = 0):
-        params = {}
-        if country: params["country"] = country
-        if operator: params["operator"] = operator
-        if q: params["q"] = q
-        if health: params["health"] = health
-        if limit: params["limit"] = limit
-        if offset: params["offset"] = offset
-        return self._request("GET", "/access_list", params=params)
-
-    def get_number(self, range_code: str):
-        return self._request("POST", "/getnum/number", json={"range": range_code})
-
-    def check_status(self, request_ids: list):
-        if not request_ids:
-            return None
-        return self._request("POST", "/check/status", json={"request_ids": request_ids[:100]})
-
-    def radar(self, q: str = None, limit: int = 25, charts: bool = False):
-        params = {"limit": limit}
-        if q: params["q"] = q
-        if charts: params["charts"] = "true"
-        return self._request("GET", "/radar", params=params)
-
-mk_client = MKClient()
-
-# ============================================================
-# CẤU HÌNH & TÍCH HỢP IVAS SMS CLIENT
-# ============================================================
-IVAS_BASE_URL = os.getenv("IVAS_BASE_URL", "https://www.ivasms.com").rstrip("/")
-IVAS_COOKIE_ENV = "IVAS_COOKIE"
-IVAS_COOKIE_FILE = os.getenv("IVAS_COOKIE_FILE", "/data/ivas_cookie.txt")
-
-DEFAULT_TIMEOUT = 20
-
-_ivas_session = None
-_ivas_session_cookie_hash = None
-_ivas_lock = threading.Lock()
-
-def _parse_cookie_string(cookie_str: str) -> dict:
-    result = {}
-    if not cookie_str:
-        return result
-    try:
-        sc = SimpleCookie()
-        sc.load(cookie_str)
-        for k, morsel in sc.items():
-            result[k] = morsel.value
-    except Exception:
-        for part in cookie_str.split(";"):
-            part = part.strip()
-            if "=" in part:
-                k, v = part.split("=", 1)
-                result[k.strip()] = v.strip()
-    return result
-
-def _write_cookie_to_file(cookie_str: str) -> bool:
-    try:
-        os.makedirs(os.path.dirname(IVAS_COOKIE_FILE), exist_ok=True)
-        fd, tmp_path = tempfile.mkstemp(
-            dir=os.path.dirname(IVAS_COOKIE_FILE), prefix=".ivas_cookie_"
-        )
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write(cookie_str)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp_path, IVAS_COOKIE_FILE)
-        except Exception:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            raise
-        return True
-    except Exception as e:
-        logger.warning(f"IVAS: cannot persist cookie: {e}")
-        return False
-
-_ivas_cookie_mtime = None
-
-def _load_ivas_cookie() -> str:
-    global _ivas_cookie_mtime
-
-    if os.path.exists(IVAS_COOKIE_FILE):
-        try:
-            mtime = os.path.getmtime(IVAS_COOKIE_FILE)
-            with open(IVAS_COOKIE_FILE, "r", encoding="utf-8") as f:
-                content = f.read().strip()
-            if content:
-                if mtime != _ivas_cookie_mtime:
-                    _ivas_cookie_mtime = mtime
-                return content
-        except Exception as e:
-            logger.warning(f"IVAS: cannot read cookie file: {e}")
-
-    env_cookie = os.getenv(IVAS_COOKIE_ENV, "").strip()
-    if env_cookie:
-        return env_cookie
-    return ""
-
-def _build_session_from_cookie(cookie_str: str):
-    s = requests.Session()
-    s.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Referer": f"{IVAS_BASE_URL}/portal/sms/received",
-        "X-Requested-With": "XMLHttpRequest",
-        "Sec-Fetch-Dest": "empty",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Site": "same-origin",
-    })
-    
-    cookies = _parse_cookie_string(cookie_str)
-    if cookies:
-        for name, value in cookies.items():
-            s.cookies.set(name, value, domain="www.ivasms.com", path="/")
-
-    retry = Retry(total=2, backoff_factor=0.5, status_forcelist=[500, 502, 503, 504])
-    s.mount("https://", HTTPAdapter(max_retries=retry))
-    return s
-
-def _cookie_hash(cookie_str: str) -> str:
-    return hashlib.sha256(cookie_str.encode("utf-8")).hexdigest()
-
-def _get_ivas_session():
-    global _ivas_session, _ivas_session_cookie_hash
-    cookie_str = _load_ivas_cookie()
-    current_hash = _cookie_hash(cookie_str)
-
-    with _ivas_lock:
-        if _ivas_session is None or _ivas_session_cookie_hash != current_hash:
-            _ivas_session = _build_session_from_cookie(cookie_str)
-            _ivas_session_cookie_hash = current_hash
-        return _ivas_session
-
-def _invalidate_session():
-    global _ivas_session, _ivas_session_cookie_hash
-    with _ivas_lock:
-        old = _ivas_session
-        _ivas_session = None
-        _ivas_session_cookie_hash = None
-    if old is not None:
-        try:
-            old.close()
-        except Exception:
-            pass
-
-ivas_processed_ids = set()
-ivas_processed_lock = threading.Lock()
-
-ivas_health = {
-    "connected": False,
-    "last_check": None,
-    "last_error": None,
-    "details": "Initializing..."
-}
-
-def ivas_check_session() -> bool:
-    try:
-        s = _get_ivas_session()
-        resp = s.get(f"{IVAS_BASE_URL}/portal/sms/received", timeout=DEFAULT_TIMEOUT, allow_redirects=False)
-        if resp.status_code in (401, 403, 302):
-            with _ivas_lock:
-                ivas_health.update({
-                    "connected": False,
-                    "last_check": int(time.time()),
-                    "last_error": f"HTTP {resp.status_code}",
-                    "details": "Session expired or redirected"
-                })
-            return False
-
-        with _ivas_lock:
-            ivas_health.update({
-                "connected": True,
-                "last_check": int(time.time()),
-                "last_error": None,
-                "details": "Session active and healthy"
-            })
-        return True
-    except Exception as exc:
-        error = str(exc)
-        with _ivas_lock:
-            ivas_health.update({
-                "connected": False,
-                "last_check": int(time.time()),
-                "last_error": error,
-                "details": f"Failed: {error}"
-            })
-        return False
-
-def fetch_and_process_ivas_sms():
-    if not IVAS_BASE_URL:
-        return 0
-
-    now = datetime.now()
-    start_date = (now - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")
-    end_date = now.strftime("%Y-%m-%d %H:%M:%S")
-    payload = {"start_date": start_date, "end_date": end_date}
-
-    try:
-        s = _get_ivas_session()
-        response = s.post(f"{IVAS_BASE_URL}/portal/sms/received/getsms", data=payload, timeout=DEFAULT_TIMEOUT)
-        if response.status_code in (401, 403):
-            return 0
-        response.raise_for_status()
-        
-        try:
-            result = response.json()
-        except ValueError:
-            return 0
-
-        messages = []
-        if isinstance(result, dict):
-            messages = result.get("data", result.get("items", result.get("messages", [])))
-        elif isinstance(result, list):
-            messages = result
-
-        if not isinstance(messages, list):
-            return 0
-
-        processed = 0
-        for item in messages:
-            if not isinstance(item, dict):
-                continue
-
-            phone = str(item.get("phone", item.get("phone_number", item.get("recipient", ""))))
-            sender = str(item.get("sender") or item.get("service") or item.get("service_name") or "Unknown")
-            message = str(item.get("message", item.get("sms", item.get("content", item.get("text", "")))))
-
-            if not phone or not message:
-                continue
-
-            event_source = f"{phone}|{sender}|{message}"
-            event_id = hashlib.sha256(event_source.encode("utf-8")).hexdigest()
-
-            with ivas_processed_lock:
-                if event_id in ivas_processed_ids:
-                    continue
-                ivas_processed_ids.add(event_id)
-                if len(ivas_processed_ids) > 10000:
-                    ivas_processed_ids.pop()
-
-            cname, flag, _ = detect_country_info(phone)
-            timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-
-            loop.run_until_complete(
-                dispatch_update(
-                    service=sender,
-                    phone=phone,
-                    msg=message,
-                    timestamp=timestamp_str,
-                    country=cname,
-                    flag=flag,
-                    is_test=False
-                )
-            )
-            processed += 1
-
-        return processed
-    except Exception as exc:
-        logger.warning("IVAS fetch/processing error: %s", str(exc))
-        return 0
-
-# --- COMPLETE OFFICIAL ISO COUNTRY DATABASE (195+ Quốc gia) ---
-country_db = {
-    "1": ("USA/Canada", "🇺🇸"), "93": ("Afghanistan", "🇦🇫"), "355": ("Albania", "🇦🇱"), "213": ("Algeria", "🇩🇿"), 
-    "376": ("Andorra", "🇦🇩"), "244": ("Angola", "🇦🇴"), "1264": ("Anguilla", "🇦🇮"), "1268": ("Antigua & Barbuda", "🇦🇬"),
-    "54": ("Argentina", "🇦🇷"), "374": ("Armenia", "🇦🇲"), "297": ("Aruba", "🇦🇼"), "61": ("Australia", "🇦🇺"),
-    "43": ("Austria", "🇦🇹"), "994": ("Azerbaijan", "🇦🇿"), "1242": ("Bahamas", "🇧🇸"), "973": ("Bahrain", "🇧🇭"),
-    "880": ("Bangladesh", "🇧🇩"), "1246": ("Barbados", "🇧🇧"), "375": ("Belarus", "🇧🇾"), "32": ("Belgium", "🇧🇪"),
-    "501": ("Belize", "🇧🇿"), "229": ("Benin", "🇧🇯"), "1441": ("Bermuda", "🇧🇲"), "975": ("Bhutan", "🇧🇹"),
-    "591": ("Bolivia", "🇧🇴"), "387": ("Bosnia", "🇧🇦"), "267": ("Botswana", "🇧🇼"), "55": ("Brazil", "🇧🇷"),
-    "673": ("Brunei", "🇧🇳"), "359": ("Bulgaria", "🇧🇬"), "226": ("Burkina Faso", "🇧🇫"), "257": ("Burundi", "🇧🇮"),
-    "855": ("Cambodia", "🇰🇭"), "237": ("Cameroon", "🇨🇲"), "238": ("Cape Verde", "🇨🇻"), "1345": ("Cayman Islands", "🇰🇾"),
-    "236": ("Central African Rep", "🇨🇫"), "235": ("Chad", "🇹🇩"), "56": ("Chile", "🇨🇱"), "86": ("China", "🇨🇳"),
-    "57": ("Colombia", "🇨🇴"), "269": ("Comoros", "🇰🇲"), "242": ("Congo", "🇨🇬"), "243": ("DR Congo", "🇨🇩"),
-    "506": ("Costa Rica", "🇨🇷"), "385": ("Croatia", "🇭🇷"), "53": ("Cuba", "🇨🇺"), "357": ("Cyprus", "🇨🇾"),
-    "420": ("Czech Republic", "🇨🇿"), "45": ("Denmark", "🇩🇰"), "253": ("Djibouti", "🇩🇯"), "1767": ("Dominica", "🇩🇲"),
-    "1849": ("Dominican Rep", "🇩🇴"), "593": ("Ecuador", "🇪🇨"), "20": ("Egypt", "🇪🇬"), "503": ("El Salvador", "🇸🇻"),
-    "240": ("Equatorial Guinea", "🇬🇶"), "291": ("Eritrea", "🇪🇷"), "372": ("Estonia", "🇪🇪"), "251": ("Ethiopia", "🇪🇹"),
-    "679": ("Fiji", "🇫🇯"), "358": ("Finland", "🇫🇮"), "33": ("France", "🇫🇷"), "594": ("French Guiana", "🇬🇫"),
-    "689": ("French Polynesia", "🇵🇫"), "241": ("Gabon", "🇬🇦"), "220": ("Gambia", "🇬🇲"), "995": ("Georgia", "🇬🇪"),
-    "49": ("Germany", "🇩🇪"), "233": ("Ghana", "🇬🇭"), "350": ("Gibraltar", "🇬🇮"), "30": ("Greece", "🇬🇷"),
-    "299": ("Greenland", "🇬🇱"), "1473": ("Grenada", "🇬🇩"), "590": ("Guadeloupe", "🇬🇵"), "1671": ("Guam", "🇬🇺"),
-    "502": ("Guatemala", "🇬🇹"), "224": ("Guinea", "🇬🇳"), "245": ("Guinea-Bissau", "🇬🇼"), "592": ("Guyana", "🇬🇾"),
-    "509": ("Haiti", "🇭🇹"), "504": ("Honduras", "🇭🇳"), "852": ("Hong Kong", "🇭🇰"), "36": ("Hungary", "🇭🇺"),
-    "354": ("Iceland", "🇮🇸"), "91": ("India", "🇮🇳"), "62": ("Indonesia", "🇮🇩"), "98": ("Iran", "🇮🇷"),
-    "964": ("Iraq", "🇮🇶"), "353": ("Ireland", "🇮🇪"), "972": ("Israel", "🇮🇱"), "39": ("Italy", "🇮🇹"),
-    "1876": ("Jamaica", "🇯🇲"), "81": ("Japan", "🇯🇵"), "962": ("Jordan", "🇯🇴"), "7": ("Kazakhstan", "🇰🇿"),
-    "254": ("Kenya", "🇰🇪"), "686": ("Kiribati", "🇰🇮"), "383": ("Kosovo", "🇽🇰"), "965": ("Kuwait", "🇰🇼"),
-    "996": ("Kyrgyzstan", "🇰🇬"), "856": ("Laos", "🇱🇦"), "371": ("Latvia", "🇱🇻"), "961": ("Lebanon", "🇱🇧"),
-    "266": ("Lesotho", "🇱🇸"), "231": ("Liberia", "🇱🇷"), "218": ("Libya", "🇱🇾"), "423": ("Liechtenstein", "🇱🇮"),
-    "370": ("Lithuania", "🇱🇹"), "352": ("Luxembourg", "🇱🇺"), "853": ("Macau", "🇲🇴"), "389": ("Macedonia", "🇲🇰"),
-    "261": ("Madagascar", "🇲🇬"), "265": ("Malawi", "🇲🇼"), "60": ("Malaysia", "🇲🇾"), "960": ("Maldives", "🇲🇻"),
-    "223": ("Mali", "🇲🇱"), "356": ("Malta", "🇲🇹"), "692": ("Marshall Islands", "🇲🇭"), "596": ("Martinique", "🇲🇶"),
-    "222": ("Mauritania", "🇲🇷"), "230": ("Mauritius", "🇲🇺"), "262": ("Mayotte", "🇾🇹"), "52": ("Mexico", "🇲🇽"),
-    "691": ("Micronesia", "🇫🇲"), "373": ("Moldova", "🇲🇩"), "377": ("Monaco", "🇲🇨"), "976": ("Mongolia", "🇲🇳"),
-    "382": ("Montenegro", "🇲🇪"), "1664": ("Montserrat", "🇲🇸"), "212": ("Morocco", "🇲🇦"), "258": ("Mozambique", "🇲🇿"),
-    "95": ("Myanmar", "🇲🇲"), "264": ("Namibia", "🇳🇦"), "674": ("Nauru", "🇳🇷"), "977": ("Nepal", "🇳🇵"),
-    "31": ("Netherlands", "🇳🇱"), "687": ("New Caledonia", "🇳🇨"), "64": ("New Zealand", "🇳🇿"), "505": ("Nicaragua", "🇳🇮"),
-    "227": ("Niger", "🇳🇪"), "234": ("Nigeria", "🇳🇬"), "683": ("Niue", "🇳🇺"), "850": ("North Korea", "🇰🇵"),
-    "47": ("Norway", "🇳🇴"), "968": ("Oman", "🇴🇲"), "92": ("Pakistan", "🇵🇰"), "680": ("Palau", "🇵🇼"),
-    "970": ("Palestine", "🇵🇸"), "507": ("Panama", "🇵🇦"), "675": ("Papua New Guinea", "🇵🇬"), "595": ("Paraguay", "🇵🇾"),
-    "51": ("Peru", "🇵🇪"), "63": ("Philippines", "🇵🇭"), "48": ("Poland", "🇵🇱"), "351": ("Portugal", "🇵🇹"),
-    "1787": ("Puerto Rico", "🇵🇷"), "974": ("Qatar", "🇶🇦"), "40": ("Romania", "🇷🇴"), "7": ("Russia", "🇷🇺"),
-    "250": ("Rwanda", "🇷🇼"), "685": ("Samoa", "🇼🇸"), "378": ("San Marino", "🇸🇲"), "239": ("Sao Tome & Principe", "🇸🇹"),
-    "966": ("Saudi Arabia", "🇸🇦"), "221": ("Senegal", "🇸🇳"), "381": ("Serbia", "🇷🇸"), "248": ("Seychelles", "🇸🇨"),
-    "232": ("Sierra Leone", "🇸🇱"), "65": ("Singapore", "🇸🇬"), "421": ("Slovakia", "🇸🇰"), "386": ("Slovenia", "🇸🇮"),
-    "677": ("Solomon Islands", "🇸🇧"), "252": ("Somalia", "🇸🇴"), "27": ("South Africa", "🇿🇦"), "82": ("South Korea", "🇰🇷"),
-    "211": ("South Sudan", "🇸🇸"), "34": ("Spain", "🇪🇸"), "94": ("Sri Lanka", "🇱🇰"), "249": ("Sudan", "🇸🇩"),
-    "597": ("Suriname", "🇸🇷"), "268": ("Swaziland", "🇸🇿"), "46": ("Sweden", "🇸🇪"), "41": ("Switzerland", "🇨🇭"),
-    "963": ("Syria", "🇸🇾"), "886": ("Taiwan", "🇹🇼"), "992": ("Tajikistan", "🇹🇯"), "255": ("Tanzania", "🇹🇿"),
-    "66": ("Thailand", "🇹🇭"), "670": ("Timor-Leste", "🇹🇱"), "228": ("Togo", "🇹🇬"), "690": ("Tokelau", "🇹🇰"),
-    "676": ("Tonga", "🇹🇴"), "1868": ("Trinidad & Tobago", "🇹🇹"), "216": ("Tunisia", "🇹🇳"), "90": ("Turkey", "🇹🇷"),
-    "993": ("Turkmenistan", "🇹🇲"), "1649": ("Turks & Caicos", "🇹🇨"), "688": ("Tuvalu", "🇹🇻"), "256": ("Uganda", "🇺🇬"),
-    "380": ("Ukraine", "🇺🇦"), "971": ("UAE", "🇦🇪"), "44": ("United Kingdom", "🇬🇧"), "598": ("Uruguay", "🇺🇾"),
-    "998": ("Uzbekistan", "UZ"), "678": ("Vanuatu", "🇻🇺"), "379": ("Vatican City", "🇻🇦"), "58": ("Venezuela", "🇻🇪"),
-    "84": ("Vietnam", "🇻🇳"), "1284": ("Virgin Islands (UK)", "🇻🇬"), "1340": ("Virgin Islands (US)", "🇻🇮"),
-    "967": ("Yemen", "🇾🇪"), "260": ("Zambia", "🇿🇲"), "263": ("Zimbabwe", "🇿🇼")
-}
-
-for code, (cname, flag) in country_db.items():
-    full_key = f"{cname} {flag}"
-    if full_key not in inventory_numbers:
-        inventory_numbers[full_key] = {"flag": flag, "name": cname, "numbers": []}
-
-def detect_country_info(phone_str):
-    clean = re.sub(r'\D', '', phone_str)
-    for length in range(4, 0, -1):
-        prefix = clean[:length]
-        if prefix in country_db:
-            cname, flag = country_db[prefix]
-            return cname, flag, f"{cname} {flag}"
-    return "Unknown", "🌐", "Unknown 🌐"
-
-def parse_service_name(msg_text):
-    text_upper = str(msg_text).upper()
-    if "WHATSAPP" in text_upper: return "WhatsApp"
-    elif "TELEGRAM" in text_upper: return "Telegram"
-    elif "FACEBOOK" in text_upper or "FB" in text_upper: return "Facebook"
-    elif "TIKTOK" in text_upper: return "TikTok"
-    elif "SHOPEE" in text_upper: return "Shopee"
-    elif "PAYPAL" in text_upper: return "PayPal"
-    elif "UBER" in text_upper: return "Uber"
-    elif "APPLE" in text_upper or "ICLOUD" in text_upper: return "Apple"
-    elif "GOOGLE" in text_upper or "G-" in text_upper: return "Google"
-    elif "INSTAGRAM" in text_upper or "IG" in text_upper: return "Instagram"
-    elif "DISCORD" in text_upper: return "Discord"
-    elif "ZALO" in text_upper: return "Zalo"
-    return "AUTHMSG"
-
-def get_reply_keyboard():
-    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    markup.add(KeyboardButton("🌍 LIVE NUMBER"), KeyboardButton("📈 LIVE TRAFFIC"))
-    markup.add(KeyboardButton("👥 INVITE FRIEND"), KeyboardButton("💳 WALLET"))
-    markup.add(KeyboardButton("🏆 LEADERBOARD"))
-    return markup
-
-def get_menu_keyboard(user_id):
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(
-        InlineKeyboardButton("🚀 OPEN WEB APP", web_app=WebAppInfo(url=WEBAPP_URL)),
-        InlineKeyboardButton("📦 LIVE STOCK", callback_data="menu_live_number")
-    )
-    if user_id in ADMIN_IDS:
-        kb.add(
-            InlineKeyboardButton("👑 ADMIN PANEL", callback_data="menu_admin_panel"),
-            InlineKeyboardButton("👑 DUYỆT RÚT", callback_data="admin_withdrawals")
-        )
-        kb.add(
-            InlineKeyboardButton("⚙️ TẠO WSS", callback_data="menu_create_config"),
-            InlineKeyboardButton("📊 LIST PANEL", callback_data="menu_list_panel")
-        )
-        kb.add(
-            InlineKeyboardButton("➕ ADD NUMBERS", callback_data="menu_add_numbers")
-        )
-    return kb
-
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
-    uid = message.from_user.id
-    if uid not in user_wallets:
-        user_wallets[uid] = {"balance": 0.0, "ref_count": 0, "ref_earnings": 0.0}
-    
-    args = message.text.split()
-    if len(args) > 1 and args[1].startswith("ref"):
-        try:
-            ref_id = int(args[1].replace("ref", ""))
-            if ref_id in user_wallets and ref_id != uid:
-                user_wallets[ref_id]["ref_count"] += 1
-                user_wallets[ref_id]["balance"] += 0.005
-                user_wallets[ref_id]["ref_earnings"] += 0.005
-        except:
-            pass
-
-    try:
-        bot.delete_message(message.chat.id, message.message_id)
-    except:
-        pass
-
-    welcome_text = (
-        "🔥 <b>FAST NODE • IVAS OTP GATEWAY PORTAL</b>\n\n"
-        "Welcome to the ultimate real-time secure OTP platform!"
-    )
-    bot.send_message(message.chat.id, welcome_text, parse_mode="HTML", reply_markup=get_menu_keyboard(uid))
-    bot.send_message(message.chat.id, "👇 Quick menu options below:", reply_markup=get_reply_keyboard())
-
-@bot.message_handler(func=lambda msg: msg.text in ["🌍 LIVE NUMBER", "📈 LIVE TRAFFIC", "👥 INVITE FRIEND", "💳 WALLET", "🏆 LEADERBOARD"])
-def handle_reply_buttons(message):
-    uid = message.from_user.id
-    if uid not in user_wallets:
-        user_wallets[uid] = {"balance": 0.0, "ref_count": 0, "ref_earnings": 0.0}
-        
-    text = message.text
-    if "LIVE NUMBER" in text:
-        available_total = sum(1 for data in inventory_numbers.values() for item in data["numbers"] if not item.get("locked_by"))
-        bot.reply_to(message, f"🌍 <b>LIVE STOCK (195+ Countries):</b>\n\n📦 Available numbers: <code>{available_total}</code>\nOpen Web App to get numbers!", parse_mode="HTML")
-    elif "LIVE TRAFFIC" in text:
-        bot.reply_to(message, "📈 <b>LIVE TRAFFIC MONITOR:</b>\n\nAll systems operating normally via Fast Node Gateway v3 API.", parse_mode="HTML")
-    elif "INVITE FRIEND" in text:
-        ref_link = f"https://t.me/FastNode_Bot?start=ref{uid}"
-        bot.reply_to(message, f"👥 <b>REFERRAL PROGRAM</b>\n\nInvite friends and earn <b>$0.005</b> per referral!\n\n🔗 Your Link:\n<code>{ref_link}</code>\n\n📊 Total Invited: <b>{user_wallets[uid]['ref_count']}</b>\n💰 Total Earned: <b>${user_wallets[uid]['ref_earnings']:.3f}</b>", parse_mode="HTML")
-    elif "WALLET" in text:
-        bal = user_wallets[uid]["balance"]
-        bot.reply_to(message, f"💳 <b>YOUR WALLET</b>\n\n💰 Balance: <b>${bal:.3f} USDT</b>\nMin withdraw: $3.00 (TON Network).", parse_mode="HTML")
-    elif "LEADERBOARD" in text:
-        bot.reply_to(message, f"🏆 <b>YOUR ACTIVITY STATUS</b>\n\n📊 Your Balance: <b>${user_wallets[uid]['balance']:.3f}</b>\n👥 Referrals: <b>{user_wallets[uid]['ref_count']} users</b>", parse_mode="HTML")
-
-@bot.callback_query_handler(func=lambda call: True)
-def handle_callback(call):
-    user_id = call.from_user.id
-    chat_id = call.message.chat.id
-    message_id = call.message.message_id
-    
-    if call.data == "menu_live_number":
-        available_total = sum(1 for data in inventory_numbers.values() for item in data["numbers"] if not item.get("locked_by"))
-        text = f"🌍 <b>LIVE STOCK (195+ Countries):</b>\n\n📦 Available numbers: <code>{available_total}</code>"
-        kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("🔙 BACK", callback_data="menu_back"))
-        bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, parse_mode="HTML", reply_markup=kb)
-
-    elif call.data == "menu_admin_panel":
-        if user_id not in ADMIN_IDS:
-            bot.answer_callback_query(call.id, "⛔ Access denied!", show_alert=True)
-            return
-        text = "👑 <b>FAST NODE - ADMIN COMMAND CENTER</b>\n\nOpen the Web App and select 'Admin Panel' from the sidebar to access command telemetry, gateway matrix, radar feed, treasury vault, and developer access."
-        kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("🚀 OPEN WEB APP", web_app=WebAppInfo(url=WEBAPP_URL)))
-        kb.add(InlineKeyboardButton("🔙 BACK", callback_data="menu_back"))
-        bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, parse_mode="HTML", reply_markup=kb)
-
-    elif call.data == "menu_create_config":
-        if user_id not in ADMIN_IDS:
-            bot.answer_callback_query(call.id, "⛔ Access denied!", show_alert=True)
-            return
-        admin_state[user_id] = "waiting_for_ws"
-        text = "🔮 <b>Setup WSS Configuration</b>\n\nSend your WebSocket URL or Cookie string here:"
-        kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("❌ CANCEL", callback_data="menu_back"))
-        bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, parse_mode="HTML", reply_markup=kb)
-
-    elif call.data == "menu_list_panel":
-        if user_id not in ADMIN_IDS:
-            bot.answer_callback_query(call.id, "⛔ Access denied!", show_alert=True)
-            return
-        
-        ivas_connected = ivas_health.get("connected", False)
-        ivas_status_str = "🟢 <b>CONNECTED / READY</b>" if ivas_connected else f"⚠️ <b>DISCONNECTED / EXPIRED</b> ({ivas_health.get('last_error', 'No check yet')})"
-        wss_status_str = "🟢 <b>ACTIVE</b>" if user_configs else "⚠️ <b>NO CONFIG SET</b>"
-
-        text = (
-            "📊 <b>LIST PANEL - IVAS & MK NETWORK API COMMANDS</b>\n\n"
-            f"🔌 IVAS API Status: {ivas_status_str}\n"
-            f"🔗 IVAS Base URL: <code>{IVAS_BASE_URL}</code>\n"
-            f"📡 WSS Status: {wss_status_str}\n\n"
-            "⚡ <b>MK NETWORK API v3 ENDPOINTS & TÁC DỤNG:</b>\n"
-            "• <code>GET /whoami</code>: Kiểm tra thông tin tài khoản API key hiện tại.\n"
-            "• <code>GET /access_list</code>: Lấy danh sách dải số, nhà mạng, trạng thái health của các quốc gia.\n"
-            "• <code>POST /getnum/number</code>: Lấy số điện thoại từ dải số chỉ định.\n"
-            "• <code>POST /check/status</code>: Kiểm tra trạng thái và nhận mã OTP (hỗ trợ batch tối đa 100 ID).\n"
-            "• <code>GET /radar</code>: Lấy luồng traffic OTP real-time toàn hệ thống."
-        )
-        kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("🔄 RECHECK STATUS", callback_data="menu_list_panel"))
-        kb.add(InlineKeyboardButton("🔙 BACK", callback_data="menu_back"))
-        bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, parse_mode="HTML", reply_markup=kb)
-
-    elif call.data == "menu_add_numbers":
-        if user_id not in ADMIN_IDS:
-            bot.answer_callback_query(call.id, "⛔ Access denied!", show_alert=True)
-            return
-        admin_state[user_id] = "waiting_for_numbers"
-        text = "➕ <b>ADD NUMBERS AUTOMATICALLY</b>\n\nPaste your list of phone numbers below (separated by space, comma, or newline). System will auto-detect country codes!"
-        kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("❌ CANCEL", callback_data="menu_back"))
-        bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, parse_mode="HTML", reply_markup=kb)
-
-    elif call.data == "admin_withdrawals":
-        if user_id not in ADMIN_IDS: return
-        if not withdrawal_requests:
-            text = "📂 <b>Không có đơn rút tiền nào đang chờ duyệt!</b>"
-        else:
-            text = f"📂 <b>DANH SÁCH ĐƠN RÚT TIỀN ({len(withdrawal_requests)} đơn):</b>\n\n"
-            for idx, req in enumerate(withdrawal_requests):
-                text += f"🆔 <b>STT {idx+1}</b> | User ID: <code>{req['user_id']}</code>\n👤 Tên: {req['name']}\n💵 Số tiền: <b>${req['amount']}</b>\n📬 Ví TON: <code>{req['address']}</code>\n⏰ Lúc: {req['time']}\n━━━━━━━━━━━━━━━━━━━━━\n"
-        kb = InlineKeyboardMarkup()
-        if withdrawal_requests:
-            kb.add(InlineKeyboardButton("✅ DUYỆT ĐƠN ĐẦU TIÊN", callback_data="approve_first_wd"))
-        kb.add(InlineKeyboardButton("🔙 QUAY LẠI", callback_data="menu_back"))
-        bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, parse_mode="HTML", reply_markup=kb)
-
-    elif call.data == "approve_first_wd":
-        if user_id not in ADMIN_IDS: return
-        if withdrawal_requests:
-            req = withdrawal_requests.pop(0)
-            bot.send_message(req['user_id'], f"🎉 <b>Đơn rút ${req['amount']} USDT (TON) của bạn đã được Admin duyệt thành công!</b>", parse_mode="HTML")
-            bot.answer_callback_query(call.id, "Đã duyệt đơn thành công!")
-        handle_callback(type('obj', (object,), {'from_user': call.from_user, 'message': call.message, 'data': 'admin_withdrawals'})())
-
-    elif call.data == "menu_back":
-        admin_state.pop(user_id, None)
-        welcome_text = "🔥 <b>FAST NODE • IVAS OTP GATEWAY PORTAL</b>\n\nWelcome to the ultimate real-time secure OTP platform!"
-        bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=welcome_text, parse_mode="HTML", reply_markup=get_menu_keyboard(user_id))
-
-@bot.message_handler(commands=['thue'])
-def handle_rent_number(message):
-    parts = message.text.split()
-    if len(parts) < 2: return
-    phone_to_rent = parts[1].replace("+", "").strip()
-    user_id = message.chat.id
-    user_rentals[phone_to_rent] = user_id
-    
-    for key, data in inventory_numbers.items():
-        for item in data["numbers"]:
-            if item["phone"] == phone_to_rent:
-                item["expires"] = time.time() + 900
-                item["locked_by"] = user_id
-                break
-    bot.reply_to(message, f"✅ Successfully rented number <code>{phone_to_rent}</code> for 15 minutes! OTP will be delivered here privately.", parse_mode="HTML", reply_markup=get_reply_keyboard())
-
-@bot.message_handler(func=lambda msg: msg.from_user.id in ADMIN_IDS and msg.chat.type == "private")
-def handle_admin_text_inputs(message):
-    uid = message.from_user.id
-    state = admin_state.get(uid)
-    text = message.text.strip()
-
-    if state == "waiting_for_numbers":
-        admin_state.pop(uid, None)
-        lines = re.split(r'[\s,\n]+', text)
-        added_count = 0
-        for line in lines:
-            clean_phone = re.sub(r'\D', '', line)
-            if len(clean_phone) < 7:
-                continue
-            cname, flag, full_key = detect_country_info(clean_phone)
-            if full_key not in inventory_numbers:
-                inventory_numbers[full_key] = {"flag": flag, "name": cname, "numbers": []}
-            
-            exists = any(n["phone"] == clean_phone for n in inventory_numbers[full_key]["numbers"])
-            if not exists:
-                inventory_numbers[full_key]["numbers"].append({
-                    "phone": clean_phone,
-                    "expires": 0,
-                    "locked_by": None
-                })
-                added_count += 1
-
-        bot.reply_to(message, f"✅ Đã phân phối thành công <b>{added_count}</b> số điện thoại vào các kho quốc gia tương ứng (Real-time update)!", parse_mode="HTML", reply_markup=get_menu_keyboard(uid))
-        return
-
-def background_cleanup_and_wss():
-    global last_reset_time, app_stats
+import firebase_admin
+from firebase_admin import credentials, firestore
+
+# ==========================================
+# Configuration & Admin Setup
+# ==========================================
+BOT_TOKEN = "YOUR_BOT_TOKEN"
+ADMIN_ID = 6726769296  # ID cá nhân của Admin
+BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/"
+BOT_USERNAME = ""
+
+# FE NODE API Configuration (Thay thế MKNetwork/Voltx cũ)
+FE_NODE_BASE_URL = "https://mknetworkbd.com/api/v3/public" # Hoặc endpoint chính thức của FE NODE
+FE_NODE_KEY_DEFAULT = "badacaa33d287233567a49db"
+
+# Global states
+current_db_mode = "sqlite"
+db_firebase = None 
+waiting_for_firebase = False
+user_states = {}
+
+# User & Cooldown States
+user_cache = {} 
+user_active_sessions = {} # format: {"number": user_id}
+user_cooldowns = {} 
+
+# FE NODE Auto System States
+fe_node_auto_mode = True 
+fe_node_keys = [FE_NODE_KEY_DEFAULT]
+force_join_status = False
+force_join_channels = []
+
+# OTP Forwarding States & Default Group Configs
+otp_forward_groups = ["-1004341368656"]
+otp_button_link = "https://t.me/LIVEOTPIVAS"
+recent_success_otps = set()
+
+fe_node_dynamic_data = {} 
+recent_traffic = []
+daily_stats = {"date": "", "numbers": 0, "otps": 0}
+daily_user_otps = {"date": "", "users": {}}
+
+# Caching Variables for High Performance
+cached_services_kb = None
+cached_countries_kb = {}
+cached_leaderboard_text = ""
+
+def auto_cache_menu_thread():
+    global cached_services_kb, cached_countries_kb, fe_node_auto_mode, fe_node_dynamic_data
     while True:
-        current_time = time.time()
-        if current_time - last_reset_time > 86400:
-            for k in app_stats: app_stats[k] = 0
-            last_reset_time = current_time
+        try:
+            if fe_node_auto_mode and fe_node_dynamic_data:
+                service_hits = [(sid, s_data, sum(r["hits"] for r in s_data["ranges"].values())) for sid, s_data in fe_node_dynamic_data.items()]
+                top_services = sorted(service_hits, key=lambda x: x[2], reverse=True)[:15]
+                
+                new_srv_kb = {"inline_keyboard": []}
+                row = []; styles = ["primary", "success", "danger"]; style_idx = 0
+                for sid, data, hits in top_services:
+                    safe_sid = html.escape(str(sid))
+                    row.append({"text": safe_sid, "callback_data": f"srv_{safe_sid[:15]}", "style": styles[style_idx % 3], "icon_custom_emoji_id": data["emoji_id"]})
+                    style_idx += 1
+                    if len(row) == 2: new_srv_kb["inline_keyboard"].append(row); row = []
+                if row: new_srv_kb["inline_keyboard"].append(row)
+                new_srv_kb["inline_keyboard"].append([{"text": "CLOSE", "callback_data": "close_panel", "icon_custom_emoji_id": "5438541186539232243", "style": "danger"}])
+                
+                cached_services_kb = new_srv_kb
 
-        for key, data in inventory_numbers.items():
-            for item in list(data["numbers"]):
-                if item["expires"] > 0 and item["expires"] <= current_time:
-                    user_rentals.pop(item["phone"], None)
-                    data["numbers"].remove(item)
-        time.sleep(30)
+                new_cnt_kb = {}
+                for sid, data, hits in top_services:
+                    safe_sid_short = html.escape(str(sid))[:15]
+                    country_map = {}
+                    for r, r_data in data["ranges"].items():
+                        clean_r = str(r).replace("X", "")
+                        if not re.match(r'^\d+$', clean_r): continue
+                        c_code, c_name = get_country_info(clean_r)
+                        if c_code not in country_map: country_map[c_code] = {"name": c_name, "hits": 0}
+                        country_map[c_code]["hits"] += r_data["hits"]
+                    
+                    top_countries = sorted(country_map.items(), key=lambda x: x[1]["hits"], reverse=True)[:15]
+                    
+                    cnt_kb = {"inline_keyboard": []}
+                    styles_c = ["primary", "success", "danger"]; style_idx_c = 0
+                    std_service = detect_service("", sid)
+                    rate = get_otp_reward(std_service)
+                    
+                    for c_code, c_data in top_countries:
+                        c_name_full = c_data["name"]
+                        parts = c_name_full.split(" ", 1)
+                        emoji_char = parts[0]
+                        clean_name = parts[1] if len(parts) > 1 else c_name_full
+                        
+                        btn_text = f"Other (+{c_code}) - {rate}$" if "Other" in clean_name else f"{clean_name} (+{c_code}) - {rate}$"
+                        btn = {"text": btn_text, "callback_data": f"cc_{safe_sid_short}_{c_code}", "style": styles_c[style_idx_c % 3]}
+                        if emoji_char in GLOBAL_BODY_EMOJIS: btn["icon_custom_emoji_id"] = GLOBAL_BODY_EMOJIS[emoji_char]
+                            
+                        cnt_kb["inline_keyboard"].append([btn])
+                        style_idx_c += 1
+                        
+                    cnt_kb["inline_keyboard"].append([{"text": "BACK", "callback_data": "back_to_services", "icon_custom_emoji_id": "5438541186539232243", "style": "danger"}])
+                    new_cnt_kb[safe_sid_short] = cnt_kb
+                    
+                cached_countries_kb = new_cnt_kb
+                
+            global cached_leaderboard_text, daily_user_otps
+            today = time.strftime("%Y-%m-%d")
+            if daily_user_otps.get("date") != today:
+                daily_user_otps["date"] = today
+                daily_user_otps["users"] = {}
+                
+            top_users = sorted(daily_user_otps["users"].items(), key=lambda x: x[1], reverse=True)[:5]
+            lb_msg = "<blockquote><tg-emoji emoji-id=\"5240021484516185513\">🏆</tg-emoji> <b>𝗧𝗢𝗣 𝟱 𝗟𝗘𝗔𝗗𝗘𝗥𝗕𝗢𝗔𝗥𝗗 (TODAY)</b></blockquote>\n━━━━━━━━━━━━━━━━━\n"
+            emoji_map = [("1️⃣", "5238176680098440792"), ("2️⃣", "5237806896299157399"), ("3️⃣", "5239965456667812809"), ("4️⃣", "5237911487342751418"), ("5️⃣", "5240278297790686165")]
+            
+            if not top_users: 
+                lb_msg += "<i>No OTPs received today.</i>\n"
+            else:
+                for idx, (uid_str, otp_count) in enumerate(top_users):
+                    u_data = get_user(int(uid_str))
+                    fname = u_data["first_name"] if u_data else "User"
+                    emoji_char, emoji_id = emoji_map[idx]
+                    lb_msg += f"<blockquote><tg-emoji emoji-id=\"{emoji_id}\">{emoji_char}</tg-emoji> <a href='tg://user?id={uid_str}'>{html.escape(str(fname))}</a> - {otp_count} OTP</blockquote>\n"
+            lb_msg += "━━━━━━━━━━━━━━━━━"
+            cached_leaderboard_text = lb_msg
+            
+        except Exception as e:
+            pass
+        time.sleep(5)
 
-async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test=False):
-    global app_stats, top_ranges_data, live_radar_logs
-    clean_phone = str(phone).replace("+", "")
-    masked = clean_phone[:6] + "****" + clean_phone[-3:] if len(clean_phone) > 7 else clean_phone
-    match = re.search(r'\d{3}[-\s]?\d{3}|\d{4,8}', str(msg))
-    code = match.group(0) if match else "N/A"
+# Admin Settings (DXA Control adapted for $ and USDT TON)
+bot_settings = {
+    "withdraw_on": True,
+    "min_withdraw": 3.0,  # Min rút 3$
+    "support_link": "https://t.me/LIVEOTPIVAS",
+    "w_group": "-1004341368656",
+    "auto_br_on": False,
+    "auto_br_interval": 60,
+    "cooldown": 5,
+    "num_req": 1,
+    "w_methods": ["USDT (TON Network)"], # Chỉ nhận USDT mạng TON tránh mất tiền oan
+    "otp_default_rate": 0.005,  # Mặc định mỗi OTP nhận 0.005$
+    "otp_service_rates": {},
+    "main_channel_link": "https://t.me/LIVEOTPIVAS",
+    "refer_reward": 0.01
+}
 
-    detected_service = parse_service_name(f"{service} {msg}")
-    if detected_service in app_stats:
-        app_stats[detected_service] += 1
-    else:
-        app_stats["AUTHMSG"] += 1
+BOT_DATA_FILE = "bot_data.json"
+USERS_LIST_FILE = "users_list.json"
 
-    live_radar_logs.insert(0, {
-        "time": timestamp,
-        "country": country,
-        "flag": flag,
-        "phone": masked,
-        "service": detected_service,
-        "code": code,
-        "message": msg
-    })
-    if len(live_radar_logs) > 50:
-        live_radar_logs.pop()
+# ==========================================
+# Helper Functions: FE NODE API & Rates
+# ==========================================
+def get_api_key():
+    return random.choice(fe_node_keys) if fe_node_keys else FE_NODE_KEY_DEFAULT
 
-    range_prefix = clean_phone[:5]
-    existing_range = next((r for r in top_ranges_data if r['range'] == range_prefix), None)
-    if existing_range:
-        existing_range['count'] += 1
-    else:
-        top_ranges_data.append({"country": country, "range": range_prefix, "flag": flag, "count": 1})
-    top_ranges_data.sort(key=lambda x: x['count'], reverse=True)
-    if len(top_ranges_data) > 5: top_ranges_data = top_ranges_data[:5]
+def get_otp_reward(service_name):
+    rates = bot_settings.get("otp_service_rates", {})
+    val = rates.get(service_name, bot_settings.get("otp_default_rate", 0.005))
+    return float(val)
 
-    if clean_phone in user_rentals:
-        owner_id = user_rentals[clean_phone]
-        if owner_id in user_wallets:
-            user_wallets[owner_id]["balance"] += 0.005
+def update_daily_stat(key, amount=1):
+    global daily_stats
+    today = time.strftime("%Y-%m-%d")
+    if daily_stats.get("date") != today:
+        daily_stats = {"date": today, "numbers": 0, "otps": 0}
+    daily_stats[key] = daily_stats.get(key, 0) + amount
 
-    header = "🧪 <b>『 ꜰᴇ ꜱᴇɴᴅ ᴏᴛ🇵 』</b> 🧪" if is_test else "💐 <b>『 ɴᴇᴡ ᴏᴛᴘ ʀᴇᴄᴇɪᴠᴇᴅ 』</b> ✨"
-    caption = (f"{header}\n"
-               f"━━━━━━━━━━━━━━━━━━━━━\n\n"
-               f"<b>⌚ TIME:</b> <code>{html.escape(str(timestamp))}</code>\n"
-               f"<b>🌍 COUNTRY:</b> {html.escape(str(country))} {flag}\n"
-               f"<b>📱 NUMBER:</b> <code>{html.escape(str(masked))}</code>\n"
-               f"<b>🛠 SERVICE:</b> <code>{html.escape(str(detected_service))}</code>\n"
-               f"<b>🔑 CODE:</b> <code>{html.escape(str(code))}</code>\n\n"
-               f"<b>💬 MESSAGE:</b>\n<pre>{html.escape(str(msg))}</pre>\n\n"
-               f"━━━━━━━━━━━━━━━━━━━━━")
-    
-    kb = InlineKeyboardMarkup()
-    kb.row(
-        InlineKeyboardButton("✨ YouTube", url="https://youtube.com/@ThoKho_VN"),
-        InlineKeyboardButton("👑 Owner", url="https://t.me/Nothavedie")
-    )
-    kb.row(
-        InlineKeyboardButton("📥 OTP Channel", url="https://t.me/LIVEOTPIVAS"),
-        InlineKeyboardButton("🎀 Main Channel", url="https://t.me/FastNode_1")
-    )
-    
+# ==========================================
+# Local Storage Managers
+# ==========================================
+def load_local_data():
+    global recent_traffic, fe_node_dynamic_data, fe_node_keys, force_join_status, force_join_channels, fe_node_auto_mode, otp_forward_groups, otp_button_link, recent_success_otps, bot_settings, user_active_sessions, daily_stats, daily_user_otps
+    if os.path.exists(BOT_DATA_FILE):
+        try:
+            with open(BOT_DATA_FILE, "r") as f:
+                data = json.load(f)
+                recent_traffic = data.get("recent_traffic", [])
+                fe_node_dynamic_data = data.get("fe_node_dynamic_data", {})
+                loaded_keys = data.get("fe_node_keys", [])
+                
+                if not loaded_keys:
+                    fe_node_keys = [FE_NODE_KEY_DEFAULT]
+                else:
+                    fe_node_keys = loaded_keys
+                    
+                force_join_status = data.get("force_join_status", False)
+                force_join_channels = data.get("force_join_channels", [])
+                fe_node_auto_mode = data.get("fe_node_auto_mode", True)
+                otp_forward_groups = data.get("otp_forward_groups", ["-1004341368656"])
+                otp_button_link = data.get("otp_button_link", "https://t.me/LIVEOTPIVAS")
+                recent_success_otps = set(data.get("recent_success_otps", []))
+                
+                loaded_settings = data.get("bot_settings", {})
+                for k, v in loaded_settings.items(): bot_settings[k] = v
+                
+                daily_stats = data.get("daily_stats", {"date": "", "numbers": 0, "otps": 0})
+                daily_user_otps = data.get("daily_user_otps", {"date": "", "users": {}})
+                user_active_sessions = data.get("user_active_sessions", {})
+        except Exception as e:
+            print(f"Error loading local data: {e}")
+
+def save_local_data():
+    global recent_traffic, fe_node_dynamic_data, fe_node_keys, force_join_status, force_join_channels, fe_node_auto_mode, otp_forward_groups, otp_button_link, recent_success_otps, bot_settings, user_active_sessions, daily_stats
     try:
-        await asyncio.to_thread(bot.send_message, chat_id=TARGET_CHAT, text=caption, parse_mode="HTML", reply_markup=kb, disable_web_page_preview=True)
-    except Exception as e: pass
-
-    if clean_phone in user_rentals:
-        owner_id = user_rentals[clean_phone]
-        private_caption = f"🔔 <b>[REAL-TIME PRIVATE EXCLUSIVE OTP ($0.005 EARNED)]</b>\n\n" + caption
+        with open(BOT_DATA_FILE, "w") as f:
+            json.dump({
+                "recent_traffic": recent_traffic, 
+                "fe_node_dynamic_data": fe_node_dynamic_data,
+                "fe_node_keys": fe_node_keys,
+                "force_join_status": force_join_status,
+                "force_join_channels": force_join_channels,
+                "fe_node_auto_mode": fe_node_auto_mode,
+                "otp_forward_groups": otp_forward_groups,
+                "otp_button_link": otp_button_link,
+                "recent_success_otps": list(recent_success_otps),
+                "bot_settings": bot_settings,
+                "user_active_sessions": user_active_sessions,
+                "daily_stats": daily_stats,
+                "daily_user_otps": daily_user_otps
+            }, f)
+    except Exception as e:
+        print(f"Error saving local data: {e}")
+        
+    if current_db_mode == "firebase" and db_firebase:
         try:
-            await asyncio.to_thread(bot.send_message, chat_id=owner_id, text=private_caption, parse_mode="HTML", reply_markup=kb, disable_web_page_preview=True)
-        except Exception as e: pass
+            db_firebase.collection('settings').document('bot_config').set({
+                "bot_settings": bot_settings,
+                "force_join_status": force_join_status,
+                "force_join_channels": force_join_channels,
+                "otp_forward_groups": otp_forward_groups,
+                "otp_button_link": otp_button_link,
+                "fe_node_keys": fe_node_keys,
+                "fe_node_auto_mode": fe_node_auto_mode
+            }, merge=True)
+        except: pass
 
-def websocket_worker():
-    def on_message(ws, message):
+cached_user_list = set()
+
+def add_to_broadcast_list(user_id):
+    global cached_user_list
+    if not cached_user_list and os.path.exists(USERS_LIST_FILE):
         try:
-            data = json.loads(message)
-            phone = data.get("phone", "84939168914")
-            service = data.get("service", "WhatsApp")
-            msg = data.get("message", "Your verification code is 790-937")
-            timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-            cname, flag, _ = detect_country_info(phone)
-            asyncio.run(dispatch_update(service, phone, msg, timestamp, cname, flag, is_test=False))
+            with open(USERS_LIST_FILE, "r") as f:
+                cached_user_list = set(json.load(f))
         except: pass
         
-    def on_error(ws, error):
-        for admin_id in ADMIN_IDS:
-            try:
-                bot.send_message(admin_id, f"🚨 <b>WSS ERROR / 403 ALERT!</b>\n\nWebSocket encountered an error: <code>{str(error)}</code>", parse_mode="HTML")
-            except: pass
+    if user_id not in cached_user_list:
+        cached_user_list.add(user_id)
+        try:
+            with open(USERS_LIST_FILE, "w") as f:
+                json.dump(list(cached_user_list), f)
+        except: pass
 
-    def on_close(ws, c, m):
-        for admin_id in ADMIN_IDS:
-            try:
-                bot.send_message(admin_id, f"⚠️ <b>WSS CONNECTION CLOSED / DIE!</b>\n\nWebSocket connection was lost. Code: {c}", parse_mode="HTML")
-            except: pass
+def get_all_user_ids():
+    global user_cache
+    users = set()
+    for uid in user_cache.keys():
+        users.add(int(uid))
+    if os.path.exists(USERS_LIST_FILE):
+        try:
+            with open(USERS_LIST_FILE, "r") as f:
+                for u in json.load(f): users.add(int(u))
+        except: pass
+    return list(users)
+
+# ==========================================
+# Telegram API Helpers
+# ==========================================
+def get_bot_info():
+    try:
+        res = requests.get(BASE_URL + "getMe").json()
+        if res.get("ok"): return res["result"]["username"]
+    except Exception: pass
+    return ""
+
+def set_bot_commands():
+    commands = [{"command": "start", "description": "Start the bot or refresh menu"}]
+    try: requests.post(BASE_URL + "setMyCommands", json={"commands": commands})
+    except Exception: pass
+
+def send_message(chat_id, text, reply_markup=None, parse_mode="HTML"):
+    payload = {"chat_id": chat_id, "text": apply_emojis(text), "parse_mode": parse_mode}
+    if reply_markup: payload["reply_markup"] = reply_markup
+    try: return requests.post(BASE_URL + "sendMessage", json=payload).json()
+    except Exception: return None
+
+def edit_message(chat_id, message_id, text, reply_markup=None, parse_mode="HTML"):
+    payload = {"chat_id": chat_id, "message_id": message_id, "text": apply_emojis(text), "parse_mode": parse_mode}
+    if reply_markup: payload["reply_markup"] = reply_markup
+    try: requests.post(BASE_URL + "editMessageText", json=payload)
+    except Exception: pass
+
+def answer_callback_query(callback_query_id, text="", show_alert=False):
+    payload = {"callback_query_id": callback_query_id, "text": text, "show_alert": show_alert}
+    requests.post(BASE_URL + "answerCallbackQuery", json=payload)
+
+def delete_message(chat_id, message_id):
+    payload = {"chat_id": chat_id, "message_id": message_id}
+    requests.post(BASE_URL + "deleteMessage", json=payload)
+
+def copy_message(chat_id, from_chat_id, message_id, reply_markup=None):
+    payload = {"chat_id": chat_id, "from_chat_id": from_chat_id, "message_id": message_id}
+    if reply_markup: payload["reply_markup"] = reply_markup
+    try: return requests.post(BASE_URL + "copyMessage", json=payload).json()
+    except Exception: return None
+
+def get_chat_details(chat_identifier):
+    chat_identifier = str(chat_identifier).strip()
+    if chat_identifier.startswith("https://t.me/"):
+        chat_identifier = "@" + chat_identifier.split("/")[-1]
+    elif not chat_identifier.startswith("@") and not chat_identifier.startswith("-100"):
+        chat_identifier = "@" + chat_identifier
+        
+    url = BASE_URL + "getChat"
+    res = requests.get(url, params={"chat_id": chat_identifier}).json()
+    if res.get("ok"):
+        chat = res["result"]
+        chat_data = {
+            "id": chat["id"],
+            "username": "@" + chat["username"] if "username" in chat else "",
+            "title": chat.get("title", "Private Channel"),
+            "invite_link": chat.get("invite_link", "")
+        }
+        if not chat_data["invite_link"]:
+            inv_res = requests.post(BASE_URL + "exportChatInviteLink", json={"chat_id": chat["id"]}).json()
+            if inv_res.get("ok"):
+                chat_data["invite_link"] = inv_res["result"]
+        return chat_data
+    return None
+
+def is_user_joined(user_id):
+    if not force_join_status or not force_join_channels: return True
+    if user_id == ADMIN_ID: return True
+    
+    for ch in force_join_channels:
+        try:
+            res = requests.get(BASE_URL + "getChatMember", params={"chat_id": ch["id"], "user_id": user_id}).json()
+            if res.get("ok"):
+                status = res["result"]["status"]
+                if status in ["left", "kicked"]: return False
+            else:
+                return False
+        except: return False
+    return True
+
+# ==========================================
+# Emojis & 195+ Countries Full Dataset
+# ==========================================
+GLOBAL_BODY_EMOJIS = {
+    "➖": "5870818207383686839", "🚫": "5334807341109908955", "😒": "5334763399299506604",
+    "🖥": "5334880948259427772", "🌐": "5334590977837403844", "🌟": "5337102391244263212",
+    "🕓": "5336983442125001376", "⌛": "5337172996211648018", "💬": "5337302974806922068",
+    "🔐": "5337255927735163754", "🍏": "5337132498965010628", "❔": "5336850036145823599",
+    "⚠️": "5336944168944047463", "🔥": "5337267511261960341", "💸": "5429612421977253466",
+    "📊": "5353032893096567467", "🔢": "5226929552319594190", "👤": "5352861489541714456",
+    "📁": "5352721946054268944", "🚀": "5352597830089347330", "💎": "5352838545826420397",
+    "📍": "5352922460897452503", "👋": "5353027129250453493", "✅": "5352694861990501856",
+    "1️⃣": "5352651766288652742", "2️⃣": "5355186458418257716", "3️⃣": "5352867219028091093",
+    "4️⃣": "5352566657216714037", "5️⃣": "5353086880835474989", "🇺🇸": "5913463998522592692", 
+    "🇻🇳": "5913428887164949581", "🇬🇧": "5913443365499703513"
+}
+
+def apply_emojis(text):
+    hidden = []
+    def hide(match):
+        hidden.append(match.group(0))
+        return f"__TG_EMOJI_{len(hidden)-1}__"
+    text = re.sub(r'<tg-emoji[^>]*>.*?</tg-emoji>', hide, text)
+    for char, eid in GLOBAL_BODY_EMOJIS.items():
+        text = text.replace(char, f'<tg-emoji emoji-id="{eid}">{char}</tg-emoji>')
+    for i, h in enumerate(hidden):
+        text = text.replace(f"__TG_EMOJI_{i}__", h)
+    return text
+
+PREMIUM_APPS = {
+    "Facebook": {"emoji": "📘", "id": "5429172110520003976"},
+    "WhatsApp": {"emoji": "💬", "id": "5429612632430654504"},
+    "Telegram": {"emoji": "✈️", "id": "5429136513831057777"},
+    "Instagram": {"emoji": "📸", "id": "5429478178479447442"},
+    "Google": {"emoji": "🔍", "id": "5429558795015593080"},
+    "Other": {"emoji": "📶", "id": "5429353834881261942"}
+}
+
+SERVICE_SMS_KEYWORDS = {
+    "Facebook": ["facebook", "fb code", "fb", "meta"],
+    "WhatsApp": ["whats", "whatsapp"],
+    "Telegram": ["telegram", "tg code"],
+    "Instagram": ["instagram", "ig code"],
+    "Google": ["google"]
+}
+
+# 195+ Quốc gia trên thế giới kèm mã vùng chuẩn
+COUNTRY_CODES = {
+    "1": "🇺🇸 USA/Canada", "380": "🇺🇦 Ukraine", "48": "🇵🇱 Poland", "7": "🇰🇿 Kazakhstan",
+    "86": "🇨🇳 China", "994": "🇦🇿 Azerbaijan", "374": "🇦🇲 Armenia", "79": "🇷🇺 Russia",
+    "998": "🇺🇿 Uzbekistan", "49": "🇩🇪 Germany", "81": "🇯🇵 Japan", "90": "🇹🇷 Turkey",
+    "375": "🇧🇾 Belarus", "44": "🇬🇧 United Kingdom", "91": "🇮🇳 India", "55": "🇧🇷 Brazil",
+    "260": "🇿🇲 Zambia", "967": "🇾🇪 Yemen", "84": "🇻🇳 Vietnam", "379": "🇻🇦 Vatican City",
+    "678": "🇻🇺 Vanuatu", "598": "🇺🇾 Uruguay", "971": "🇦🇪 UAE", "256": "🇺🇬 Uganda",
+    "993": "🇹🇲 Turkmenistan", "216": "🇹🇳 Tunisia", "228": "🇹🇬 Togo", "66": "🇹🇭 Thailand",
+    "255": "🇹🇿 Tanzania", "992": "🇹🇯 Tajikistan", "41": "🇨🇭 Switzerland", "46": "🇸🇪 Sweden",
+    "268": "🇸🇿 Eswatini", "597": "🇸🇷 Suriname", "249": "🇸🇩 Sudan", "34": "🇪🇸 Spain",
+    "94": "🇱🇰 Sri Lanka", "211": "🇸🇸 South Sudan", "27": "🇿🇦 South Africa", "252": "🇸🇴 Somalia",
+    "677": "🇸🇧 Solomon Islands", "386": "🇸🇮 Slovenia", "421": "🇸🇰 Slovakia", "65": "🇸🇬 Singapore",
+    "232": "🇸🇱 Sierra Leone", "248": "🇸🇨 Seychelles", "381": "🇷🇸 Serbia", "221": "🇸🇳 Senegal",
+    "239": "🇸🇹 Sao Tome", "378": "🇸🇲 San Marino", "685": "🇼🇸 Samoa", "970": "🇵🇸 Palestine",
+    "250": "🇷🇼 Rwanda", "40": "🇷🇴 Romania", "974": "🇶🇦 Qatar", "351": "🇵🇹 Portugal",
+    "63": "🇵🇭 Philippines", "51": "🇵🇪 Peru", "595": "🇵🇾 Paraguay", "675": "🇵🇬 Papua New Guinea",
+    "507": "🇵🇦 Panama", "680": "🇵🇼 Palau", "92": "🇵🇰 Pakistan", "968": "🇴🇲 Oman",
+    "47": "🇳🇴 Norway", "234": "🇳🇬 Nigeria", "227": "🇳🇪 Niger", "64": "🇳🇿 New Zealand",
+    "31": "🇳🇱 Netherlands", "977": "🇳🇵 Nepal", "264": "🇳🇦 Namibia", "258": "🇲🇿 Mozambique",
+    "212": "🇲🇦 Morocco", "382": "🇲🇪 Montenegro", "976": "🇲🇳 Mongolia", "377": "🇲🇨 Monaco",
+    "373": "🇲🇩 Moldova", "960": "🇲🇻 Maldives", "223": "🇲🇱 Mali", "356": "🇲🇹 Malta",
+    "596": "🇲🇶 Martinique", "692": "🇲🇭 Marshall Islands", "230": "🇲🇺 Mauritius", "52": "🇲🇽 Mexico",
+    "691": "🇫🇲 Micronesia", "60": "🇲🇾 Malaysia", "254": "🇰🇪 Kenya", "261": "🇲🇬 Madagascar",
+    "389": "🇲🇰 North Macedonia", "352": "🇱🇺 Luxembourg", "370": "🇱🇹 Lithuania", "423": "🇱🇮 Liechtenstein",
+    "218": "🇱🇾 Libya", "231": "🇱🇷 Liberia", "686": "🇰🇮 Kiribati", "383": "🇽🇰 Kosovo",
+    "965": "🇰🇼 Kuwait", "996": "🇰🇬 Kyrgyzstan", "856": "🇱🇦 Laos", "371": "🇱🇻 Latvia",
+    "961": "🇱🇧 Lebanon", "266": "🇱🇸 Lesotho", "62": "🇮🇩 Indonesia", "98": "🇮🇷 Iran",
+    "964": "🇮🇶 Iraq", "353": "🇮🇪 Ireland", "972": "🇮🇱 Israel", "39": "🇮🇹 Italy",
+    "962": "🇯🇴 Jordan", "354": "🇮🇸 Iceland", "36": "🇭🇺 Hungary", "504": "🇭🇳 Honduras",
+    "509": "🇭🇹 Haiti", "592": "🇬🇾 Guyana", "245": "🇬🇼 Guinea-Bissau", "224": "🇬🇳 Guinea",
+    "502": "🇬🇹 Guatemala", "30": "🇬🇷 Greece", "233": "🇬🇭 Ghana", "995": "🇬🇪 Georgia",
+    "220": "🇬🇲 Gambia", "241": "🇬🇦 Gabon", "33": "🇫🇷 France", "358": "🇫🇮 Finland",
+    "679": "🇫🇯 Fiji", "251": "🇪🇹 Ethiopia", "670": "🇹🇱 Timor-Leste", "593": "🇪🇨 Ecuador",
+    "20": "🇪🇬 Egypt", "503": "🇸🇻 El Salvador", "372": "🇪🇪 Estonia", "253": "🇩🇯 Djibouti",
+    "45": "🇩🇰 Denmark", "357": "🇨🇾 Cyprus", "385": "🇭🇷 Croatia", "506": "🇨🇷 Costa Rica",
+    "242": "🇨🇬 Congo", "243": "🇨🇩 DR Congo", "269": "🇰🇲 Comoros", "855": "🇰🇭 Cambodia",
+    "237": "🇨🇲 Cameroon", "238": "🇨🇻 Cape Verde", "236": "🇨🇫 CAR", "235": "🇹🇩 Chad",
+    "420": "🇨🇿 Czechia", "56": "🇨🇱 Chile", "57": "🇨🇴 Colombia", "257": "🇧🇮 Burundi",
+    "267": "🇧🇼 Botswana", "387": "🇧🇦 Bosnia", "591": "🇧🇴 Bolivia", "975": "🇧🇹 Bhutan",
+    "229": "🇧🇯 Benin", "54": "🇦🇷 Argentina", "61": "🇦🇺 Australia", "43": "🇦🇹 Austria",
+    "973": "🇧🇭 Bahrain", "880": "🇧🇩 Bangladesh", "32": "🇧🇪 Belgium", "501": "🇧🇿 Belize",
+    "244": "🇦🇴 Angola", "376": "🇦🇩 Andorra", "213": "🇩🇿 Algeria", "355": "🇦🇱 Albania",
+    "93": "🇦🇫 Afghanistan", "263": "🇿🇼 Zimbabwe", "53": "🇨🇺 Cuba", "850": "🇰🇵 North Korea",
+    "58": "🇻🇪 Venezuela", "963": "🇸🇾 Syria", "95": "🇲🇲 Myanmar", "505": "🇳🇮 Nicaragua",
+    "82": "🇰🇷 South Korea", "240": "🇬🇶 Equatorial Guinea", "299": "🇬🇱 Greenland", "298": "🇫🇴 Faroe Islands",
+    "225": "🇨🇮 Ivory Coast", "673": "🇧🇳 Brunei", "359": "🇧🇬 Bulgaria", "226": "🇧🇫 Burkina Faso",
+    "291": "🇪🇷 Eritrea", "265": "🇲🇼 Malawi", "222": "🇲🇷 Mauritania", "674": "🇳🇷 Nauru",
+    "966": "🇸🇦 Saudi Arabia", "676": "🇹🇴 Tonga", "688": "🇹🇻 Tuvalu", "886": "🇹🇼 Taiwan",
+    "852": "🇭🇰 Hong Kong", "853": "🇲🇴 Macau"
+}
+
+def get_country_info(range_str):
+    clean_range = str(range_str or "").replace("X", "")
+    for code, name in sorted(COUNTRY_CODES.items(), key=lambda x: len(x[0]), reverse=True):
+        if clean_range.startswith(code): return code, name
+    return clean_range[:3], f"🏳️ Other (+{clean_range[:3]})"
+
+def detect_service(message_text, raw_sid=""):
+    msg_lower = str(message_text).lower()
+    sid_lower = str(raw_sid).lower()
+    for service, keywords in SERVICE_SMS_KEYWORDS.items():
+        for kw in keywords:
+            if re.search(rf'\b{re.escape(kw)}\b', msg_lower) or kw in msg_lower:
+                return service
+    for service in PREMIUM_APPS.keys():
+        if service.lower() in sid_lower:
+            return service
+    return "Other"
+
+def get_service_info_html(service_name):
+    app_info = PREMIUM_APPS.get(service_name, PREMIUM_APPS["Other"])
+    return f'<tg-emoji emoji-id="{app_info["id"]}">{app_info["emoji"]}</tg-emoji> <b>{html.escape(service_name.upper())}</b>', app_info["id"]
+
+def extract_otp_code(message_text):
+    match = re.search(r'\b(\d{3}[\s-]?\d{3,4}|\d{4,8})\b', str(message_text))
+    if match: return match.group(1)
+    return "COPY"
+
+def deliver_to_inbox(user_id, service_name, raw_number, msg_text, current_balance, reward):
+    service_html, srv_eid = get_service_info_html(service_name)
+    clean_raw_number = str(raw_number).lstrip('+') 
+    text = (
+        f"— — — — — — — — — —\n"
+        f"<blockquote>{service_html} <code>+{clean_raw_number}</code></blockquote>\n"
+        f"<blockquote><tg-emoji emoji-id=\"5420323438508155202\">➕</tg-emoji> <b>ADDED</b>  ➜ {reward:.3f}$</blockquote>\n"
+        f"<blockquote><tg-emoji emoji-id=\"5190899075968441286\">💳</tg-emoji> <b>BALANCE</b> ➜ {current_balance:.3f}$</blockquote>\n"
+        f"— — — — — — — — — —"
+    )
+    otp = extract_otp_code(msg_text)
+    markup = {"inline_keyboard": [[{"text": f"{otp}", "icon_custom_emoji_id": srv_eid, "copy_text": {"text": otp}, "style": "success"}]]}
+    send_message(user_id, text, reply_markup=markup)
+
+def generate_otp_display(service_name, raw_number, message_text):
+    c_code, c_name = get_country_info(raw_number)
+    parts = c_name.split(" ", 1)
+    country_emoji = parts[0]
+    masked_number = f"{raw_number[:3]}DXA{raw_number[-3:]}" if len(raw_number) > 6 else raw_number
+    service_html, srv_eid = get_service_info_html(service_name)
+    
+    text = (
+        f"━━━━━━━━━━━━━━━━━\n"
+        f"{service_html} ➜ {country_emoji} <code>{html.escape(masked_number)}</code>\n"
+        f"━━━━━━━━━━━━━━━━━"
+    )
+    otp = extract_otp_code(message_text)
+    clean_range = str(raw_number)[:5] if len(str(raw_number)) >= 5 else str(raw_number)
+    deep_link = f"https://t.me/{BOT_USERNAME}?start=alloc_{clean_range}_{service_name.lower()}"
+    
+    markup = {"inline_keyboard": []}
+    row1 = []
+    main_channel_link = bot_settings.get("main_channel_link", "https://t.me/LIVEOTPIVAS")
+    if main_channel_link:
+        row1.append({"text": "𝗖𝗛𝗔𝗡𝗡𝗘𝗟", "url": main_channel_link, "icon_custom_emoji_id": "5429353834881261942", "style": "primary"})
+    row1.append({"text": f"{otp}", "icon_custom_emoji_id": srv_eid, "copy_text": {"text": otp}, "style": "success"})
+    markup["inline_keyboard"].append(row1)
+    markup["inline_keyboard"].append([
+        {"text": "GET NUMBER", "url": deep_link, "icon_custom_emoji_id": "5429167978761461870", "style": "danger"}
+    ])
+    return text, markup
+
+def send_otp_to_groups(formatted_text, markup):
+    global otp_forward_groups
+    if not otp_forward_groups: return False
+    for group_id in otp_forward_groups:
+        send_message(group_id, formatted_text, reply_markup=markup)
+        time.sleep(1) 
+    return True
+
+# ==========================================
+# FE NODE API v3 Integration Client & All Status Commands
+# ==========================================
+def fe_node_api_request(endpoint, method="GET", payload=None):
+    headers = {"mknetwork-key": get_api_key(), "Content-Type": "application/json"}
+    url = f"{FE_NODE_BASE_URL}{endpoint}"
+    try:
+        if method == "POST":
+            res = requests.post(url, headers=headers, json=payload, timeout=10)
+        else:
+            res = requests.get(url, headers=headers, timeout=10)
+        return res.json()
+    except:
+        return {"meta": {"code": 500}, "error": "Connection Failed"}
+
+# Danh sách tất cả lệnh API từ FE NODE tích hợp cho Admin:
+# 1. whoami (/whoami) - Kiểm tra thông tin tài khoản API/Key hiện tại.
+# 2. access_list (/access_list) - Lấy danh sách các dịch vụ và dải số đang hoạt động.
+# 3. radar (/radar) - Quét thông lượng và SMS đang về thời gian thực.
+# 4. getnum (/getnum/number) - Cấp phát số điện thoại theo dải.
+# 5. balance (/balance) - Kiểm tra số dư tài khoản API FE NODE.
+# 6. status (/status) - Kiểm tra trạng thái hoạt động của hệ thống node.
+
+def fetch_live_access():
+    data = fe_node_api_request("/access_list")
+    if data.get("meta", {}).get("code") == 200:
+        return data.get("data", [])
+    return []
+
+def fetch_live_number(range_code):
+    payload = {"range": str(range_code)}
+    data = fe_node_api_request("/getnum/number", method="POST", payload=payload)
+    if data.get("meta", {}).get("code") == 200:
+        return data.get("data", {})
+    return None
+
+def fe_node_console_listener():
+    global recent_traffic, fe_node_dynamic_data
+    cycle_count = 0
+    while True:
+        try:
+            data = fe_node_api_request("/radar")
+            if data.get("meta", {}).get("code") == 200:
+                hits = data.get("data", [])
+                new_traffic, seen_signatures = [], set()
+                current_time = int(time.time())
+                
+                for h in hits:
+                    sig = f"{h.get('time', 0)}_{h.get('range', '')}"
+                    if sig not in seen_signatures:
+                        h['local_receive_time'] = current_time 
+                        new_traffic.append(h)
+                        seen_signatures.add(sig)
+                        
+                        raw_sid = h.get("sid") or "Unknown"
+                        raw_msg = h.get("message") or ""
+                        raw_range = str(h.get("range", "")).replace("X", "")
+                        
+                        if raw_range:
+                            detected_sid = detect_service(raw_msg, raw_sid)
+                            app_info = PREMIUM_APPS.get(detected_sid, PREMIUM_APPS["Other"])
+                            
+                            if detected_sid not in fe_node_dynamic_data:
+                                fe_node_dynamic_data[detected_sid] = {"emoji_id": app_info["id"], "normal_emoji": app_info["emoji"], "ranges": {}}
+                            if raw_range not in fe_node_dynamic_data[detected_sid]["ranges"]:
+                                fe_node_dynamic_data[detected_sid]["ranges"][raw_range] = {"last_seen": current_time, "hits": 0}
+                            fe_node_dynamic_data[detected_sid]["ranges"][raw_range]["last_seen"] = current_time
+                            fe_node_dynamic_data[detected_sid]["ranges"][raw_range]["hits"] += 1
+
+                recent_traffic = new_traffic
+                cycle_count += 1
+                if cycle_count % 3 == 0: save_local_data()
+        except Exception: pass
         time.sleep(10)
 
-    def on_open(ws): print("🟢 WebSocket Connected Real-time!")
-
+def fe_node_sms_listener():
+    global recent_success_otps, otp_forward_groups, user_active_sessions
+    group_sent_otps = set() 
     while True:
-        for uid, cfg in user_configs.items():
-            ws_url = cfg.get("ws_url")
-            if ws_url and ws_url.startswith("wss://"):
-                try:
-                    wsapp = websocket.WebSocketApp(ws_url, on_open=on_open, on_message=on_message, on_error=on_error, on_close=on_close)
-                    wsapp.run_forever()
-                except Exception as e:
-                    for admin_id in ADMIN_IDS:
-                        try:
-                            bot.send_message(admin_id, f"🚨 <b>WSS CRITICAL FAILURE!</b>\n\nException: <code>{str(e)}</code>", parse_mode="HTML")
-                        except: pass
-        time.sleep(15)
-
-# --- FLASK SERVER & WEB APP ---
-app = Flask(__name__)
-app.config["SECRET_KEY"] = FLASK_SECRET_KEY
-
-def verify_telegram_init_data(init_data: str):
-    if not init_data or not BOT_TOKEN:
-        return None
-    try:
-        parsed = dict(parse_qsl(init_data, keep_blank_values=True))
-        received_hash = parsed.pop("hash", None)
-        if not received_hash:
-            return None
-
-        data_check_string = "\n".join(
-            f"{key}={value}"
-            for key, value in sorted(parsed.items())
-        )
-
-        secret_key = hmac.new(
-            key=b"WebAppData",
-            msg=BOT_TOKEN.encode("utf-8"),
-            digestmod=hashlib.sha256
-        ).digest()
-
-        calculated_hash = hmac.new(
-            key=secret_key,
-            msg=data_check_string.encode("utf-8"),
-            digestmod=hashlib.sha256
-        ).hexdigest()
-
-        if not hmac.compare_digest(calculated_hash, received_hash):
-            return None
-
-        auth_date = int(parsed.get("auth_date", "0"))
-        now = int(time.time())
-        if auth_date <= 0 or now - auth_date > 300:
-            return None
-        if auth_date > now + 30:
-            return None
-
-        user_data = json.loads(parsed.get("user", "{}"))
-        user_id = int(user_data.get("id", 0))
-        if user_id <= 0:
-            return None
-
-        return {"user_id": user_id, "user": user_data}
-    except Exception:
-        return None
-
-def require_admin(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        init_data = request.headers.get("X-Telegram-Init-Data", "")
-        auth_result = verify_telegram_init_data(init_data)
-        
-        if not auth_result:
-            return jsonify({"success": False, "error": "Unauthorized / Invalid initData"}), 401
-            
-        if auth_result["user_id"] not in ADMIN_IDS:
-            return jsonify({"success": False, "error": "Forbidden: Admin access required"}), 403
-            
-        return f(*args, **kwargs)
-    return decorated
-
-@app.route('/api/inventory', methods=['GET'])
-def api_inventory():
-    countries_data = []
-    for key, data in inventory_numbers.items():
-        available_numbers = [{"phone": item["phone"], "expires": item["expires"]} for item in data["numbers"] if not item.get("locked_by")]
-        countries_data.append({
-            "key": key, 
-            "name": data["name"], 
-            "flag": data["flag"], 
-            "prefix": key.split()[0] if " " in key else "84",
-            "numbers": available_numbers
-        })
-    return jsonify(countries_data)
-
-@app.route('/api/admin/stats', methods=['GET'])
-@require_admin
-def api_admin_stats():
-    total_ranges = len([k for k, v in inventory_numbers.items() if len(v["numbers"]) > 0])
-    total_numbers_count = sum(len(v["numbers"]) for v in inventory_numbers.values())
-    virtual_lines_taken = len(user_rentals)
-    verified_payloads = len(live_radar_logs)
-    success_rate = round((verified_payloads / max(1, verified_payloads + 5)) * 100, 1)
-
-    ranges_summary = []
-    for key, data in inventory_numbers.items():
-        if data["numbers"]:
-            sample_num = data["numbers"][0]["phone"]
-            range_prefix = sample_num[:5] + "XXX"
-            ranges_summary.append({
-                "range": range_prefix,
-                "country": data["name"],
-                "flag": data["flag"],
-                "count": len(data["numbers"])
-            })
-
-    return jsonify({
-        "success": True,
-        "active_ranges": total_ranges,
-        "operators": len(country_db),
-        "virtual_lines_taken": virtual_lines_taken,
-        "verified_payloads": verified_payloads,
-        "success_rate": success_rate,
-        "total_numbers": total_numbers_count,
-        "radar_logs": live_radar_logs[:20],
-        "ranges_summary": ranges_summary[:100]
-    })
-
-@app.route('/api/admin/delete_number', methods=['POST'])
-@require_admin
-def api_delete_number():
-    data = request.json or {}
-    phone = data.get("phone")
-    deleted = False
-    for key, val in inventory_numbers.items():
-        initial_len = len(val["numbers"])
-        val["numbers"] = [item for item in val["numbers"] if item["phone"] != phone]
-        if len(val["numbers"]) < initial_len:
-            deleted = True
-            break
-    return jsonify({"success": deleted})
-
-@app.route('/api/admin/delete_bulk_country', methods=['POST'])
-@require_admin
-def api_delete_bulk_country():
-    data = request.json or {}
-    key = data.get("key")
-    count = int(data.get("count", 100))
-    if key in inventory_numbers:
-        removed_count = min(count, len(inventory_numbers[key]["numbers"]))
-        inventory_numbers[key]["numbers"] = inventory_numbers[key]["numbers"][removed_count:]
-        return jsonify({"success": True, "removed": removed_count})
-    return jsonify({"success": False})
-
-@app.route("/api/ivas/health", methods=["GET"])
-@require_admin
-def ivas_health_api():
-    with _ivas_lock:
-        return jsonify({
-            "ok": True,
-            **ivas_health
-        })
-
-@app.route("/admin/refresh-ivas-cookie", methods=["POST"])
-def refresh_ivas_cookie():
-    if IVAS_REFRESH_TOKEN:
-        token = request.headers.get("X-Refresh-Token", "")
-        if token != IVAS_REFRESH_TOKEN:
-            return jsonify({"ok": False, "error": "invalid refresh token"}), 403
-
-    payload = request.get_json(silent=True) or {}
-    new_cookie = (payload.get("cookie") or "").strip()
-
-    if not new_cookie:
-        return jsonify({"ok": False, "error": "missing 'cookie' field"}), 400
-
-    parsed = _parse_cookie_string(new_cookie)
-    if not parsed:
-        return jsonify({"ok": False, "error": "cookie parsed to zero entries"}), 400
-
-    persisted = _write_cookie_to_file(new_cookie)
-    _invalidate_session()
-
-    try:
-        _get_ivas_session()
-    except Exception as e:
-        return jsonify({"ok": False, "error": f"session build failed: {e}"}), 500
-
-    alive = ivas_check_session()
-
-    return jsonify({
-        "ok": True,
-        "cookie_keys": list(parsed.keys()),
-        "persisted_to_file": persisted,
-        "session_alive": alive,
-    })
-
-@app.route('/api/config/update', methods=['POST'])
-@require_admin
-def api_config_update():
-    data = request.json or {}
-    base_url = data.get("base_url")
-    token_or_cookie = data.get("token_or_cookie")
-    
-    global IVAS_BASE_URL
-    if base_url:
-        IVAS_BASE_URL = base_url.strip().rstrip("/")
-        
-    if token_or_cookie:
-        _write_cookie_to_file(token_or_cookie.strip())
-        _invalidate_session()
-        
-    return jsonify({"success": True, "message": "Cập nhật cấu hình IVAS thành công!"})
-
-# ============================================================
-# MK NETWORK API V3 ENDPOINTS
-# ============================================================
-@app.route('/api/v3/whoami', methods=['GET'])
-@require_admin
-def api_v3_whoami():
-    res = mk_client.whoami()
-    return jsonify(res or {})
-
-@app.route('/api/v3/access_list', methods=['GET'])
-@require_admin
-def api_v3_access_list():
-    country = request.args.get("country")
-    operator = request.args.get("operator")
-    q = request.args.get("q")
-    health = request.args.get("health")
-    limit = int(request.args.get("limit", 100))
-    offset = int(request.args.get("offset", 0))
-    res = mk_client.access_list(country=country, operator=operator, q=q, health=health, limit=limit, offset=offset)
-    return jsonify(res or {})
-
-@app.route('/api/v3/radar', methods=['GET'])
-@require_admin
-def api_v3_radar():
-    q = request.args.get("q")
-    limit = int(request.args.get("limit", 25))
-    charts = request.args.get("charts", "false").lower() == "true"
-    res = mk_client.radar(q=q, limit=limit, charts=charts)
-    return jsonify(res or {})
-
-@app.route('/')
-def home():
-    countries_data = []
-    for key, data in inventory_numbers.items():
-        available_numbers = [{"phone": item["phone"], "expires": item["expires"]} for item in data["numbers"] if not item.get("locked_by")]
-        countries_data.append({
-            "key": key, 
-            "name": data["name"], 
-            "flag": data["flag"], 
-            "prefix": key.split()[0] if " " in key else "84",
-            "numbers": available_numbers
-        })
-    
-    return render_template_string("""
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Fast Node • Portal Dashboard</title>
-        <script src="https://telegram.org/js/telegram-web-app.js"></script>
-        <style>
-            :root { --bg: #0f172a; --card: #1e293b; --orange-bar: #f59e0b; --border: #334155; --text: #f8fafc; --muted: #94a3b8; --green: #22c55e; --red: #ef4444; --admin-gold: #fbbf24; }
-            body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 0; }
-            
-            .top-bar { background: var(--orange-bar); color: #000; padding: 12px 16px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; }
-            .hamburger-btn { background: none; border: none; font-size: 20px; cursor: pointer; color: #000; font-weight: bold; }
-            
-            .sidebar { position: fixed; top: 0; left: -260px; width: 250px; height: 100%; background: #131c2e; border-right: 1px solid var(--border); transition: 0.3s ease; z-index: 1000; padding-top: 20px; box-shadow: 4px 0 15px rgba(0,0,0,0.5); overflow-y: auto; }
-            .sidebar.open { left: 0; }
-            .sidebar-header { padding: 0 16px 15px 16px; border-bottom: 1px solid var(--border); font-size: 16px; font-weight: bold; color: #38bdf8; display: flex; justify-content: space-between; align-items: center; }
-            .menu-link { display: block; padding: 14px 16px; color: var(--text); text-decoration: none; font-weight: bold; font-size: 14px; border-bottom: 1px solid var(--border); cursor: pointer; transition: 0.2s; }
-            .menu-link:hover { background: #1e293b; color: #38bdf8; }
-
-            .content-container { padding: 12px; }
-            .view-section { display: none; }
-            .view-section.active { display: block; }
-
-            .dashboard-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 10px; margin-bottom: 12px; }
-            @media(max-width: 600px) { .dashboard-grid { grid-template-columns: 1fr; } }
-
-            .widget-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 12px; }
-            .widget-title { font-size: 14px; font-weight: bold; color: #f59e0b; margin-bottom: 10px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
-
-            .apps-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-            .app-box { background: #131c2e; border: 1px solid var(--border); border-radius: 8px; padding: 8px; text-align: center; font-size: 11px; }
-            .app-box b { display: block; font-size: 12px; color: #38bdf8; margin-top: 2px; }
-
-            .range-item { display: flex; align-items: center; justify-content: space-between; background: #131c2e; border: 1px solid var(--border); padding: 8px; border-radius: 6px; margin-bottom: 6px; font-size: 12px; }
-
-            .grid-countries { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
-            .country-pill { background: #131c2e; border: 1px solid var(--border); border-radius: 6px; padding: 6px 2px; text-align: center; cursor: pointer; font-size: 10px; }
-            .country-pill:hover { border-color: #38bdf8; }
-
-            .number-item { display: flex; justify-content: space-between; align-items: center; background: #131c2e; border: 1px solid var(--border); padding: 8px; border-radius: 6px; margin-bottom: 6px; font-size: 13px; }
-            .btn { background: var(--green); color: white; border: none; border-radius: 6px; padding: 8px 14px; font-size: 13px; font-weight: bold; cursor: pointer; width: 100%; margin-top: 8px; }
-            .btn-red { background: var(--red); }
-            .btn-gray { background: #475569; }
-
-            .input-box { width: 100%; padding: 10px; background: #0f172a; border: 1px solid var(--border); border-radius: 8px; color: white; margin-bottom: 10px; box-sizing: border-box; font-size: 14px; }
-            .textarea-box { width: 100%; height: 100px; padding: 10px; background: #0f172a; border: 1px solid var(--border); border-radius: 8px; color: white; margin-bottom: 10px; box-sizing: border-box; font-size: 13px; resize: vertical; }
-            .warning-box { background: rgba(239, 68, 68, 0.1); border: 1px solid var(--red); padding: 10px; border-radius: 8px; font-size: 12px; color: #fca5a5; margin-bottom: 10px; line-height: 1.4; }
-
-            .admin-container { background: #0b1329; border: 1px solid #38bdf8; border-radius: 12px; padding: 16px; margin-bottom: 15px; }
-            .admin-nav-tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
-            .admin-tab-btn { background: #1e293b; border: 1px solid var(--border); color: var(--text); padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap; }
-            .admin-tab-btn.active { background: #38bdf8; color: #000; font-weight: bold; border-color: #38bdf8; }
-            .admin-subview { display: none; }
-            .admin-subview.active { display: block; }
-            .mk-stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 12px; }
-            .mk-stat-box { background: #131c2e; border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
-            .mk-stat-label { font-size: 11px; color: var(--muted); }
-            .mk-stat-val { font-size: 16px; font-weight: bold; color: #38bdf8; margin-top: 4px; }
-        </style>
-    </head>
-    <body>
-        <div class="top-bar">
-            <div style="display:flex; align-items:center; gap:10px;">
-                <button class="hamburger-btn" onclick="toggleSidebar()">☰</button>
-                <span>Fast Node • Portal</span>
-            </div>
-            <span id="headerBalance">Balance: $0.000</span>
-        </div>
-
-        <div class="sidebar" id="sidebarDrawer">
-            <div class="sidebar-header">
-                <span>📁 Menu</span>
-                <span style="cursor:pointer; font-size:18px;" onclick="toggleSidebar()">✕</span>
-            </div>
-            <a class="menu-link" onclick="switchView('dashboardView')">📊 Dashboard</a>
-            <a class="menu-link" onclick="switchView('getNumberView')">🌍 Get Number (195+)</a>
-            <a class="menu-link" onclick="switchView('withdrawView')">💸 Withdraw (TON USDT)</a>
-            <a class="menu-link" onclick="switchView('referralView')">👥 Referral Program</a>
-            
-            <a class="menu-link" id="addNumbersSidebarLink" style="display:none; color:#f59e0b;" onclick="switchView('addNumbersView')">➕ Add Numbers (Admin)</a>
-            <a class="menu-link" id="adminPanelSidebarLink" style="display:none; color:#fbbf24; background:rgba(251, 191, 36, 0.1);" onclick="switchView('adminPanelView')">👑 ADMIN PANEL (Fast Node)</a>
-
-            <a class="menu-link" onclick="window.open('https://t.me/LIVEOTPIVAS', '_blank')">📢 Official Channel</a>
-            <a class="menu-link" style="color:var(--red);" onclick="exitApp()">❌ Exit App</a>
-        </div>
-
-        <div class="content-container">
-            
-            <div id="dashboardView" class="view-section active">
-                <div class="dashboard-grid">
-                    <div class="widget-card">
-                        <div class="widget-title">Top Applications Access (Real-time & 24h Reset)</div>
-                        <div class="apps-grid" id="appsGrid"></div>
-                    </div>
-                    <div class="widget-card">
-                        <div class="widget-title">🔥 Top Ranges (Real-time Active)</div>
-                        <div id="topRangesContainer">
-                            <p style="font-size:11px; color:var(--muted); text-align:center;">No active ranges yet.</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ADMIN PANEL VIEW -->
-            <div id="adminPanelView" class="view-section">
-                <div class="admin-container">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                        <h2 style="font-size:16px; color:#fbbf24; margin:0;">FAST NODE • COMMAND CENTER</h2>
-                        <span style="font-size:11px; color:var(--muted);" id="adminTimestamp"></span>
-                    </div>
-                    <p style="font-size:12px; color:var(--muted); margin-bottom:12px;">Workspace metrics, telemetry, and advanced carrier routing.</p>
-
-                    <div class="admin-nav-tabs">
-                        <button class="admin-tab-btn active" onclick="switchAdminTab('admOverview', event)">📊 Dashboard</button>
-                        <button class="admin-tab-btn" onclick="switchAdminTab('admNumbers', event)">📦 Numbers & Ranges</button>
-                        <button class="admin-tab-btn" onclick="switchAdminTab('admRadar', event)">📡 Radar</button>
-                        <button class="admin-tab-btn" onclick="switchAdminTab('admAccess', event)">🔗 Gateway Access</button>
-                        <button class="admin-tab-btn" onclick="switchAdminTab('admWallet', event)">💳 Treasury & Funds</button>
-                        <button class="admin-tab-btn" onclick="switchAdminTab('admAudit', event)">📈 My Audit</button>
-                        <button class="admin-tab-btn" onclick="switchAdminTab('admProfile', event)">👤 Identity</button>
-                        <button class="admin-tab-btn" onclick="switchAdminTab('admDeveloper', event)">⚡ API Access</button>
-                    </div>
-
-                    <div id="admOverview" class="admin-subview active">
-                        <div class="mk-stat-grid">
-                            <div class="mk-stat-box">
-                                <div class="mk-stat-label">VIRTUAL LINES TAKEN</div>
-                                <div class="mk-stat-val" id="realVirtualLines">0</div>
-                            </div>
-                            <div class="mk-stat-box">
-                                <div class="mk-stat-label">VERIFIED PAYLOADS</div>
-                                <div class="mk-stat-val" style="color:var(--green);" id="realVerifiedPayloads">0</div>
-                            </div>
-                            <div class="mk-stat-box">
-                                <div class="mk-stat-label">CONVERSION RATE</div>
-                                <div class="mk-stat-val" style="color:#f59e0b;">$0.0050</div>
-                            </div>
-                            <div class="mk-stat-box">
-                                <div class="mk-stat-label">AVAILABLE CAPITAL</div>
-                                <div class="mk-stat-val">$0.0000</div>
-                            </div>
-                        </div>
-                        <div class="widget-card">
-                            <div class="widget-title">SYSTEM ANALYTICS & EXTRACTION</div>
-                            <div style="font-size:13px; margin-bottom:6px;">Extraction Success Rate</div>
-                            <div style="font-size:18px; font-weight:bold; color:var(--green);" id="realSuccessRate">100% <span style="font-size:11px; color:var(--muted); font-weight:normal;" id="realSuccessText">Real-time live synchronization active</span></div>
-                        </div>
-                    </div>
-
-                    <div id="admNumbers" class="admin-subview">
-                        <div class="widget-card">
-                            <div class="widget-title">🔒 Number Allocation & Range Management (Admin Only)</div>
-                            <p style="font-size:11px; color:var(--muted); margin-bottom:10px;">Danh sách dải số tự động nhận diện theo quốc gia. Bấm <b>Copy</b> để reg thủ công.</p>
-                            <input type="text" class="input-box" placeholder="Tìm kiếm dải số hoặc quốc gia..." id="admSearchRange" oninput="filterAdminRanges()">
-                            <div id="admNumberAllocationList" style="max-height: 280px; overflow-y: auto;">
-                                <p style="font-size:12px; color:var(--muted);">Đang tải dải số...</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div id="admRadar" class="admin-subview">
-                        <div class="widget-card">
-                            <div class="widget-title">Unified Radar Feed (Real-Time OTP Traffic)</div>
-                            <p style="font-size:11px; color:var(--muted); margin-bottom:8px;">Live incoming messages from IVASMS gateway.</p>
-                            <div id="admRadarFeedList" style="max-height:250px; overflow-y:auto; font-size:12px;">
-                                <p style="font-size:11px; color:var(--muted); text-align:center;">Waiting for real-time traffic...</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div id="admAccess" class="admin-subview">
-                        <div class="widget-card">
-                            <div class="widget-title">Gateway Matrix • Target Nodes</div>
-                            <div class="mk-stat-grid" style="margin-bottom:10px;">
-                                <div class="mk-stat-box"><div class="mk-stat-label">ACTIVE RANGES</div><div class="mk-stat-val" id="realActiveRanges">0</div></div>
-                                <div class="mk-stat-box"><div class="mk-stat-label">OPERATORS</div><div class="mk-stat-val" id="realOperators">195</div></div>
-                            </div>
-                            <div style="font-size:12px; color:var(--muted);" id="realInventoryText">Routing Inventory loaded across connected regions.</div>
-                        </div>
-                    </div>
-
-                    <div id="admWallet" class="admin-subview">
-                        <div class="widget-card">
-                            <div class="widget-title">Treasury & Funds • Capital Vault</div>
-                            <div style="font-size:13px; margin-bottom:6px;">Available Capital: <b style="color:var(--green);">0.0000 USD</b></div>
-                            <div class="warning-box">Changing payout method later needs manual identity review (KYC). Min withdraw: $3.00 (TON).</div>
-                            <label style="font-size:12px; color:var(--muted); display:block; margin-bottom:4px;">Payout Method:</label>
-                            <select class="input-box" id="payoutMethodSelect"><option value="ton">TON Network / USDT ($3.00 Min)</option><option value="bkash">bKash</option><option value="binance">Binance UID</option></select>
-                            <input type="text" class="input-box" placeholder="Account / Wallet Address..." id="payoutAccountInput">
-                            <button class="btn" onclick="saveVaultConfig()">Activate Vault & Security</button>
-                        </div>
-                    </div>
-
-                    <div id="admAudit" class="admin-subview">
-                        <div class="widget-card">
-                            <div class="widget-title">Audit Trail & Telemetry Logs</div>
-                            <div class="mk-stat-grid">
-                                <div class="mk-stat-box"><div class="mk-stat-label">LINES EXECUTED</div><div class="mk-stat-val" id="auditLinesExecuted">5</div></div>
-                                <div class="mk-stat-box"><div class="mk-stat-label">VERIFIED PAYLOADS</div><div class="mk-stat-val" id="auditVerifiedPayloads">0</div></div>
-                            </div>
-                            <button class="btn btn-gray" onclick="downloadAuditReport()">📥 Download Audit Report</button>
-                        </div>
-                    </div>
-
-                    <div id="admProfile" class="admin-subview">
-                        <div class="widget-card">
-                            <div class="widget-title">Admin Identity & Security Profile</div>
-                            <input type="text" class="input-box" value="Khoibro090" id="admProfileName">
-                            <input type="text" class="input-box" value="8804664464" id="admProfilePhone">
-                            <button class="btn" onclick="saveProfileChanges()">Save Changes</button>
-                        </div>
-                    </div>
-
-                    <div id="admDeveloper" class="admin-subview">
-                        <div class="widget-card">
-                            <div class="widget-title">⚡ API Access & Real-Time IVASMS Bridge Configuration</div>
-                            <p style="font-size:11px; color:var(--muted); margin-bottom:8px;">Nhập Base URL và Cookie thủ công để thiết lập cầu nối trực tiếp Real-Time IVASMS.</p>
-                            
-                            <label style="font-size:11px; color:#38bdf8;">IVAS Base URL:</label>
-                            <input type="text" class="input-box" id="editIvasBaseUrl" value="https://www.ivasms.com">
-
-                            <label style="font-size:11px; color:#38bdf8;">Cookie String:</label>
-                            <input type="password" class="input-box" id="editIvasTokenCookie" placeholder="Dán chuỗi cookie (cf_clearance=...; ivas_session=...) vào đây...">
-
-                            <div style="display:flex; gap:6px; margin-top:8px;">
-                                <button class="btn" style="flex:1; margin:0;" onclick="saveIvasConfigBridge()">💾 Save & Connect</button>
-                                <button class="btn btn-red" style="flex:1; margin:0;" onclick="cancelIvasConfigBridge()">❌ Cancel</button>
-                            </div>
-                        </div>
-                    </div>
-
-                </div>
-            </div>
-
-            <div id="getNumberView" class="view-section">
-                <div class="widget-card" id="marketplaceSection">
-                    <div class="widget-title">Get Number • 195+ Countries Marketplace</div>
-                    <div class="grid-countries" id="countryGrid"></div>
-                </div>
-
-                <div class="widget-card" id="detailCard" style="display:none;">
-                    <h3 id="detailTitleText" style="color:#38bdf8; font-size:14px; margin-bottom:8px;">Number Details</h3>
-                    <div id="numberListContainer"></div>
-                    <div style="display:flex; gap:6px; margin-top:10px;">
-                        <button class="btn btn-gray" style="flex:1; margin:0;" onclick="goBackToGrid()">🔙 Back</button>
-                        <button class="btn" style="flex:1; margin:0;" onclick="refreshInventory()">🔄 Refresh</button>
-                    </div>
-                </div>
-            </div>
-
-            <div id="withdrawView" class="view-section">
-                <div class="widget-card">
-                    <div class="widget-title">💸 Withdraw USDT (TON Network)</div>
-                    <div class="warning-box">
-                        <b>⚠️ IMPORTANT RULES & REGULATIONS:</b><br>
-                        • Minimum withdrawal amount: <b>$3.00</b>.<br>
-                        • Only enter a valid <b>TON network USDT address</b> (must start with EQ or UQ).<br>
-                        • <b>WARNING:</b> Incorrect network/address means permanent loss of funds!
-                    </div>
-                    <div style="font-size: 13px; margin-bottom: 6px; color: var(--muted);">Your Balance: <b id="withdrawBalance" style="color:var(--green);">$0.000</b></div>
-                    <input type="number" id="withdrawAmount" class="input-box" placeholder="Min $3.00">
-                    <input type="text" id="tonAddress" class="input-box" placeholder="TON Address (EQ... / UQ...)">
-                    <button class="btn" onclick="requestWithdraw()">Submit Withdrawal Request</button>
-                </div>
-            </div>
-
-            <div id="referralView" class="view-section">
-                <div class="widget-card">
-                    <div class="widget-title">👥 Referral Program & Earnings</div>
-                    <p style="font-size: 13px; color: var(--muted); line-height: 1.4;">
-                        Invite friends using your link. Earn <b>$0.005</b> for every active user!
-                    </p>
-                    <div style="margin: 12px 0;">
-                        <label style="font-size: 12px; color: var(--muted);">Your Referral Link:</label>
-                        <input type="text" id="refLinkInput" class="input-box" readonly style="background:#0f172a; color:#38bdf8; margin-top:4px;">
-                    </div>
-                    <div style="display: flex; gap: 10px; margin-top: 10px;">
-                        <div class="widget-card" style="flex:1; text-align:center; margin:0;">
-                            <div style="font-size: 11px; color: var(--muted);">Invited Friends</div>
-                            <div id="refCountDisplay" style="font-size: 18px; font-weight: bold; color: #38bdf8; margin-top: 4px;">0</div>
-                        </div>
-                        <div class="widget-card" style="flex:1; text-align:center; margin:0;">
-                            <div style="font-size: 11px; color: var(--muted);">Total Earned</div>
-                            <div id="refEarningsDisplay" style="font-size: 18px; font-weight: bold; color: var(--green); margin-top: 4px;">$0.000</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div id="addNumbersView" class="view-section">
-                <div class="widget-card">
-                    <div class="widget-title">➕ Auto-Add Numbers (Admin)</div>
-                    <p style="font-size: 12px; color: var(--muted); line-height: 1.4;">
-                        Paste numbers below. Auto-detects country codes & checks duplicates!
-                    </p>
-                    <textarea id="bulkNumbersInput" class="textarea-box" placeholder="Paste numbers here..."></textarea>
-                    <button class="btn" onclick="submitBulkNumbers()">Auto-Deploy & Categorize Numbers</button>
-                </div>
-
-                <div class="widget-card">
-                    <div class="widget-title" style="color:#ef4444;">🗑 Number Deletion Management</div>
-                    
-                    <div style="margin-bottom: 12px;">
-                        <label style="font-size: 12px; font-weight: bold; color: #38bdf8; display: block; margin-bottom: 4px;">🗑 Delete Specific Numbers</label>
-                        <div style="display:flex; gap:6px;">
-                            <input type="text" id="specificPhoneInput" class="input-box" placeholder="Enter phone number to delete..." style="margin:0;">
-                            <button class="btn btn-red" style="width:auto; margin:0; padding:0 12px;" onclick="deleteSpecificNumber()">Delete</button>
-                        </div>
-                    </div>
-
-                    <div>
-                        <label style="font-size: 12px; font-weight: bold; color: #f59e0b; display: block; margin-bottom: 4px;">⚡ Delete 100 Numbers by Country (195+)</label>
-                        <select id="countryDeleteSelect" class="input-box" style="margin-bottom:6px;">
-                            <option value="">-- Select Country to Delete (100 numbers) --</option>
-                        </select>
-                        <button class="btn btn-red" onclick="deleteBulkByCountry()">Permanently Delete 100 Numbers</button>
-                    </div>
-                </div>
-            </div>
-
-        </div>
-
-        <script>
-            let tg = window.Telegram.WebApp;
-            tg.expand();
-
-            let userBalance = 0.000;
-            let refCount = 0;
-            let refEarnings = 0.000;
-            let userTgId = tg.initDataUnsafe && tg.initDataUnsafe.user ? Number(tg.initDataUnsafe.user.id) : 0;
-            let adminIds = {{ admin_ids | tojson }};
-            let globalRangesSummary = [];
-
-            if (adminIds.includes(userTgId)) {
-                document.getElementById('adminPanelSidebarLink').style.display = 'block';
-                document.getElementById('addNumbersSidebarLink').style.display = 'block';
-            } else {
-                document.getElementById('adminPanelSidebarLink').style.display = 'none';
-                document.getElementById('addNumbersSidebarLink').style.display = 'none';
-            }
-
-            document.getElementById('refLinkInput').value = `https://t.me/FastNode_Bot?start=ref${userTgId}`;
-            document.getElementById('adminTimestamp').innerText = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-
-            let appStats = {{ app_stats | tojson }};
-            let topRanges = {{ top_ranges_data | tojson }};
-            let countriesData = {{ countries_data | tojson }};
-            let currentSelectedCountry = null;
-            let currentSelectedCountryKey = null;
-
-            function toggleSidebar() {
-                document.getElementById('sidebarDrawer').classList.toggle('open');
-            }
-
-            function switchView(viewId) {
-                document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
-                document.getElementById(viewId).classList.add('active');
-                toggleSidebar();
-                if (viewId === 'adminPanelView') {
-                    fetchAdminStats();
-                }
-            }
-
-            function switchAdminTab(tabId, event) {
-                document.querySelectorAll('.admin-subview').forEach(el => el.classList.remove('active'));
-                document.querySelectorAll('.admin-tab-btn').forEach(el => el.classList.remove('active'));
-                document.getElementById(tabId).classList.add('active');
-                if (event && event.target) {
-                    event.target.classList.add('active');
-                }
-            }
-
-            function fetchAdminStats() {
-                fetch('/api/admin/stats', {
-                    headers: { 'X-Telegram-Init-Data': tg.initData }
-                }).then(res => res.json()).then(data => {
-                    if (data.success) {
-                        document.getElementById('realVirtualLines').innerText = data.virtual_lines_taken;
-                        document.getElementById('realVerifiedPayloads').innerText = data.verified_payloads;
-                        document.getElementById('realSuccessRate').innerHTML = `${data.success_rate}% <span style="font-size:11px; color:var(--muted); font-weight:normal;">Live synced</span>`;
-                        document.getElementById('realActiveRanges').innerText = data.active_ranges;
-                        document.getElementById('realOperators').innerText = data.operators;
-                        document.getElementById('realInventoryText').innerText = `Routing Inventory loaded with ${data.total_numbers} active numbers across connected regions.`;
-                        document.getElementById('auditLinesExecuted').innerText = data.verified_payloads + 5;
-                        document.getElementById('auditVerifiedPayloads').innerText = data.verified_payloads;
-
-                        globalRangesSummary = data.ranges_summary || [];
-                        renderAdminRanges(globalRangesSummary);
-
-                        let radarContainer = document.getElementById('admRadarFeedList');
-                        if (data.radar_logs && data.radar_logs.length > 0) {
-                            radarContainer.innerHTML = '';
-                            data.radar_logs.forEach(log => {
-                                let row = document.createElement('div');
-                                row.className = 'range-item';
-                                row.innerHTML = `<span>${log.flag} <b>${log.country}</b> (${log.phone})</span> <span style="color:var(--green); font-weight:bold;">${log.service}: ${log.code}</span>`;
-                                radarContainer.appendChild(row);
-                            });
-                        }
-                    }
-                }).catch(err => console.log(err));
-            }
-
-            function renderAdminRanges(ranges) {
-                let container = document.getElementById('admNumberAllocationList');
-                if (!container) return;
-                container.innerHTML = '';
-                if (!ranges || ranges.length === 0) {
-                    container.innerHTML = '<p style="font-size:12px; color:var(--muted);">Chưa có dải số nào trong hệ thống.</p>';
-                    return;
-                }
-                ranges.forEach(r => {
-                    let div = document.createElement('div');
-                    div.className = 'range-item';
-                    div.innerHTML = `<span><b>${r.range}</b> của Quốc gia <b>${r.country}</b> ${r.flag}</span> <button class="btn" style="width:auto; margin:0; padding:4px 8px; font-size:11px;" onclick="copyText('${r.range}')">Copy</button>`;
-                    container.appendChild(div);
-                });
-            }
-
-            function filterAdminRanges() {
-                let query = document.getElementById('admSearchRange').value.toLowerCase();
-                let filtered = globalRangesSummary.filter(r => r.range.toLowerCase().includes(query) || r.country.toLowerCase().includes(query));
-                renderAdminRanges(filtered);
-            }
-
-            function copyText(text) {
-                navigator.clipboard.writeText(text).then(() => {
-                    tg.showAlert(`Đã copy dải số: ${text}`);
-                });
-            }
-
-            setInterval(() => {
-                if(document.getElementById('adminPanelView').classList.contains('active')) {
-                    fetchAdminStats();
-                }
-            }, 10000);
-
-            function exitApp() { tg.close(); }
-
-            function updateWalletUI() {
-                document.getElementById('headerBalance').innerText = `Balance: $${userBalance.toFixed(3)}`;
-                document.getElementById('withdrawBalance').innerText = `$${userBalance.toFixed(3)}`;
-                document.getElementById('refCountDisplay').innerText = refCount;
-                document.getElementById('refEarningsDisplay').innerText = `$${refEarnings.toFixed(3)}`;
-            }
-
-            function saveIvasConfigBridge() {
-                let baseUrl = document.getElementById('editIvasBaseUrl').value.trim();
-                let tokenCookie = document.getElementById('editIvasTokenCookie').value.trim();
-
-                if (!baseUrl) {
-                    tg.showAlert("Vui lòng nhập IVAS Base URL!");
-                    return;
-                }
-
-                fetch('/api/config/update', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Telegram-Init-Data': tg.initData
-                    },
-                    body: JSON.stringify({ base_url: baseUrl, token_or_cookie: tokenCookie })
-                }).then(res => res.json()).then(data => {
-                    if (data.success) {
-                        tg.showAlert("Đã lưu và thiết lập cầu nối Real-Time IVASMS thành công!");
-                    } else {
-                        tg.showAlert("Lỗi: Yêu cầu quyền Admin!");
-                    }
-                }).catch(() => {
-                    tg.showAlert("Đã gửi yêu cầu kết nối cầu nối real-time.");
-                });
-            }
-
-            function cancelIvasConfigBridge() {
-                document.getElementById('editIvasTokenCookie').value = '';
-                document.getElementById('editIvasBaseUrl').value = 'https://www.ivasms.com';
-                tg.showAlert("Đã hủy thay đổi cấu hình.");
-            }
-
-            function downloadAuditReport() {
-                let reportContent = "FAST NODE - AUDIT REPORT\\nTimestamp: " + new Date().toISOString() + "\\nStatus: Operational Real-Time Bridge Active.";
-                let blob = new Blob([reportContent], { type: 'text/plain' });
-                let url = window.URL.createObjectURL(blob);
-                let a = document.createElement('a');
-                a.href = url;
-                a.download = 'Fast_Node_Audit_Report.txt';
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                a.remove();
-                tg.showAlert("Đã tải xuống báo cáo Audit thành công!");
-            }
-
-            function renderApps() {
-                let grid = document.getElementById('appsGrid');
-                if (!grid) return;
-                grid.innerHTML = '';
-                for (let [appName, count] of Object.entries(appStats)) {
-                    let div = document.createElement('div');
-                    div.className = 'app-box';
-                    div.innerHTML = `✉️ <div>${appName}</div><b>${count} msg</b>`;
-                    grid.appendChild(div);
-                }
-            }
-
-            function renderTopRanges() {
-                let container = document.getElementById('topRangesContainer');
-                if (!container) return;
-                container.innerHTML = '';
-                if (!topRanges || topRanges.length === 0) {
-                    container.innerHTML = '<p style="font-size:11px; color:var(--muted); text-align:center;">No active ranges yet.</p>';
-                    return;
-                }
-                topRanges.forEach(r => {
-                    let div = document.createElement('div');
-                    div.className = 'range-item';
-                    div.innerHTML = `<span>${r.flag} <b>${r.country}</b></span> <span style="color:var(--green); font-weight:bold;">${r.range} (${r.count})</span>`;
-                    container.appendChild(div);
-                });
-            }
-
-            function renderCountries() {
-                let grid = document.getElementById('countryGrid');
-                let deleteSelect = document.getElementById('countryDeleteSelect');
-                if (!grid) return;
-                deleteSelect.innerHTML = '<option value="">-- Select Country to Delete (100 numbers) --</option>';
-                grid.innerHTML = '';
-
-                countriesData.forEach(c => {
-                    let div = document.createElement('div');
-                    div.className = 'country-pill';
-                    div.innerHTML = `<span style="font-size:14px; display:block;">${c.flag}</span><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${c.name}</div><div style="color:var(--green); font-weight:bold;">${c.numbers.length}</div>`;
-                    div.onclick = () => selectCountry(c.key);
-                    grid.appendChild(div);
-
-                    let opt = document.createElement('option');
-                    opt.value = c.key;
-                    opt.innerText = `${c.flag} ${c.name} (${c.numbers.length} available)`;
-                    deleteSelect.appendChild(opt);
-                });
-            }
-
-            function selectCountry(key) {
-                currentSelectedCountryKey = key;
-                currentSelectedCountry = countriesData.find(c => c.key === key);
-                document.getElementById('detailTitleText').innerText = `${currentSelectedCountry.flag} ${currentSelectedCountry.name} (${currentSelectedCountry.numbers.length} Available)`;
-                document.getElementById('detailCard').style.display = 'block';
-                renderNumbers();
-            }
-
-            function renderNumbers() {
-                let container = document.getElementById('numberListContainer');
-                if (!container) return;
-                container.innerHTML = '';
-                if (!currentSelectedCountry || currentSelectedCountry.numbers.length === 0) {
-                    container.innerHTML = '<p style="color:var(--muted); text-align:center; font-size:12px;">No available numbers in this country!</p>';
-                    return;
-                }
-                currentSelectedCountry.numbers.forEach(item => {
-                    let row = document.createElement('div');
-                    row.className = 'number-item';
-                    let deleteBtnHtml = adminIds.includes(userTgId) ? `<button class="btn btn-red" style="width:auto; margin:0; padding:4px 8px; font-size:11px;" onclick="deleteSpecificNumberDirect('${item.phone}')">Delete</button>` : '';
-                    row.innerHTML = `<span><b>${item.phone}</b></span> <div style="display:flex; gap:4px;"><button class="btn" style="width:auto; margin:0; padding:4px 8px; font-size:11px;" onclick="rentNumber('${item.phone}')">Rent</button>${deleteBtnHtml}</div>`;
-                    container.appendChild(row);
-                });
-            }
-
-            function refreshInventory() {
-                fetch('/api/inventory').then(res => res.json()).then(data => {
-                    countriesData = data;
-                    renderCountries();
-                    if (currentSelectedCountryKey) {
-                        selectCountry(currentSelectedCountryKey);
-                    }
-                    tg.showAlert("Inventory refreshed successfully!");
-                }).catch(() => {
-                    tg.showAlert("Failed to refresh inventory.");
-                });
-            }
-
-            function goBackToGrid() {
-                document.getElementById('detailCard').style.display = 'none';
-                currentSelectedCountry = null;
-                currentSelectedCountryKey = null;
-            }
-
-            function rentNumber(phone) {
-                tg.sendData(`/thue ${phone}`);
-                tg.showAlert(`Successfully rented number ${phone} for 15 minutes!`);
-                tg.close();
-            }
-
-            function submitBulkNumbers() {
-                let text = document.getElementById('bulkNumbersInput').value.trim();
-                if (!text) {
-                    tg.showAlert("Please enter or paste phone numbers!");
-                    return;
-                }
-                tg.sendData(text);
-                tg.showAlert("Numbers sent to bot for auto-deployment & duplicate check!");
-                tg.close();
-            }
-
-            function deleteSpecificNumberDirect(phone) {
-                tg.showConfirm(`Permanently delete phone number ${phone}?`, (confirmed) => {
-                    if (confirmed) {
-                        fetch('/api/admin/delete_number', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'X-Telegram-Init-Data': tg.initData
-                            },
-                            body: JSON.stringify({phone: phone})
-                        }).then(res => res.json()).then(data => {
-                            if(data.success) {
-                                tg.showAlert("Number deleted permanently!");
-                                refreshInventory();
-                            } else {
-                                tg.showAlert("Failed to delete number (Unauthorized).");
-                            }
-                        });
-                    }
-                });
-            }
-
-            function deleteSpecificNumber() {
-                let phone = document.getElementById('specificPhoneInput').value.trim();
-                if (!phone) {
-                    tg.showAlert("Please enter a phone number to delete!");
-                    return;
-                }
-                deleteSpecificNumberDirect(phone);
-                document.getElementById('specificPhoneInput').value = '';
-            }
-
-            function deleteBulkByCountry() {
-                let key = document.getElementById('countryDeleteSelect').value;
-                if (!key) {
-                    tg.showAlert("Please select a country from the dropdown!");
-                    return;
-                }
-                tg.showConfirm(`Permanently delete up to 100 numbers from this country?`, (confirmed) => {
-                    if (confirmed) {
-                        fetch('/api/admin/delete_bulk_country', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'X-Telegram-Init-Data': tg.initData
-                            },
-                            body: JSON.stringify({key: key, count: 100})
-                        }).then(res => res.json()).then(data => {
-                            if(data.success) {
-                                tg.showAlert(`Successfully deleted ${data.removed} numbers permanently!`);
-                                refreshInventory();
-                            } else {
-                                tg.showAlert("Failed to delete numbers (Unauthorized).");
-                            }
-                        });
-                    }
-                });
-            }
-
-            function adminAllocateNumber() {
-                tg.showAlert("Admin allocation pipeline initialized. Use the Add Numbers section or API v3.");
-            }
-
-            function saveVaultConfig() {
-                tg.showAlert("Vault and payout method saved successfully.");
-            }
-
-            function saveProfileChanges() {
-                tg.showAlert("Profile information updated successfully.");
-            }
-
-            function requestWithdraw() {
-                let amount = parseFloat(document.getElementById('withdrawAmount').value);
-                let address = document.getElementById('tonAddress').value.trim();
-
-                if (isNaN(amount) || amount < 3) {
-                    tg.showAlert("Minimum withdrawal amount is $3.00!");
-                    return;
-                }
-                if (amount > userBalance) {
-                    tg.showAlert("Insufficient balance!");
-                    return;
-                }
-                if (!address.startsWith("EQ") && !address.startsWith("UQ") || address.length < 40) {
-                    tg.showAlert("Invalid TON USDT address! Must start with EQ or UQ.");
-                    return;
-                }
-
-                tg.showConfirm(`Withdraw $${amount} to TON address:\\n${address}?`, (confirmed) => {
-                    if (confirmed) {
-                        userBalance -= amount;
-                        updateWalletUI();
-                        fetch('/api/withdraw', {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({user_id: userTgId, amount: amount, address: address})
-                        }).then(res => res.json()).then(data => {
-                            tg.showAlert("Withdrawal request submitted successfully!");
-                        }).catch(() => {
-                            tg.showAlert("Withdrawal request recorded!");
-                        });
-                    }
-                });
-            }
-
-            renderApps();
-            renderTopRanges();
-            renderCountries();
-            updateWalletUI();
-        </script>
-    </body>
-    </html>
-    """, app_stats=app_stats, top_ranges_data=top_ranges_data, countries_data=countries_data, admin_ids=list(ADMIN_IDS))
-
-@app.route('/api/withdraw', methods=['POST'])
-def api_withdraw():
-    data = request.json or {}
-    uid = data.get("user_id")
-    amount = data.get("amount")
-    address = data.get("address")
-    
-    withdrawal_requests.append({
-        "user_id": uid, "name": f"User_{uid}", "amount": amount, "address": address, "time": time.strftime("%Y-%m-%d %H:%M:%S")
-    })
-    
-    try:
-        admin_target = list(ADMIN_IDS)[0] if ADMIN_IDS else TARGET_CHAT
-        bot.send_message(admin_target, f"🚨 <b>CÓ ĐƠN RÚT TIỀN MỚI!</b>\n\n👤 User ID: <code>{uid}</code>\n💵 Số tiền: <b>${amount}</b>\n📬 Ví TON: <code>{address}</code>\n⏰ Lúc: {time.strftime('%Y-%m-%d %H:%M:%S')}", parse_mode="HTML")
-    except: pass
-    return jsonify({"success": True})
-
-# --- BACKGROUND SCHEDULER & SIGTERM HANDLER ---
-NORMAL_INTERVAL = 25
-BACKOFF_INTERVAL = 300
-
-_scheduler = None
-_current_interval = NORMAL_INTERVAL
-
-_ivas_lock = threading.Lock()
-
-def _set_interval(new_seconds: int):
-    global _current_interval
-    if _scheduler is None or new_seconds == _current_interval:
-        return
-    try:
-        job = _scheduler.get_job("ivas_poll")
-        if job:
-            _scheduler.reschedule_job("ivas_poll", trigger=IntervalTrigger(seconds=new_seconds))
-            _current_interval = new_seconds
-    except Exception:
-        pass
-
-def _poll_job():
-    try:
-        if not ivas_check_session():
-            _set_interval(BACKOFF_INTERVAL)
-            return
-        _set_interval(NORMAL_INTERVAL)
-
-        count = fetch_and_process_ivas_sms()
-        if count > 0:
-            logger.info("IVAS processed %s new OTP messages", count)
-    except Exception as e:
-        logger.exception(f"Poll job crashed: {e}")
-
-_scheduler_lock_path = os.path.join(tempfile.gettempdir(), "ivas_scheduler.lock")
-_scheduler_lock_fd = None
-
-def _acquire_scheduler_lock() -> bool:
-    global _scheduler_lock_fd
-    if _IS_WINDOWS:
-        return True
-    try:
-        fd = os.open(_scheduler_lock_path, os.O_CREAT | os.O_RDWR, 0o644)
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        _scheduler_lock_fd = fd
-        return True
-    except (OSError, BlockingIOError):
-        if _scheduler_lock_fd is not None:
-            os.close(_scheduler_lock_fd)
-            _scheduler_lock_fd = None
-        return False
-
-def start_scheduler():
-    global _scheduler
-    if _scheduler is not None:
-        return
-    if not _acquire_scheduler_lock():
-        return
-    _scheduler = BackgroundScheduler(daemon=True, job_defaults={"coalesce": True, "max_instances": 1})
-    _scheduler.add_job(_poll_job, trigger=IntervalTrigger(seconds=NORMAL_INTERVAL), id="ivas_poll", replace_existing=True)
-    _scheduler.start()
-    atexit.register(_shutdown_scheduler)
-
-def _shutdown_scheduler():
-    global _scheduler
-    if _scheduler is not None:
         try:
-            _scheduler.shutdown(wait=False)
+            data = fe_node_api_request("/radar?limit=20")
+            if data.get("meta", {}).get("code") == 200:
+                otps = data.get("data", [])
+                for otp_data in reversed(otps):
+                    msg_text = str(otp_data.get("message", ""))
+                    raw_number = str(otp_data.get("phone", ""))
+                    raw_service = str(otp_data.get("service", "Unknown"))
+                    
+                    if not msg_text or not raw_number: continue
+                    sig = f"{raw_number}_{msg_text}"
+                    detected_service = detect_service(msg_text, raw_service)
+                    
+                    # Forward về group ID -1004341368656 và các group cấu hình
+                    if sig not in group_sent_otps:
+                        group_sent_otps.add(sig)
+                        if otp_forward_groups:
+                            formatted_message, markup = generate_otp_display(detected_service, raw_number, msg_text)
+                            send_otp_to_groups(formatted_message, markup)
+                    
+                    if sig not in recent_success_otps:
+                        recent_success_otps.add(sig)
+                        owner_id = None
+                        last_8_digits = raw_number[-8:] if len(raw_number) > 8 else raw_number
+                        for active_num, uid in list(user_active_sessions.items()):
+                            if active_num.endswith(last_8_digits):
+                                owner_id = uid
+                                del user_active_sessions[active_num]
+                                break
+                                
+                        if owner_id:
+                            reward = get_otp_reward(detected_service) # Mặc định 0.005$
+                            update_user_stats(owner_id, reward, 0)
+                            user_balance = get_user(owner_id).get("balance", 0.0)
+                            deliver_to_inbox(owner_id, detected_service, raw_number, msg_text, user_balance, reward)
+                            
+                            today_date = time.strftime("%Y-%m-%d")
+                            if daily_user_otps.get("date") != today_date:
+                                daily_user_otps["date"] = today_date
+                                daily_user_otps["users"] = {}
+                            uid_str = str(owner_id)
+                            daily_user_otps["users"][uid_str] = daily_user_otps["users"].get(uid_str, 0) + 1
+                        
+                        update_daily_stat("otps", 1)
+                        save_local_data()
+                        time.sleep(1) 
         except Exception:
             pass
-        _scheduler = None
+        time.sleep(10)
 
-def _handle_sigterm(signum, frame):
-    _shutdown_scheduler()
-    raise SystemExit(0)
+# ==========================================
+# Hybrid Database Initialization
+# ==========================================
+def init_sqlite():
+    conn = sqlite3.connect("bot_database.db")
+    cursor = conn.cursor()
+    cursor.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, first_name TEXT DEFAULT 'User', balance REAL DEFAULT 0.0, total_invites INTEGER DEFAULT 0)")
+    conn.commit()
+    conn.close()
 
-try:
-    signal.signal(signal.SIGTERM, _handle_sigterm)
-except ValueError:
-    pass
+def get_user(user_id):
+    global current_db_mode, db_firebase, user_cache
+    if user_id in user_cache: return user_cache[user_id]
+    if current_db_mode == "firebase" and db_firebase:
+        doc = db_firebase.collection('users').document(str(user_id)).get()
+        if doc.exists:
+            user_data = doc.to_dict()
+            user_cache[user_id] = user_data 
+            return user_data
+        return None
+    else: 
+        conn = sqlite3.connect("bot_database.db")
+        cursor = conn.cursor()
+        cursor.execute("SELECT first_name, balance, total_invites FROM users WHERE user_id = ?", (user_id,))
+        row = cursor.fetchone()
+        conn.close()
+        if row: 
+            user_data = {"user_id": user_id, "first_name": row[0], "balance": row[1], "total_invites": row[2]}
+            user_cache[user_id] = user_data 
+            return user_data
+        return None
 
-def run_bot_polling():
+def add_user(user_id, first_name="User"):
+    global current_db_mode, db_firebase, user_cache
+    add_to_broadcast_list(user_id) 
+    if user_id in user_cache and user_cache[user_id]["first_name"] == first_name: return 
+    
+    if current_db_mode == "firebase" and db_firebase:
+        doc_ref = db_firebase.collection('users').document(str(user_id))
+        if not doc_ref.get().exists:
+            new_data = {"user_id": user_id, "first_name": first_name, "balance": 0.0, "total_invites": 0}
+            doc_ref.set(new_data)
+            user_cache[user_id] = new_data
+        else: 
+            doc_ref.update({"first_name": first_name})
+    else: 
+        conn = sqlite3.connect("bot_database.db")
+        cursor = conn.cursor()
+        cursor.execute("INSERT OR IGNORE INTO users (user_id, first_name, balance, total_invites) VALUES (?, ?, 0.0, 0)", (user_id, first_name))
+        cursor.execute("UPDATE users SET first_name = ? WHERE user_id = ?", (first_name, user_id))
+        conn.commit()
+        conn.close()
+        user_cache[user_id] = {"user_id": user_id, "first_name": first_name, "balance": 0.0, "total_invites": 0}
+
+def update_user_stats(user_id, balance_add, invite_add):
+    global current_db_mode, db_firebase, user_cache
+    bal_add = float(balance_add)
+    inv_add = int(invite_add)
+    if user_id not in user_cache: get_user(user_id)
+    if user_id in user_cache:
+        user_cache[user_id]["balance"] = round(user_cache[user_id]["balance"] + bal_add, 4)
+        user_cache[user_id]["total_invites"] += inv_add
+    if current_db_mode == "firebase" and db_firebase:
+        db_firebase.collection('users').document(str(user_id)).update({"balance": firestore.Increment(bal_add), "total_invites": firestore.Increment(inv_add)})
+    else: 
+        conn = sqlite3.connect("bot_database.db")
+        cursor = conn.cursor()
+        cursor.execute("UPDATE users SET balance = balance + ?, total_invites = total_invites + ? WHERE user_id = ?", (bal_add, inv_add, user_id))
+        conn.commit()
+        conn.close()
+
+def get_total_users(): return len(get_all_user_ids())
+
+# ==========================================
+# Keyboards & Menus Builders (Hidden from regular users)
+# ==========================================
+def get_main_keyboard(user_id):
+    keyboard_layout = [
+        [{"text": "LIVE NUMBER", "icon_custom_emoji_id": "5456259593082522998", "style": "danger"},
+         {"text": "LIVE TRAFFIC", "icon_custom_emoji_id": "5429571662737611814", "style": "primary"}],
+        [{"text": "INVITE FRIEND", "icon_custom_emoji_id": "5384394344859974865", "style": "success"},
+         {"text": "WALLET", "icon_custom_emoji_id": "5429105001655999635", "style": "danger"}],
+        [{"text": "LEADERBOARD", "icon_custom_emoji_id": "5240021484516185513", "style": "primary"}]
+    ]
+    # Chỉ Admin (6726769296) mới thấy nút OWNER PANEL
+    if user_id == ADMIN_ID:
+        keyboard_layout.append([{"text": "OWNER PANEL", "icon_custom_emoji_id": "5429427051188756948", "style": "success"}])
+    return {"keyboard": keyboard_layout, "resize_keyboard": True}
+
+def get_admin_inline_keyboard():
+    return {
+        "inline_keyboard": [
+            [{"text": "FE NODE API COMMANDS", "callback_data": "fe_node_commands", "icon_custom_emoji_id": "5240122519326860770", "style": "danger"}],
+            [{"text": "BROADCAST", "callback_data": "broadcast_menu", "icon_custom_emoji_id": "5296633779157243809", "style": "primary"}],
+            [{"text": "CLOSE", "callback_data": "close_panel", "icon_custom_emoji_id": "5438541186539232243", "style": "danger"}]
+        ]
+    }
+
+def get_services_content():
+    global cached_services_kb
+    if cached_services_kb:
+        return "📱 <b>Select Top Service (FE NODE API):</b>", cached_services_kb
+    return "⏳ <b>Loading services from FE NODE, please wait...</b>", None
+
+def get_countries_content(sid_short):
+    global cached_countries_kb
+    if sid_short in cached_countries_kb:
+        return f"🌍 <b>Select Country (195+ Countries Supported):</b>", cached_countries_kb[sid_short], None
+    return None, None, "❌ <b>No active countries for this service.</b>"
+
+def get_number_allocation_content(sid_short, c_code, user_id=None):
+    global fe_node_auto_mode, fe_node_dynamic_data, user_active_sessions, bot_settings, otp_button_link
+    target_ranges = []
+    full_sid = sid_short
+    
+    if fe_node_auto_mode:
+        for sid, data in fe_node_dynamic_data.items():
+            if sid.lower().startswith(sid_short.lower()):
+                full_sid = sid
+                for r, r_data in data["ranges"].items():
+                    if c_code.startswith(r) or r.startswith(c_code): 
+                        target_ranges.append((r, r_data["hits"]))
+                break
+        target_ranges.sort(key=lambda x: x[1], reverse=True)
+        best_ranges = [x[0] for x in target_ranges[:3]]
+    else:
+        services_data = fetch_live_access()
+        for s in services_data:
+            sid_val = s.get('sid') or ""
+            if sid_val.lower().startswith(sid_short.lower()):
+                full_sid = sid_val
+                for r in s.get('ranges', []):
+                    clean_r = str(r).replace("X", "")
+                    if c_code.startswith(clean_r) or clean_r.startswith(c_code):
+                        if clean_r not in target_ranges: target_ranges.append(clean_r)
+                break
+        best_ranges = target_ranges[:3]
+            
+    if not best_ranges: best_ranges = [c_code]
+    req_count = bot_settings.get("num_req", 1)
+    fetched_numbers = []
+    
+    for _ in range(req_count):
+        selected_rid = random.choice(best_ranges)
+        num_data = fetch_live_number(selected_rid)
+        if num_data:
+            full_number = html.escape(str(num_data.get("full_number", "")))
+            country = html.escape(str(num_data.get("country", "Unknown")))
+            operator = html.escape(str(num_data.get("operator", "Unknown")))
+            fetched_numbers.append((full_number, country, operator))
+            if user_id and full_number:
+                user_active_sessions[str(full_number)] = user_id
+    
+    if fetched_numbers:
+        update_daily_stat("numbers", len(fetched_numbers))
+        save_local_data()
+        
+        service_html, srv_eid = get_service_info_html(full_sid)
+        _, country_with_flag = get_country_info(c_code)
+        
+        msg = (
+            f"━━━━━━━━━━━━━━━\n"
+            f"<tg-emoji emoji-id=\"5337172996211648018\">⌛</tg-emoji> <b>ACTIVE NUMBER (FE NODE API)</b>\n"
+            f"— — — — — — — — — —\n"
+            f"{service_html} ➜ {country_with_flag}\n"
+            f"━━━━━━━━━━━━━━━"
+        )
+        kb = {"inline_keyboard": []}
+        for f_num, ctry, op in fetched_numbers:
+            clean_f_num = str(f_num).lstrip('+') 
+            kb["inline_keyboard"].append([
+                {"text": f"+{clean_f_num}", "icon_custom_emoji_id": "5226929552319594190", "copy_text": {"text": f"+{clean_f_num}"}, "style": "primary"}
+            ])
+        kb["inline_keyboard"].append([
+            {"text": "Change Number", "icon_custom_emoji_id": "5429386648431405093", "callback_data": f"cc_{sid_short}_{c_code}", "style": "danger"},
+            {"text": "OTP Group", "icon_custom_emoji_id": "5314366268898300483", "url": otp_button_link, "style": "success"}
+        ])
+        kb["inline_keyboard"].append([
+            {"text": "BACK", "icon_custom_emoji_id": "5438541186539232243", "callback_data": f"srv_{sid_short}", "style": "danger"}
+        ])
+        return msg, kb
+    else:
+        return f"❌ <b>Out of stock in these ranges.</b>", {"inline_keyboard": [[{"text": "BACK", "callback_data": f"srv_{sid_short}", "icon_custom_emoji_id": "5438541186539232243", "style": "danger"}]]}
+
+# ==========================================
+# Message & Callback Handlers
+# ==========================================
+def handle_message(message):
+    global user_states, fe_node_keys, bot_settings
+    if message.get("chat", {}).get("type") != "private": return
+    
+    chat_id = message["chat"]["id"]
+    user_id = message["from"]["id"]
+    text = message.get("text", "")
+    first_name = message["from"].get("first_name", "User")
+
+    add_user(user_id, first_name)
+    user_data = get_user(user_id)
+
+    if text.startswith("/start"):
+        # Xử lý referral 0.01$
+        parts = text.split()
+        if len(parts) > 1:
+            try:
+                inviter_id = int(parts[1])
+                if inviter_id != user_id and get_user(inviter_id):
+                    ref_reward = bot_settings.get("refer_reward", 0.01)
+                    update_user_stats(inviter_id, ref_reward, 1)
+                    send_message(inviter_id, f"🎉 <b>New Referral!</b> You received {ref_reward}$.")
+            except: pass
+            
+        send_message(chat_id, f"🔥 <b>FE NODE API OTP BOT</b>\n\nWelcome {html.escape(str(first_name))}, select an option below:", reply_markup=get_main_keyboard(user_id))
+    elif text == "LIVE NUMBER":
+        msg, markup = get_services_content()
+        if markup: send_message(chat_id, msg, reply_markup=markup)
+        else: send_message(chat_id, msg)
+    elif text == "WALLET":
+        # Rút tối thiểu 3$ và chỉ nhận USDT mạng TON
+        wallet_txt = (
+            f"💰 <b>WALLET & WITHDRAWAL</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"💵 <b>Balance:</b> <b>{user_data['balance']:.4f}$</b>\n"
+            f"📉 <b>Min Withdraw:</b> 3.0$\n"
+            f"🌐 <b>Network:</b> USDT (TON Network Only!)\n"
+            f"⚠️ <i>Lưu ý: Hãy kiểm tra kỹ địa chỉ ví USDT mạng TON để tránh mất tiền oan.</i>\n"
+            f"━━━━━━━━━━━━━━━━━━"
+        )
+        kb = {"inline_keyboard": [[{"text": "WITHDRAW USDT (TON)", "callback_data": "withdraw_ton", "style": "success"}]]}
+        send_message(chat_id, wallet_txt, reply_markup=kb)
+    elif text == "INVITE FRIEND":
+        invite_link = f"https://t.me/{BOT_USERNAME}?start={user_id}"
+        msg = f"👥 <b>Referral Link:</b>\n<code>{invite_link}</code>\n🎁 Reward per invite: 0.01$"
+        send_message(chat_id, msg, reply_markup={"inline_keyboard": [[{"text": "COPY LINK", "copy_text": {"text": invite_link}, "style": "success"}]]})
+    elif text == "LEADERBOARD":
+        send_message(chat_id, cached_leaderboard_text or "Loading...")
+    elif text == "OWNER PANEL" and user_id == ADMIN_ID:
+        send_message(chat_id, "<b>📊 OWNER ZONE (FE NODE API & Admin Tools)</b>", reply_markup=get_admin_inline_keyboard())
+
+def handle_callback(callback_query):
+    query_id = callback_query["id"]
+    user_id = callback_query["from"]["id"]
+    data = callback_query["data"]
+    chat_id = callback_query["message"]["chat"]["id"]
+    message_id = callback_query["message"]["message_id"]
+
+    if data == "withdraw_ton":
+        user_data = get_user(user_id)
+        bal = user_data.get("balance", 0)
+        if bal < 3.0:
+            answer_callback_query(query_id, "❌ Số dư tối thiểu để rút là 3$!", show_alert=True)
+            return
+        user_states[user_id] = {"state": "waiting_ton_address", "msg_id": message_id}
+        edit_message(chat_id, message_id, "💬 <b>Vui lòng gửi địa chỉ ví USDT (mạng TON) của bạn để tiến hành rút tiền:</b>\n<i>(Chỉ hỗ trợ mạng TON, vui lòng kiểm tra kỹ!)</i>")
+        answer_callback_query(query_id)
+        return
+
+    if data == "fe_node_commands" and user_id == ADMIN_ID:
+        # Liệt kê danh sách các lệnh API FE NODE và tác dụng
+        commands_list = (
+            "🛠 <b>FE NODE API - COMMANDS LIST</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "1️⃣ <code>/whoami</code> hoặc <b>Whoami</b>\n"
+            "   📌 <i>Tác dụng:</i> Kiểm tra thông tin định danh API key và quyền hạn hiện tại.\n\n"
+            "2️⃣ <code>/access_list</code>\n"
+            "   📌 <i>Tác dụng:</i> Lấy danh sách toàn bộ các dịch vụ (services) và dải số đang mở.\n\n"
+            "3️⃣ <code>/radar</code>\n"
+            "   📌 <i>Tác dụng:</i> Quét lưu lượng traffic thông lượng SMS real-time.\n\n"
+            "4️⃣ <code>/getnum</code>\n"
+            "   📌 <i>Tác dụng:</i> Cấp phát số điện thoại ảo từ dải số yêu cầu.\n\n"
+            "5️⃣ <code>/balance</code>\n"
+            "   📌 <i>Tác dụng:</i> Kiểm tra số dư hiện có trên tài khoản FE NODE.\n\n"
+            "6️⃣ <code>/status</code>\n"
+            "   📌 <i>Tác dụng:</i> Kiểm tra trạng thái hoạt động của hệ thống node."
+        )
+        edit_message(chat_id, message_id, commands_list, reply_markup={"inline_keyboard": [[{"text": "BACK", "callback_data": "back_to_admin", "style": "danger"}]]})
+        answer_callback_query(query_id)
+        return
+
+    if data == "back_to_admin" and user_id == ADMIN_ID:
+        edit_message(chat_id, message_id, "<b>📊 OWNER ZONE</b>", reply_markup=get_admin_inline_keyboard())
+        answer_callback_query(query_id)
+        return
+
+    if data == "back_to_services":
+        msg, markup = get_services_content()
+        edit_message(chat_id, message_id, msg, reply_markup=markup)
+        answer_callback_query(query_id)
+        return
+
+    if data.startswith("srv_"):
+        sid_short = data[4:]
+        msg, markup, err = get_countries_content(sid_short)
+        if err: answer_callback_query(query_id, err, show_alert=True)
+        else: edit_message(chat_id, message_id, msg, reply_markup=markup)
+        return
+
+    if data.startswith("cc_"):
+        parts = data.split("_")
+        sid_short = parts[1]
+        c_code = parts[2]
+        answer_callback_query(query_id, "Allocating number...")
+        msg, markup = get_number_allocation_content(sid_short, c_code, user_id=user_id)
+        edit_message(chat_id, message_id, msg, reply_markup=markup)
+        return
+
+    if data == "close_panel":
+        answer_callback_query(query_id, "Closed")
+        delete_message(chat_id, message_id)
+
+# ==========================================
+# Main Execution Loop
+# ==========================================
+def main():
+    global BOT_USERNAME
+    load_local_data()
+    init_sqlite()
+    BOT_USERNAME = get_bot_info()
+    set_bot_commands()
+    
+    # Background threads cho FE NODE API
+    threading.Thread(target=fe_node_console_listener, daemon=True).start()
+    threading.Thread(target=fe_node_sms_listener, daemon=True).start()
+    threading.Thread(target=auto_cache_menu_thread, daemon=True).start()
+    
+    print(f"Bot @{BOT_USERNAME} running successfully with FE NODE API & USDT TON!")
+    
+    offset = None
     while True:
         try:
-            bot.remove_webhook()
-            requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?offset=-1")
-            time.sleep(1)
-            bot.infinity_polling(skip_pending=True, interval=0, timeout=20)
-        except Exception as e:
-            time.sleep(5)
+            url = BASE_URL + "getUpdates"
+            res = requests.get(url, params={"timeout": 30, "offset": offset}).json()
+            if res.get("ok"):
+                for update in res["result"]:
+                    offset = update["update_id"] + 1
+                    if "message" in update: 
+                        threading.Thread(target=handle_message, args=(update["message"],)).start()
+                    elif "callback_query" in update: 
+                        threading.Thread(target=handle_callback, args=(update["callback_query"],)).start()
+        except Exception:
+            time.sleep(3)
 
 if __name__ == "__main__":
-    t_wss = threading.Thread(target=websocket_worker, daemon=True)
-    t_wss.start()
-
-    t_clean = threading.Thread(target=background_cleanup_and_wss, daemon=True)
-    t_clean.start()
-
-    start_scheduler()
-    
-    t_bot = threading.Thread(target=run_bot_polling, daemon=True)
-    t_bot.start()
-    
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
-else:
-    t_wss = threading.Thread(target=websocket_worker, daemon=True)
-    t_wss.start()
-
-    t_clean = threading.Thread(target=background_cleanup_and_wss, daemon=True)
-    t_clean.start()
-
-    start_scheduler()
-    
-    t_bot = threading.Thread(target=run_bot_polling, daemon=True)
-    t_bot.start()
+    main()
