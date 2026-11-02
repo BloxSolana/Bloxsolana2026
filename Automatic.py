@@ -85,7 +85,7 @@ top_ranges_data = []
 last_reset_time = time.time()
 
 # ============================================================
-# MK NETWORK API V3 CLIENT (Bổ sung chuẩn theo tài liệu v3)
+# MK NETWORK API V3 CLIENT
 # ============================================================
 class MKClient:
     def __init__(self, api_key: str = None, timeout: int = 30):
@@ -150,7 +150,6 @@ class MKClient:
     def check_status(self, request_ids: list):
         if not request_ids:
             return None
-        # Giới hạn tối đa 100 request_ids mỗi lần gọi theo spec v3
         return self._request("POST", "/check/status", json={"request_ids": request_ids[:100]})
 
     def radar(self, q: str = None, limit: int = 25, charts: bool = False):
@@ -162,7 +161,7 @@ class MKClient:
 mk_client = MKClient()
 
 # ============================================================
-# CẤU HÌNH & TÍCH HỢP IVAS SMS CLIENT (GIỮ NGUYÊN)
+# CẤU HÌNH & TÍCH HỢP IVAS SMS CLIENT
 # ============================================================
 IVAS_BASE_URL = os.getenv("IVAS_BASE_URL", "https://www.ivasms.com").rstrip("/")
 IVAS_COOKIE_ENV = "IVAS_COOKIE"
@@ -567,7 +566,7 @@ def handle_reply_buttons(message):
         bot.reply_to(message, f"👥 <b>REFERRAL PROGRAM</b>\n\nInvite friends and earn <b>$0.005</b> per referral!\n\n🔗 Your Link:\n<code>{ref_link}</code>\n\n📊 Total Invited: <b>{user_wallets[uid]['ref_count']}</b>\n💰 Total Earned: <b>${user_wallets[uid]['ref_earnings']:.3f}</b>", parse_mode="HTML")
     elif "WALLET" in text:
         bal = user_wallets[uid]["balance"]
-        bot.reply_to(message, f"💳 <b>YOUR WALLET</b>\n\n💰 Balance: <b>${bal:.3f} USDT</b>\nMin withdraw: $5.00 (TON Network).", parse_mode="HTML")
+        bot.reply_to(message, f"💳 <b>YOUR WALLET</b>\n\n💰 Balance: <b>${bal:.3f} USDT</b>\nMin withdraw: $3.00 (TON Network).", parse_mode="HTML")
     elif "LEADERBOARD" in text:
         bot.reply_to(message, f"🏆 <b>YOUR ACTIVITY STATUS</b>\n\n📊 Your Balance: <b>${user_wallets[uid]['balance']:.3f}</b>\n👥 Referrals: <b>{user_wallets[uid]['ref_count']} users</b>", parse_mode="HTML")
 
@@ -614,12 +613,16 @@ def handle_callback(call):
         wss_status_str = "🟢 <b>ACTIVE</b>" if user_configs else "⚠️ <b>NO CONFIG SET</b>"
 
         text = (
-            "📊 <b>LIST PANEL - IVAS & WSS HEALTH MONITOR</b>\n\n"
+            "📊 <b>LIST PANEL - IVAS & MK NETWORK API COMMANDS</b>\n\n"
             f"🔌 IVAS API Status: {ivas_status_str}\n"
             f"🔗 IVAS Base URL: <code>{IVAS_BASE_URL}</code>\n"
-            f"📡 WSS Status: {wss_status_str}\n"
-            f"🔑 Cookie Configured: <b>{'Yes' if _load_ivas_cookie() else 'No'}</b>\n"
-            f"🔍 Details: <code>{html.escape(str(ivas_health.get('details', 'N/A')))}</code>"
+            f"📡 WSS Status: {wss_status_str}\n\n"
+            "⚡ <b>MK NETWORK API v3 ENDPOINTS & TÁC DỤNG:</b>\n"
+            "• <code>GET /whoami</code>: Kiểm tra thông tin tài khoản API key hiện tại.\n"
+            "• <code>GET /access_list</code>: Lấy danh sách dải số, nhà mạng, trạng thái health của các quốc gia.\n"
+            "• <code>POST /getnum/number</code>: Lấy số điện thoại từ dải số chỉ định.\n"
+            "• <code>POST /check/status</code>: Kiểm tra trạng thái và nhận mã OTP (hỗ trợ batch tối đa 100 ID).\n"
+            "• <code>GET /radar</code>: Lấy luồng traffic OTP real-time toàn hệ thống."
         )
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("🔄 RECHECK STATUS", callback_data="menu_list_panel"))
@@ -679,6 +682,37 @@ def handle_rent_number(message):
                 break
     bot.reply_to(message, f"✅ Successfully rented number <code>{phone_to_rent}</code> for 15 minutes! OTP will be delivered here privately.", parse_mode="HTML", reply_markup=get_reply_keyboard())
 
+@bot.message_handler(func=lambda msg: msg.from_user.id in ADMIN_IDS and msg.chat.type == "private")
+def handle_admin_text_inputs(message):
+    uid = message.from_user.id
+    state = admin_state.get(uid)
+    text = message.text.strip()
+
+    if state == "waiting_for_numbers":
+        admin_state.pop(uid, None)
+        lines = re.split(r'[\s,\n]+', text)
+        added_count = 0
+        for line in lines:
+            clean_phone = re.sub(r'\D', '', line)
+            if len(clean_phone) < 7:
+                continue
+            cname, flag, full_key = detect_country_info(clean_phone)
+            if full_key not in inventory_numbers:
+                inventory_numbers[full_key] = {"flag": flag, "name": cname, "numbers": []}
+            
+            # Check duplicate
+            exists = any(n["phone"] == clean_phone for n in inventory_numbers[full_key]["numbers"])
+            if not exists:
+                inventory_numbers[full_key]["numbers"].append({
+                    "phone": clean_phone,
+                    "expires": 0,
+                    "locked_by": None
+                })
+                added_count += 1
+
+        bot.reply_to(message, f"✅ Đã phân phối thành công <b>{added_count}</b> số điện thoại vào các kho quốc gia tương ứng (Real-time update)!", parse_mode="HTML", reply_markup=get_menu_keyboard(uid))
+        return
+
 def background_cleanup_and_wss():
     global last_reset_time, app_stats
     while True:
@@ -731,9 +765,9 @@ async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test
     if clean_phone in user_rentals:
         owner_id = user_rentals[clean_phone]
         if owner_id in user_wallets:
-            user_wallets[owner_id]["balance"] += 0.008
+            user_wallets[owner_id]["balance"] += 0.005
 
-    header = "🧪 <b>『 ꜰᴇ ꜱᴇɴᴅ ᴏᴛᴘ 』</b> 🧪" if is_test else "💐 <b>『 ɴᴇᴡ ᴏᴛᴘ ʀᴇᴄᴇɪᴠᴇᴅ 』</b> ✨"
+    header = "🧪 <b>『 ꜰᴇ ꜱᴇɴᴅ ᴏᴛ🇵 』</b> 🧪" if is_test else "💐 <b>『 ɴᴇᴡ ᴏᴛᴘ ʀᴇᴄᴇɪᴠᴇᴅ 』</b> ✨"
     caption = (f"{header}\n"
                f"━━━━━━━━━━━━━━━━━━━━━\n\n"
                f"<b>⌚ TIME:</b> <code>{html.escape(str(timestamp))}</code>\n"
@@ -760,7 +794,7 @@ async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test
 
     if clean_phone in user_rentals:
         owner_id = user_rentals[clean_phone]
-        private_caption = f"🔔 <b>[REAL-TIME PRIVATE EXCLUSIVE OTP ($0.008 EARNED)]</b>\n\n" + caption
+        private_caption = f"🔔 <b>[REAL-TIME PRIVATE EXCLUSIVE OTP ($0.005 EARNED)]</b>\n\n" + caption
         try:
             await asyncio.to_thread(bot.send_message, chat_id=owner_id, text=private_caption, parse_mode="HTML", reply_markup=kb, disable_web_page_preview=True)
         except Exception as e: pass
@@ -875,7 +909,13 @@ def api_inventory():
     countries_data = []
     for key, data in inventory_numbers.items():
         available_numbers = [{"phone": item["phone"], "expires": item["expires"]} for item in data["numbers"] if not item.get("locked_by")]
-        countries_data.append({"key": key, "name": data["name"], "flag": data["flag"], "numbers": available_numbers})
+        countries_data.append({
+            "key": key, 
+            "name": data["name"], 
+            "flag": data["flag"], 
+            "prefix": key.split()[0] if " " in key else "84",
+            "numbers": available_numbers
+        })
     return jsonify(countries_data)
 
 @app.route('/api/admin/stats', methods=['GET'])
@@ -887,6 +927,18 @@ def api_admin_stats():
     verified_payloads = len(live_radar_logs)
     success_rate = round((verified_payloads / max(1, verified_payloads + 5)) * 100, 1)
 
+    ranges_summary = []
+    for key, data in inventory_numbers.items():
+        if data["numbers"]:
+            sample_num = data["numbers"][0]["phone"]
+            range_prefix = sample_num[:5] + "XXX"
+            ranges_summary.append({
+                "range": range_prefix,
+                "country": data["name"],
+                "flag": data["flag"],
+                "count": len(data["numbers"])
+            })
+
     return jsonify({
         "success": True,
         "active_ranges": total_ranges,
@@ -895,7 +947,8 @@ def api_admin_stats():
         "verified_payloads": verified_payloads,
         "success_rate": success_rate,
         "total_numbers": total_numbers_count,
-        "radar_logs": live_radar_logs[:20]
+        "radar_logs": live_radar_logs[:20],
+        "ranges_summary": ranges_summary[:100]
     })
 
 @app.route('/api/admin/delete_number', methods=['POST'])
@@ -933,7 +986,6 @@ def ivas_health_api():
             **ivas_health
         })
 
-# --- ADMIN ROUTE: REFRESH COOKIE KHÔNG CẦN REDEPLOY ---
 @app.route("/admin/refresh-ivas-cookie", methods=["POST"])
 def refresh_ivas_cookie():
     if IVAS_REFRESH_TOKEN:
@@ -986,7 +1038,7 @@ def api_config_update():
     return jsonify({"success": True, "message": "Cập nhật cấu hình IVAS thành công!"})
 
 # ============================================================
-# BỔ SUNG CÁC ENDPOINT API V3 MK NETWORK (Cho WebApp / Admin)
+# MK NETWORK API V3 ENDPOINTS
 # ============================================================
 @app.route('/api/v3/whoami', methods=['GET'])
 @require_admin
@@ -1020,7 +1072,13 @@ def home():
     countries_data = []
     for key, data in inventory_numbers.items():
         available_numbers = [{"phone": item["phone"], "expires": item["expires"]} for item in data["numbers"] if not item.get("locked_by")]
-        countries_data.append({"key": key, "name": data["name"], "flag": data["flag"], "numbers": available_numbers})
+        countries_data.append({
+            "key": key, 
+            "name": data["name"], 
+            "flag": data["flag"], 
+            "prefix": key.split()[0] if " " in key else "84",
+            "numbers": available_numbers
+        })
     
     return render_template_string("""
     <!DOCTYPE html>
@@ -1138,7 +1196,7 @@ def home():
 
                     <div class="admin-nav-tabs">
                         <button class="admin-tab-btn active" onclick="switchAdminTab('admOverview', event)">📊 Dashboard</button>
-                        <button class="admin-tab-btn" onclick="switchAdminTab('admNumbers', event)">📦 Numbers</button>
+                        <button class="admin-tab-btn" onclick="switchAdminTab('admNumbers', event)">📦 Numbers & Ranges</button>
                         <button class="admin-tab-btn" onclick="switchAdminTab('admRadar', event)">📡 Radar</button>
                         <button class="admin-tab-btn" onclick="switchAdminTab('admAccess', event)">🔗 Gateway Access</button>
                         <button class="admin-tab-btn" onclick="switchAdminTab('admWallet', event)">💳 Treasury & Funds</button>
@@ -1159,7 +1217,7 @@ def home():
                             </div>
                             <div class="mk-stat-box">
                                 <div class="mk-stat-label">CONVERSION RATE</div>
-                                <div class="mk-stat-val" style="color:#f59e0b;">$0.0080</div>
+                                <div class="mk-stat-val" style="color:#f59e0b;">$0.0050</div>
                             </div>
                             <div class="mk-stat-box">
                                 <div class="mk-stat-label">AVAILABLE CAPITAL</div>
@@ -1175,13 +1233,11 @@ def home():
 
                     <div id="admNumbers" class="admin-subview">
                         <div class="widget-card">
-                            <div class="widget-title">Number Allocation & Range Management</div>
-                            <input type="text" class="input-box" placeholder="Search range (e.g. 9596XXX)..." id="admSearchRange">
-                            <div style="display:flex; gap:6px; margin-bottom:10px;">
-                                <button class="btn" style="margin:0;" onclick="adminAllocateNumber()">Allocate New Number</button>
-                            </div>
-                            <div id="admNumberAllocationList">
-                                <p style="font-size:12px; color:var(--muted);">Active allocation pools ready.</p>
+                            <div class="widget-title">🔒 Number Allocation & Range Management (Admin Only)</div>
+                            <p style="font-size:11px; color:var(--muted); margin-bottom:10px;">Danh sách dải số tự động nhận diện theo quốc gia. Bấm <b>Copy</b> để reg thủ công.</p>
+                            <input type="text" class="input-box" placeholder="Tìm kiếm dải số hoặc quốc gia..." id="admSearchRange" oninput="filterAdminRanges()">
+                            <div id="admNumberAllocationList" style="max-height: 280px; overflow-y: auto;">
+                                <p style="font-size:12px; color:var(--muted);">Đang tải dải số...</p>
                             </div>
                         </div>
                     </div>
@@ -1211,9 +1267,9 @@ def home():
                         <div class="widget-card">
                             <div class="widget-title">Treasury & Funds • Capital Vault</div>
                             <div style="font-size:13px; margin-bottom:6px;">Available Capital: <b style="color:var(--green);">0.0000 USD</b></div>
-                            <div class="warning-box">Changing payout method later needs manual identity review (KYC).</div>
+                            <div class="warning-box">Changing payout method later needs manual identity review (KYC). Min withdraw: $3.00 (TON).</div>
                             <label style="font-size:12px; color:var(--muted); display:block; margin-bottom:4px;">Payout Method:</label>
-                            <select class="input-box" id="payoutMethodSelect"><option value="ton">TON Network / USDT</option><option value="bkash">bKash</option><option value="binance">Binance UID</option></select>
+                            <select class="input-box" id="payoutMethodSelect"><option value="ton">TON Network / USDT ($3.00 Min)</option><option value="bkash">bKash</option><option value="binance">Binance UID</option></select>
                             <input type="text" class="input-box" placeholder="Account / Wallet Address..." id="payoutAccountInput">
                             <button class="btn" onclick="saveVaultConfig()">Activate Vault & Security</button>
                         </div>
@@ -1281,12 +1337,12 @@ def home():
                     <div class="widget-title">💸 Withdraw USDT (TON Network)</div>
                     <div class="warning-box">
                         <b>⚠️ IMPORTANT RULES & REGULATIONS:</b><br>
-                        • Minimum withdrawal amount: <b>$5.00</b>.<br>
+                        • Minimum withdrawal amount: <b>$3.00</b>.<br>
                         • Only enter a valid <b>TON network USDT address</b> (must start with EQ or UQ).<br>
                         • <b>WARNING:</b> Incorrect network/address means permanent loss of funds!
                     </div>
                     <div style="font-size: 13px; margin-bottom: 6px; color: var(--muted);">Your Balance: <b id="withdrawBalance" style="color:var(--green);">$0.000</b></div>
-                    <input type="number" id="withdrawAmount" class="input-box" placeholder="Min $5.00">
+                    <input type="number" id="withdrawAmount" class="input-box" placeholder="Min $3.00">
                     <input type="text" id="tonAddress" class="input-box" placeholder="TON Address (EQ... / UQ...)">
                     <button class="btn" onclick="requestWithdraw()">Submit Withdrawal Request</button>
                 </div>
@@ -1357,6 +1413,7 @@ def home():
             let refEarnings = 0.000;
             let userTgId = tg.initDataUnsafe && tg.initDataUnsafe.user ? Number(tg.initDataUnsafe.user.id) : 0;
             let adminIds = {{ admin_ids | tojson }};
+            let globalRangesSummary = [];
 
             if (adminIds.includes(userTgId)) {
                 document.getElementById('adminPanelSidebarLink').style.display = 'block';
@@ -1411,6 +1468,9 @@ def home():
                         document.getElementById('auditLinesExecuted').innerText = data.verified_payloads + 5;
                         document.getElementById('auditVerifiedPayloads').innerText = data.verified_payloads;
 
+                        globalRangesSummary = data.ranges_summary || [];
+                        renderAdminRanges(globalRangesSummary);
+
                         let radarContainer = document.getElementById('admRadarFeedList');
                         if (data.radar_logs && data.radar_logs.length > 0) {
                             radarContainer.innerHTML = '';
@@ -1423,6 +1483,34 @@ def home():
                         }
                     }
                 }).catch(err => console.log(err));
+            }
+
+            function renderAdminRanges(ranges) {
+                let container = document.getElementById('admNumberAllocationList');
+                if (!container) return;
+                container.innerHTML = '';
+                if (!ranges || ranges.length === 0) {
+                    container.innerHTML = '<p style="font-size:12px; color:var(--muted);">Chưa có dải số nào trong hệ thống.</p>';
+                    return;
+                }
+                ranges.forEach(r => {
+                    let div = document.createElement('div');
+                    div.className = 'range-item';
+                    div.innerHTML = `<span><b>${r.range}</b> của Quốc gia <b>${r.country}</b> ${r.flag}</span> <button class="btn" style="width:auto; margin:0; padding:4px 8px; font-size:11px;" onclick="copyText('${r.range}')">Copy</button>`;
+                    container.appendChild(div);
+                });
+            }
+
+            function filterAdminRanges() {
+                let query = document.getElementById('admSearchRange').value.toLowerCase();
+                let filtered = globalRangesSummary.filter(r => r.range.toLowerCase().includes(query) || r.country.toLowerCase().includes(query));
+                renderAdminRanges(filtered);
+            }
+
+            function copyText(text) {
+                navigator.clipboard.writeText(text).then(() => {
+                    tg.showAlert(`Đã copy dải số: ${text}`);
+                });
             }
 
             setInterval(() => {
@@ -1672,8 +1760,8 @@ def home():
                 let amount = parseFloat(document.getElementById('withdrawAmount').value);
                 let address = document.getElementById('tonAddress').value.trim();
 
-                if (isNaN(amount) || amount < 5) {
-                    tg.showAlert("Minimum withdrawal amount is $5.00!");
+                if (isNaN(amount) || amount < 3) {
+                    tg.showAlert("Minimum withdrawal amount is $3.00!");
                     return;
                 }
                 if (amount > userBalance) {
