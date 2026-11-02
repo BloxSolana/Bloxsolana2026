@@ -149,8 +149,8 @@ bot_settings = {
     "w_methods": ["USDT (TON Network)"], # Chỉ nhận USDT mạng TON tránh mất tiền oan
     "otp_default_rate": 0.005,  # Mặc định mỗi OTP nhận 0.005$
     "otp_service_rates": {},
-    "main_channel_link": "https://t.me/LIVEOTPIVAS",
-    "refer_reward": 0.01
+    "main_channel_link": "https://t.me/FastNode_1",
+    "refer_reward": 0.005
 }
 
 BOT_DATA_FILE = "bot_data.json"
@@ -509,7 +509,7 @@ def generate_otp_display(service_name, raw_number, message_text):
     
     markup = {"inline_keyboard": []}
     row1 = []
-    main_channel_link = bot_settings.get("main_channel_link", "https://t.me/LIVEOTPIVAS")
+    main_channel_link = bot_settings.get("main_channel_link", "https://t.me/FastNode_1")
     if main_channel_link:
         row1.append({"text": "𝗖𝗛𝗔𝗡𝗡𝗘𝗟", "url": main_channel_link, "icon_custom_emoji_id": "5429353834881261942", "style": "primary"})
     row1.append({"text": f"{otp}", "icon_custom_emoji_id": srv_eid, "copy_text": {"text": otp}, "style": "success"})
