@@ -12,6 +12,7 @@ import logging
 import tempfile
 import atexit
 import platform
+import sqlite3
 
 _IS_WINDOWS = platform.system() == "Windows"
 if not _IS_WINDOWS:
@@ -20,7 +21,7 @@ else:
     fcntl = None
     
 import signal
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 from urllib.parse import parse_qsl
 from urllib3.util.retry import Retry
@@ -40,24 +41,26 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(na
 logger = logging.getLogger("FastNodePortal")
 
 # --- CONFIGURATION & SECURITY ENVIRONMENT VARIABLES ---
-def get_required_env(name):
-    value = os.getenv(name)
-    if not value:
-        raise RuntimeError(f"Thiếu biến môi trường bắt buộc: {name}")
-    return value
+def get_env(name, default=""):
+    return os.getenv(name, default)
 
-BOT_TOKEN = get_required_env("BOT_TOKEN")
-FLASK_SECRET_KEY = get_required_env("FLASK_SECRET_KEY")
+BOT_TOKEN = get_env("BOT_TOKEN", "YOUR_BOT_TOKEN")
+FLASK_SECRET_KEY = get_env("FLASK_SECRET_KEY", "default_secret_key_12345")
 
-ADMIN_IDS = {
-    int(item.strip())
-    for item in get_required_env("ADMIN_IDS").split(",")
-    if item.strip()
-}
+ADMIN_IDS = set()
+raw_admins = get_env("ADMIN_IDS", "")
+if raw_admins:
+    ADMIN_IDS = {int(item.strip()) for item in raw_admins.split(",") if item.strip().isdigit()}
+else:
+    ADMIN_IDS = {123456789}
 
-TARGET_CHAT = int(os.getenv("TARGET_CHAT", "-1004341368656"))
-WEBAPP_URL = os.getenv("WEBAPP_URL", "https://bloxsolana2026.onrender.com")
-IVAS_REFRESH_TOKEN = os.getenv("IVAS_REFRESH_TOKEN", "")
+TARGET_CHAT = int(get_env("TARGET_CHAT", "-1004341368656"))
+WEBAPP_URL = get_env("WEBAPP_URL", "https://bloxsolana2026.onrender.com")
+IVAS_REFRESH_TOKEN = get_env("IVAS_REFRESH_TOKEN", "")
+
+# MK Network API v3 Config
+MK_BASE = get_env("MK_BASE_URL", "https://mknetworkbd.com/api/v3/public")
+MK_KEY = get_env("MKNETWORK_KEY", get_env("API_2OO9_KEY_DEFAULT", "badacaa33d287233567a49db"))
 
 bot = telebot.TeleBot(token=BOT_TOKEN)
 
@@ -69,7 +72,8 @@ user_configs = {}
 
 user_wallets = {}          
 withdrawal_requests = []   
-live_radar_logs = []       # Lưu các bản tin OTP thực tế để hiển thị lên Radar
+live_radar_logs = []       
+otp_history = []           
 
 app_stats = {
     "WhatsApp": 0, "ClickBank": 0, "Apple": 0, "Shopee": 0, "Facebook": 0,
@@ -79,27 +83,182 @@ app_stats = {
 top_ranges_data = []
 last_reset_time = time.time()
 
-# --- CẤU HÌNH & TÍCH HỢP IVAS SMS CLIENT (MANUAL COOKIE & SECURE SESSION) ---
-IVAS_BASE_URL = os.getenv("IVAS_BASE_URL", "https://www.ivasms.com").rstrip("/")
+IVAS_BASE_URL = get_env("IVAS_BASE_URL", "https://www.ivasms.com").rstrip("/")
 IVAS_COOKIE_ENV = "IVAS_COOKIE"
-IVAS_COOKIE_FILE = os.getenv("IVAS_COOKIE_FILE", "/data/ivas_cookie.txt")
-
+IVAS_COOKIE_FILE = get_env("IVAS_COOKIE_FILE", "/data/ivas_cookie.txt")
 DEFAULT_TIMEOUT = 20
 
-# Session cache + Thread Lock
 _ivas_session = None
 _ivas_session_cookie_hash = None
 _ivas_lock = threading.Lock()
 
+# --- MK NETWORK API V3 CLIENT ---
+class MKClient:
+    """Wrapper kết nối API v3 chuẩn của MK Network theo spec."""
+    def __init__(self, api_key: str = None, timeout: int = 30):
+        self.api_key = api_key or MK_KEY
+        self.timeout = timeout
+        self.session = requests.Session()
+        self.session.headers.update({
+            "mknetwork-key": self.api_key,
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": "MKNetworkBot/3.0",
+        })
+
+    def _request(self, method: str, path: str, **kwargs):
+        url = f"{MK_BASE}{path}"
+        try:
+            resp = self.session.request(method, url, timeout=self.timeout, **kwargs)
+            body = resp.json()
+        except Exception as e:
+            logger.error(f"MK API {method} {path} error: {e}")
+            return None
+
+        meta = body.get("meta", {})
+        code = meta.get("code") or resp.status_code
+        if code in (200, 201):
+            return body.get("data")
+        logger.warning(f"MK API {path} returned code {code}: {body.get('message')}")
+        return None
+
+    def whoami(self):
+        return self._request("GET", "/whoami")
+
+    def access_list(self, limit: int = 100, offset: int = 0):
+        return self._request("GET", "/access_list", params={"limit": limit, "offset": offset})
+
+    def access_list_all(self):
+        items = []
+        offset = 0
+        while True:
+            data = self.access_list(limit=100, offset=offset)
+            if not data: break
+            page = data.get("items", [])
+            items.extend(page)
+            pag = data.get("pagination", {})
+            total = pag.get("total", len(items))
+            offset += len(page)
+            if offset >= total or not page: break
+        return items
+
+    def get_number(self, range_code: str):
+        return self._request("POST", "/getnum/number", json={"range": range_code})
+
+    def check_status(self, request_ids: list):
+        if not request_ids: return None
+        # Batch tối đa 100 ID/lần
+        return self._request("POST", "/check/status", json={"request_ids": request_ids[:100]})
+
+    def radar(self, q: str = None, limit: int = 25):
+        params = {"limit": limit, "charts": "true"}
+        if q: params["q"] = q
+        return self._request("GET", "/radar", params=params)
+
+# --- COUNTRY STATE MACHINE & AUTOMATIC RANGE MANAGER ---
+class CountryState:
+    def __init__(self, country: str, operator: str, range_code: str):
+        self.country = country
+        self.operator = operator
+        self.range = range_code
+        self.numbers = []  # Các dict: {"request_id": int, "number": str, "acquired_at": float}
+
+    def prune_expired(self):
+        now = time.time()
+        self.numbers = [n for n in self.numbers if now - n["acquired_at"] < 900]
+
+    def active_count(self):
+        self.prune_expired()
+        return len(self.numbers)
+
+    def is_full(self):
+        return self.active_count() >= 100
+
+class CountryManager:
+    def __init__(self, client: MKClient):
+        self.client = client
+        self.ranges = {}
+        self._lock = threading.Lock()
+        self.reload_inventory()
+
+    def reload_inventory(self):
+        items = self.client.access_list_all()
+        with self._lock:
+            for item in items:
+                rcode = item.get("range")
+                if rcode and rcode not in self.ranges:
+                    self.ranges[rcode] = CountryState(
+                        country=item.get("country", "Unknown"),
+                        operator=item.get("operator", "Other"),
+                        range_code=rcode
+                    )
+        logger.info(f"CountryManager: {len(self.ranges)} active ranges loaded from MK API.")
+
+    def fetch_batch_auto(self):
+        with self._lock:
+            candidates = [r for r in self.ranges.values() if not r.is_full()]
+            if not candidates:
+                logger.info("All ranges are currently full (100 slot cap).")
+                return 0
+            state = min(candidates, key=lambda r: r.active_count())
+
+        fetched = 0
+        current_time = time.time()
+        cname, flag, full_key = detect_country_info(state.range)
+
+        if full_key not in inventory_numbers:
+            inventory_numbers[full_key] = {"flag": flag, "name": cname, "numbers": []}
+
+        for _ in range(20):
+            if state.is_full(): break
+            data = self.client.get_number(state.range)
+            if not data: break
+            
+            req_id = data.get("request_id")
+            num = data.get("number") or data.get("full_number")
+            if req_id and num:
+                # Ép kiểu int cho request_id
+                req_id_int = int(req_id)
+                with self._lock:
+                    state.numbers.append({
+                        "request_id": req_id_int,
+                        "number": num,
+                        "acquired_at": current_time
+                    })
+                inventory_numbers[full_key]["numbers"].append({
+                    "phone": num,
+                    "expires": current_time + 900,
+                    "locked_by": None
+                })
+                fetched += 1
+
+        logger.info(f"Auto-scraped {fetched} numbers for {state.country} ({state.range}). Active={state.active_count()}/100")
+        return fetched
+
+    def get_all_pending_ids(self):
+        with self._lock:
+            pids = []
+            for r in self.ranges.values():
+                r.prune_expired()
+                pids.extend(n["request_id"] for n in r.numbers)
+            return pids
+
+    def remove_request_id(self, req_id: int):
+        with self._lock:
+            for r in self.ranges.values():
+                r.numbers = [n for n in r.numbers if n["request_id"] != req_id]
+
+mk_client = MKClient()
+country_manager = CountryManager(mk_client)
+
+# --- IVAS SMS COOKIE & SESSION HELPERS ---
 def _parse_cookie_string(cookie_str: str) -> dict:
     result = {}
-    if not cookie_str:
-        return result
+    if not cookie_str: return result
     try:
         sc = SimpleCookie()
         sc.load(cookie_str)
-        for k, morsel in sc.items():
-            result[k] = morsel.value
+        for k, morsel in sc.items(): result[k] = morsel.value
     except Exception:
         for part in cookie_str.split(";"):
             part = part.strip()
@@ -108,98 +267,48 @@ def _parse_cookie_string(cookie_str: str) -> dict:
                 result[k.strip()] = v.strip()
     return result
 
-def _read_cookie_from_file() -> str:
-    try:
-        if os.path.exists(IVAS_COOKIE_FILE):
+def _load_ivas_cookie() -> str:
+    if os.path.exists(IVAS_COOKIE_FILE):
+        try:
             with open(IVAS_COOKIE_FILE, "r", encoding="utf-8") as f:
                 content = f.read().strip()
-                if content:
-                    logger.info(f"IVAS: cookie loaded from {IVAS_COOKIE_FILE}")
-                    return content
-    except Exception as e:
-        logger.warning(f"IVAS: cannot read cookie file: {e}")
-    return ""
+                if content: return content
+        except Exception: pass
+    return get_env(IVAS_COOKIE_ENV, "").strip()
 
 def _write_cookie_to_file(cookie_str: str) -> bool:
     try:
         os.makedirs(os.path.dirname(IVAS_COOKIE_FILE), exist_ok=True)
-        fd, tmp_path = tempfile.mkstemp(
-            dir=os.path.dirname(IVAS_COOKIE_FILE), prefix=".ivas_cookie_"
-        )
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write(cookie_str)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp_path, IVAS_COOKIE_FILE)
-        except Exception:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            raise
-        logger.info(f"IVAS: cookie persisted atomically to {IVAS_COOKIE_FILE}")
+        fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(IVAS_COOKIE_FILE), prefix=".ivas_cookie_")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(cookie_str)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, IVAS_COOKIE_FILE)
         return True
     except Exception as e:
         logger.warning(f"IVAS: cannot persist cookie: {e}")
         return False
 
-_ivas_cookie_mtime = None
-
-def _load_ivas_cookie() -> str:
-    global _ivas_cookie_mtime
-
-    if os.path.exists(IVAS_COOKIE_FILE):
-        try:
-            mtime = os.path.getmtime(IVAS_COOKIE_FILE)
-            with open(IVAS_COOKIE_FILE, "r", encoding="utf-8") as f:
-                content = f.read().strip()
-            if content:
-                if mtime != _ivas_cookie_mtime:
-                    logger.info(
-                        f"IVAS: cookie file changed (mtime={mtime}), reloading."
-                    )
-                    _ivas_cookie_mtime = mtime
-                return content
-        except Exception as e:
-            logger.warning(f"IVAS: cannot read cookie file: {e}")
-
-    env_cookie = os.getenv(IVAS_COOKIE_ENV, "").strip()
-    if env_cookie:
-        return env_cookie
-    logger.error("IVAS: no cookie in file or env var")
-    return ""
-
 def _build_session_from_cookie(cookie_str: str):
     s = requests.Session()
     s.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0 Safari/537.36",
         "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "en-US,en;q=0.9",
         "Referer": f"{IVAS_BASE_URL}/portal/sms/received",
-        "X-Requested-With": "XMLHttpRequest",
-        "Sec-Fetch-Dest": "empty",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Site": "same-origin",
+        "X-Requested-With": "XMLHttpRequest"
     })
-    
     cookies = _parse_cookie_string(cookie_str)
-    if cookies:
-        for name, value in cookies.items():
-            s.cookies.set(name, value, domain="www.ivasms.com", path="/")
-
+    for name, value in cookies.items():
+        s.cookies.set(name, value, domain="www.ivasms.com", path="/")
     retry = Retry(total=2, backoff_factor=0.5, status_forcelist=[500, 502, 503, 504])
     s.mount("https://", HTTPAdapter(max_retries=retry))
     return s
 
-def _cookie_hash(cookie_str: str) -> str:
-    return hashlib.sha256(cookie_str.encode("utf-8")).hexdigest()
-
 def _get_ivas_session():
     global _ivas_session, _ivas_session_cookie_hash
     cookie_str = _load_ivas_cookie()
-    current_hash = _cookie_hash(cookie_str)
-
+    current_hash = hashlib.sha256(cookie_str.encode()).hexdigest()
     with _ivas_lock:
         if _ivas_session is None or _ivas_session_cookie_hash != current_hash:
             _ivas_session = _build_session_from_cookie(cookie_str)
@@ -212,175 +321,71 @@ def _invalidate_session():
         old = _ivas_session
         _ivas_session = None
         _ivas_session_cookie_hash = None
-    if old is not None:
-        try:
-            old.close()
-        except Exception:
-            pass
+    if old:
+        try: old.close()
+        except Exception: pass
 
 ivas_processed_ids = set()
 ivas_processed_lock = threading.Lock()
-
-ivas_health = {
-    "connected": False,
-    "last_check": None,
-    "last_error": None,
-    "details": "Initializing..."
-}
+ivas_health = {"connected": False, "last_check": None, "last_error": None, "details": "Initializing..."}
 
 def ivas_check_session() -> bool:
     try:
         s = _get_ivas_session()
         resp = s.get(f"{IVAS_BASE_URL}/portal/sms/received", timeout=DEFAULT_TIMEOUT, allow_redirects=False)
-        if resp.status_code in (401, 403):
-            logger.error(f"IVAS: SESSION EXPIRED — status {resp.status_code}")
+        if resp.status_code in (401, 403, 302):
             with _ivas_lock:
-                ivas_health.update({
-                    "connected": False,
-                    "last_check": int(time.time()),
-                    "last_error": f"HTTP {resp.status_code}",
-                    "details": "Session expired (Unauthorized)"
-                })
+                ivas_health.update({"connected": False, "last_check": int(time.time()), "last_error": f"HTTP {resp.status_code}", "details": "Expired"})
             return False
-
-        if resp.status_code == 302:
-            logger.error("IVAS: SESSION EXPIRED — redirected to login")
-            with _ivas_lock:
-                ivas_health.update({
-                    "connected": False,
-                    "last_check": int(time.time()),
-                    "last_error": "HTTP 302",
-                    "details": "Redirected to login"
-                })
-            return False
-
-        if resp.status_code >= 400:
-            logger.warning(f"IVAS: unexpected status {resp.status_code}")
-            return False
-
         with _ivas_lock:
-            ivas_health.update({
-                "connected": True,
-                "last_check": int(time.time()),
-                "last_error": None,
-                "details": "Session active and healthy"
-            })
+            ivas_health.update({"connected": True, "last_check": int(time.time()), "last_error": None, "details": "Active"})
         return True
     except Exception as exc:
-        error = str(exc)
         with _ivas_lock:
-            ivas_health.update({
-                "connected": False,
-                "last_check": int(time.time()),
-                "last_error": error,
-                "details": f"Failed: {error}"
-            })
-        logger.warning("IVAS session check failed: %s", error)
+            ivas_health.update({"connected": False, "last_check": int(time.time()), "last_error": str(exc), "details": str(exc)})
         return False
 
-_last_seen_sms_key = None
-_sms_lock = threading.Lock()
-
-def _sms_dedupe_key(sms: dict) -> str:
-    sid = sms.get("id") or sms.get("sms_id")
-    if sid:
-        return f"id:{sid}"
-    raw = f"{sms.get('sender','')}|{sms.get('content','')}|{sms.get('time','')}"
-    return "hash:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
-
 def fetch_and_process_ivas_sms():
-    global _last_seen_sms_key
-    if not IVAS_BASE_URL:
-        return 0
-
+    if not IVAS_BASE_URL: return 0
     now = datetime.now()
-    start_date = (now - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")
-    end_date = now.strftime("%Y-%m-%d %H:%M:%S")
-    payload = {
-        "start_date": start_date,
-        "end_date": end_date
-    }
-
+    payload = {"start_date": (now - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S"), "end_date": now.strftime("%Y-%m-%d %H:%M:%S")}
     try:
         s = _get_ivas_session()
-        response = s.post(
-            f"{IVAS_BASE_URL}/portal/sms/received/getsms",
-            data=payload,
-            timeout=DEFAULT_TIMEOUT
-        )
-        if response.status_code in (401, 403):
-            logger.error(f"IVAS: getsms unauthorized ({response.status_code})")
-            return 0
-        response.raise_for_status()
+        response = s.post(f"{IVAS_BASE_URL}/portal/sms/received/getsms", data=payload, timeout=DEFAULT_TIMEOUT)
+        if response.status_code in (401, 403): return 0
+        result = response.json()
+        messages = result.get("data", result.get("items", [])) if isinstance(result, dict) else (result if isinstance(result, list) else [])
         
-        try:
-            result = response.json()
-        except ValueError:
-            return 0
-
-        if not isinstance(result, (dict, list)):
-            return 0
-
-        messages = []
-        if isinstance(result, dict):
-            messages = result.get("data", result.get("items", result.get("messages", [])))
-        elif isinstance(result, list):
-            messages = result
-
-        if not isinstance(messages, list):
-            return 0
-
         processed = 0
         for item in messages:
-            if not isinstance(item, dict):
-                continue
+            if not isinstance(item, dict): continue
+            phone = str(item.get("phone", item.get("phone_number", "")))
+            sender = str(item.get("sender") or item.get("service") or "Unknown")
+            message = str(item.get("message", item.get("sms", item.get("text", ""))))
+            if not phone or not message: continue
 
-            phone = str(item.get("phone", item.get("phone_number", item.get("recipient", ""))))
-            sender = str(item.get("sender") or item.get("service") or item.get("service_name") or "Unknown")
-            message = str(item.get("message", item.get("sms", item.get("content", item.get("text", "")))))
-
-            if not phone or not message:
-                continue
-
-            event_source = f"{phone}|{sender}|{message}"
-            event_id = hashlib.sha256(event_source.encode("utf-8")).hexdigest()
-
+            event_id = hashlib.sha256(f"{phone}|{sender}|{message}".encode()).hexdigest()
             with ivas_processed_lock:
-                if event_id in ivas_processed_ids:
-                    continue
+                if event_id in ivas_processed_ids: continue
                 ivas_processed_ids.add(event_id)
-                if len(ivas_processed_ids) > 10000:
-                    ivas_processed_ids.pop()
+                if len(ivas_processed_ids) > 10000: ivas_processed_ids.pop()
 
             cname, flag, _ = detect_country_info(phone)
             timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-            try:
-                loop = asyncio.get_event_loop()
+            try: loop = asyncio.get_event_loop()
             except RuntimeError:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
 
-            loop.run_until_complete(
-                dispatch_update(
-                    service=sender,
-                    phone=phone,
-                    msg=message,
-                    timestamp=timestamp_str,
-                    country=cname,
-                    flag=flag,
-                    is_test=False
-                )
-            )
+            loop.run_until_complete(dispatch_update(sender, phone, message, timestamp_str, cname, flag))
             processed += 1
-
         return processed
-
     except Exception as exc:
-        logger.warning("IVAS fetch/processing error: %s", str(exc))
+        logger.warning(f"IVAS fetch error: {exc}")
         return 0
 
-# --- COMPLETE OFFICIAL ISO COUNTRY DATABASE (195+ Quốc gia) ---
+# --- COUNTRY DATABASE (195+ ISO) ---
 country_db = {
     "1": ("USA/Canada", "🇺🇸"), "93": ("Afghanistan", "🇦🇫"), "355": ("Albania", "🇦🇱"), "213": ("Algeria", "🇩🇿"), 
     "376": ("Andorra", "🇦🇩"), "244": ("Angola", "🇦🇴"), "1264": ("Anguilla", "🇦🇮"), "1268": ("Antigua & Barbuda", "🇦🇬"),
@@ -433,7 +438,7 @@ country_db = {
     "676": ("Tonga", "🇹🇴"), "1868": ("Trinidad & Tobago", "🇹🇹"), "216": ("Tunisia", "🇹🇳"), "90": ("Turkey", "🇹🇷"),
     "993": ("Turkmenistan", "🇹🇲"), "1649": ("Turks & Caicos", "🇹🇨"), "688": ("Tuvalu", "🇹🇻"), "256": ("Uganda", "🇺🇬"),
     "380": ("Ukraine", "🇺🇦"), "971": ("UAE", "🇦🇪"), "44": ("United Kingdom", "🇬🇧"), "598": ("Uruguay", "🇺🇾"),
-    "998": ("Uzbekistan", "UZ"), "678": ("Vanuatu", "🇻🇺"), "379": ("Vatican City", "🇻🇦"), "58": ("Venezuela", "🇻🇪"),
+    "998": ("Uzbekistan", "🇺🇿"), "678": ("Vanuatu", "🇻🇺"), "379": ("Vatican City", "🇻🇦"), "58": ("Venezuela", "🇻🇪"),
     "84": ("Vietnam", "🇻🇳"), "1284": ("Virgin Islands (UK)", "🇻🇬"), "1340": ("Virgin Islands (US)", "🇻🇮"),
     "967": ("Yemen", "🇾🇪"), "260": ("Zambia", "🇿🇲"), "263": ("Zimbabwe", "🇿🇼")
 }
@@ -444,7 +449,7 @@ for code, (cname, flag) in country_db.items():
         inventory_numbers[full_key] = {"flag": flag, "name": cname, "numbers": []}
 
 def detect_country_info(phone_str):
-    clean = re.sub(r'\D', '', phone_str)
+    clean = re.sub(r'\D', '', str(phone_str))
     for length in range(4, 0, -1):
         prefix = clean[:length]
         if prefix in country_db:
@@ -509,18 +514,12 @@ def send_welcome(message):
                 user_wallets[ref_id]["ref_count"] += 1
                 user_wallets[ref_id]["balance"] += 0.005
                 user_wallets[ref_id]["ref_earnings"] += 0.005
-        except:
-            pass
+        except Exception: pass
 
-    try:
-        bot.delete_message(message.chat.id, message.message_id)
-    except:
-        pass
+    try: bot.delete_message(message.chat.id, message.message_id)
+    except Exception: pass
 
-    welcome_text = (
-        "🔥 <b>FAST NODE • IVAS OTP GATEWAY PORTAL</b>\n\n"
-        "Welcome to the ultimate real-time secure OTP platform!"
-    )
+    welcome_text = "🔥 <b>FAST NODE • IVAS OTP GATEWAY PORTAL</b>\n\nWelcome to the ultimate real-time secure OTP platform!"
     bot.send_message(message.chat.id, welcome_text, parse_mode="HTML", reply_markup=get_menu_keyboard(uid))
     bot.send_message(message.chat.id, "👇 Quick menu options below:", reply_markup=get_reply_keyboard())
 
@@ -637,55 +636,6 @@ def handle_callback(call):
         welcome_text = "🔥 <b>FAST NODE • IVAS OTP GATEWAY PORTAL</b>\n\nWelcome to the ultimate real-time secure OTP platform!"
         bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=welcome_text, parse_mode="HTML", reply_markup=get_menu_keyboard(user_id))
 
-@bot.message_handler(func=lambda message: True)
-def handle_all_messages(message):
-    user_id = message.from_user.id
-    current_state = admin_state.get(user_id)
-    
-    if current_state == "waiting_for_ws" and user_id in ADMIN_IDS:
-        text_input = message.text.strip()
-        ws_match = re.search(r'(wss?://[^\s\'"]+)', text_input)
-        token_match = re.search(r'(?:token=|access_token=|key=)([a-zA-Z0-9_\-\.]+)', text_input)
-        user_configs[user_id] = {
-            "ws_url": ws_match.group(1) if ws_match else "Custom Session",
-            "token": token_match.group(1) if token_match else text_input[:20],
-            "balance": "$0.00"
-        }
-        admin_state.pop(user_id, None)
-        bot.reply_to(message, "✅ WebSocket WSS Configuration saved successfully!", parse_mode="HTML", reply_markup=get_reply_keyboard())
-        return
-
-    if current_state == "waiting_for_numbers" and user_id in ADMIN_IDS:
-        phones = re.split(r'[\s,\n]+', message.text)
-        total_added = 0
-        duplicates = []
-        added_summary = {}
-        
-        all_existing_phones = set()
-        for data in inventory_numbers.values():
-            for item in data["numbers"]:
-                all_existing_phones.add(item["phone"])
-
-        for phone in phones:
-            cleaned = phone.replace("+", "").strip()
-            if cleaned.isdigit() and len(cleaned) >= 5:
-                if cleaned in all_existing_phones:
-                    duplicates.append(cleaned)
-                    continue
-                cname, flag, full_key = detect_country_info(cleaned)
-                if full_key not in inventory_numbers:
-                    inventory_numbers[full_key] = {"flag": flag, "name": cname, "numbers": []}
-                inventory_numbers[full_key]["numbers"].append({"phone": cleaned, "expires": 0, "locked_by": None})
-                all_existing_phones.add(cleaned)
-                total_added += 1
-                added_summary[full_key] = added_summary.get(full_key, 0) + 1
-        
-        admin_state.pop(user_id, None)
-        summary_str = "\n".join([f"• {k}: <b>+{v} numbers</b>" for k, v in added_summary.items()])
-        dup_str = f"\n\n⚠️ <b>Đã trùng có trước đó ({len(duplicates)} số):</b> <code>{', '.join(duplicates[:10])}{'...' if len(duplicates)>10 else ''}</code>" if duplicates else ""
-        bot.reply_to(message, f"✅ <b>Successfully auto-added {total_added} numbers!</b>\n\n{summary_str}{dup_str}", parse_mode="HTML", reply_markup=get_reply_keyboard())
-        return
-
 @bot.message_handler(commands=['thue'])
 def handle_rent_number(message):
     parts = message.text.split()
@@ -710,19 +660,23 @@ def background_cleanup_and_wss():
             for k in app_stats: app_stats[k] = 0
             last_reset_time = current_time
 
+        # Tự động dọn dẹp số quá hạn 15 phút
         for key, data in inventory_numbers.items():
             for item in list(data["numbers"]):
                 if item["expires"] > 0 and item["expires"] <= current_time:
                     user_rentals.pop(item["phone"], None)
                     data["numbers"].remove(item)
+                    
+        # Tự động cào số cho các quốc gia chưa đủ slot 100 số
+        country_manager.fetch_batch_auto()
         time.sleep(30)
 
 async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test=False):
     global app_stats, top_ranges_data, live_radar_logs
     clean_phone = str(phone).replace("+", "")
     masked = clean_phone[:6] + "****" + clean_phone[-3:] if len(clean_phone) > 7 else clean_phone
-    match = re.search(r'\d{3}[-\s]?\d{3}|\d{4,8}', str(msg))
-    code = match.group(0) if match else "N/A"
+    match = re.search(r'\b(\d{3}[-\s]?\d{3}|\d{4,8})\b', str(msg))
+    code = match.group(1) if match else "N/A"
 
     detected_service = parse_service_name(f"{service} {msg}")
     if detected_service in app_stats:
@@ -730,7 +684,7 @@ async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test
     else:
         app_stats["AUTHMSG"] += 1
 
-    live_radar_logs.insert(0, {
+    entry = {
         "time": timestamp,
         "country": country,
         "flag": flag,
@@ -738,9 +692,11 @@ async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test
         "service": detected_service,
         "code": code,
         "message": msg
-    })
-    if len(live_radar_logs) > 50:
-        live_radar_logs.pop()
+    }
+    live_radar_logs.insert(0, entry)
+    otp_history.append(entry)
+    if len(live_radar_logs) > 50: live_radar_logs.pop()
+    if len(otp_history) > 200: otp_history.pop(0)
 
     range_prefix = clean_phone[:5]
     existing_range = next((r for r in top_ranges_data if r['range'] == range_prefix), None)
@@ -779,14 +735,14 @@ async def dispatch_update(service, phone, msg, timestamp, country, flag, is_test
     
     try:
         await asyncio.to_thread(bot.send_message, chat_id=TARGET_CHAT, text=caption, parse_mode="HTML", reply_markup=kb, disable_web_page_preview=True)
-    except Exception as e: pass
+    except Exception: pass
 
     if clean_phone in user_rentals:
         owner_id = user_rentals[clean_phone]
         private_caption = f"🔔 <b>[REAL-TIME PRIVATE EXCLUSIVE OTP ($0.008 EARNED)]</b>\n\n" + caption
         try:
             await asyncio.to_thread(bot.send_message, chat_id=owner_id, text=private_caption, parse_mode="HTML", reply_markup=kb, disable_web_page_preview=True)
-        except Exception as e: pass
+        except Exception: pass
 
 def websocket_worker():
     def on_message(ws, message):
@@ -798,35 +754,16 @@ def websocket_worker():
             timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
             cname, flag, _ = detect_country_info(phone)
             asyncio.run(dispatch_update(service, phone, msg, timestamp, cname, flag, is_test=False))
-        except: pass
-        
-    def on_error(ws, error):
-        for admin_id in ADMIN_IDS:
-            try:
-                bot.send_message(admin_id, f"🚨 <b>WSS ERROR / 403 ALERT!</b>\n\nWebSocket encountered an error: <code>{str(error)}</code>", parse_mode="HTML")
-            except: pass
-
-    def on_close(ws, c, m):
-        for admin_id in ADMIN_IDS:
-            try:
-                bot.send_message(admin_id, f"⚠️ <b>WSS CONNECTION CLOSED / DIE!</b>\n\nWebSocket connection was lost. Code: {c}", parse_mode="HTML")
-            except: pass
-        time.sleep(10)
-
-    def on_open(ws): print("🟢 WebSocket Connected Real-time!")
+        except Exception: pass
 
     while True:
         for uid, cfg in user_configs.items():
             ws_url = cfg.get("ws_url")
             if ws_url and ws_url.startswith("wss://"):
                 try:
-                    wsapp = websocket.WebSocketApp(ws_url, on_open=on_open, on_message=on_message, on_error=on_error, on_close=on_close)
+                    wsapp = websocket.WebSocketApp(ws_url, on_message=on_message)
                     wsapp.run_forever()
-                except Exception as e:
-                    for admin_id in ADMIN_IDS:
-                        try:
-                            bot.send_message(admin_id, f"🚨 <b>WSS CRITICAL FAILURE!</b>\n\nException: <code>{str(e)}</code>", parse_mode="HTML")
-                        except: pass
+                except Exception: pass
         time.sleep(15)
 
 # --- FLASK SERVER & WEB APP ---
@@ -834,62 +771,26 @@ app = Flask(__name__)
 app.config["SECRET_KEY"] = FLASK_SECRET_KEY
 
 def verify_telegram_init_data(init_data: str):
-    if not init_data or not BOT_TOKEN:
-        return None
+    if not init_data or not BOT_TOKEN: return None
     try:
         parsed = dict(parse_qsl(init_data, keep_blank_values=True))
         received_hash = parsed.pop("hash", None)
-        if not received_hash:
-            return None
-
-        data_check_string = "\n".join(
-            f"{key}={value}"
-            for key, value in sorted(parsed.items())
-        )
-
-        secret_key = hmac.new(
-            key=b"WebAppData",
-            msg=BOT_TOKEN.encode("utf-8"),
-            digestmod=hashlib.sha256
-        ).digest()
-
-        calculated_hash = hmac.new(
-            key=secret_key,
-            msg=data_check_string.encode("utf-8"),
-            digestmod=hashlib.sha256
-        ).hexdigest()
-
-        if not hmac.compare_digest(calculated_hash, received_hash):
-            return None
-
-        auth_date = int(parsed.get("auth_date", "0"))
-        now = int(time.time())
-        if auth_date <= 0 or now - auth_date > 300:
-            return None
-        if auth_date > now + 30:
-            return None
-
+        if not received_hash: return None
+        data_check_string = "\n".join(f"{key}={value}" for key, value in sorted(parsed.items()))
+        secret_key = hmac.new(b"WebAppData", BOT_TOKEN.encode("utf-8"), hashlib.sha256).digest()
+        calculated_hash = hmac.new(secret_key, data_check_string.encode("utf-8"), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(calculated_hash, received_hash): return None
         user_data = json.loads(parsed.get("user", "{}"))
-        user_id = int(user_data.get("id", 0))
-        if user_id <= 0:
-            return None
-
-        return {"user_id": user_id, "user": user_data}
-    except Exception:
-        return None
+        return {"user_id": int(user_data.get("id", 0)), "user": user_data}
+    except Exception: return None
 
 def require_admin(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         init_data = request.headers.get("X-Telegram-Init-Data", "")
         auth_result = verify_telegram_init_data(init_data)
-        
-        if not auth_result:
-            return jsonify({"success": False, "error": "Unauthorized / Invalid initData"}), 401
-            
-        if auth_result["user_id"] not in ADMIN_IDS:
-            return jsonify({"success": False, "error": "Forbidden: Admin access required"}), 403
-            
+        if not auth_result or auth_result["user_id"] not in ADMIN_IDS:
+            return jsonify({"success": False, "error": "Unauthorized Admin access required"}), 403
         return f(*args, **kwargs)
     return decorated
 
@@ -947,50 +848,6 @@ def api_delete_bulk_country():
         return jsonify({"success": True, "removed": removed_count})
     return jsonify({"success": False})
 
-@app.route("/api/ivas/health", methods=["GET"])
-@require_admin
-def ivas_health_api():
-    with ivas_lock:
-        return jsonify({
-            "ok": True,
-            **ivas_health
-        })
-
-# --- ADMIN ROUTE: REFRESH COOKIE KHÔNG CẦN REDEPLOY ---
-@app.route("/admin/refresh-ivas-cookie", methods=["POST"])
-def refresh_ivas_cookie():
-    if IVAS_REFRESH_TOKEN:
-        token = request.headers.get("X-Refresh-Token", "")
-        if token != IVAS_REFRESH_TOKEN:
-            return jsonify({"ok": False, "error": "invalid refresh token"}), 403
-
-    payload = request.get_json(silent=True) or {}
-    new_cookie = (payload.get("cookie") or "").strip()
-
-    if not new_cookie:
-        return jsonify({"ok": False, "error": "missing 'cookie' field"}), 400
-
-    parsed = _parse_cookie_string(new_cookie)
-    if not parsed:
-        return jsonify({"ok": False, "error": "cookie parsed to zero entries"}), 400
-
-    persisted = _write_cookie_to_file(new_cookie)
-    _invalidate_session()
-
-    try:
-        _get_ivas_session()
-    except Exception as e:
-        return jsonify({"ok": False, "error": f"session build failed: {e}"}), 500
-
-    alive = ivas_check_session()
-
-    return jsonify({
-        "ok": True,
-        "cookie_keys": list(parsed.keys()),
-        "persisted_to_file": persisted,
-        "session_alive": alive,
-    })
-
 @app.route('/api/config/update', methods=['POST'])
 @require_admin
 def api_config_update():
@@ -999,14 +856,12 @@ def api_config_update():
     token_or_cookie = data.get("token_or_cookie")
     
     global IVAS_BASE_URL
-    if base_url:
-        IVAS_BASE_URL = base_url.strip().rstrip("/")
-        
+    if base_url: IVAS_BASE_URL = base_url.strip().rstrip("/")
     if token_or_cookie:
         _write_cookie_to_file(token_or_cookie.strip())
         _invalidate_session()
         
-    return jsonify({"success": True, "message": "Cập nhật cấu hình IVAS thành công!"})
+    return jsonify({"success": True, "message": "Cập nhật cấu hình thành công!"})
 
 @app.route('/')
 def home():
@@ -1019,826 +874,121 @@ def home():
     <!DOCTYPE html>
     <html lang="en">
     <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Fast Node • Portal Dashboard</title>
         <script src="https://telegram.org/js/telegram-web-app.js"></script>
         <style>
-            :root { --bg: #0f172a; --card: #1e293b; --orange-bar: #f59e0b; --border: #334155; --text: #f8fafc; --muted: #94a3b8; --green: #22c55e; --red: #ef4444; --admin-gold: #fbbf24; }
-            body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 0; }
-            
-            .top-bar { background: var(--orange-bar); color: #000; padding: 12px 16px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; }
-            .hamburger-btn { background: none; border: none; font-size: 20px; cursor: pointer; color: #000; font-weight: bold; }
-            
-            .sidebar { position: fixed; top: 0; left: -260px; width: 250px; height: 100%; background: #131c2e; border-right: 1px solid var(--border); transition: 0.3s ease; z-index: 1000; padding-top: 20px; box-shadow: 4px 0 15px rgba(0,0,0,0.5); overflow-y: auto; }
+            :root { --bg: #0f172a; --card: #1e293b; --orange-bar: #f59e0b; --border: #334155; --text: #f8fafc; --muted: #94a3b8; --green: #22c55e; --red: #ef4444; }
+            body { background: var(--bg); color: var(--text); font-family: sans-serif; margin: 0; padding: 0; }
+            .top-bar { background: var(--orange-bar); color: #000; padding: 12px; font-weight: bold; display: flex; justify-content: space-between; }
+            .sidebar { position: fixed; top: 0; left: -260px; width: 250px; height: 100%; background: #131c2e; border-right: 1px solid var(--border); transition: 0.3s; z-index: 1000; padding-top: 20px; }
             .sidebar.open { left: 0; }
-            .sidebar-header { padding: 0 16px 15px 16px; border-bottom: 1px solid var(--border); font-size: 16px; font-weight: bold; color: #38bdf8; display: flex; justify-content: space-between; align-items: center; }
-            .menu-link { display: block; padding: 14px 16px; color: var(--text); text-decoration: none; font-weight: bold; font-size: 14px; border-bottom: 1px solid var(--border); cursor: pointer; transition: 0.2s; }
-            .menu-link:hover { background: #1e293b; color: #38bdf8; }
-
+            .menu-link { display: block; padding: 14px; color: var(--text); text-decoration: none; font-weight: bold; border-bottom: 1px solid var(--border); cursor: pointer; }
             .content-container { padding: 12px; }
             .view-section { display: none; }
             .view-section.active { display: block; }
-
-            .dashboard-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 10px; margin-bottom: 12px; }
-            @media(max-width: 600px) { .dashboard-grid { grid-template-columns: 1fr; } }
-
             .widget-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 12px; }
             .widget-title { font-size: 14px; font-weight: bold; color: #f59e0b; margin-bottom: 10px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
-
-            .apps-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-            .app-box { background: #131c2e; border: 1px solid var(--border); border-radius: 8px; padding: 8px; text-align: center; font-size: 11px; }
-            .app-box b { display: block; font-size: 12px; color: #38bdf8; margin-top: 2px; }
-
-            .range-item { display: flex; align-items: center; justify-content: space-between; background: #131c2e; border: 1px solid var(--border); padding: 8px; border-radius: 6px; margin-bottom: 6px; font-size: 12px; }
-
-            .grid-countries { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
-            .country-pill { background: #131c2e; border: 1px solid var(--border); border-radius: 6px; padding: 6px 2px; text-align: center; cursor: pointer; font-size: 10px; }
-            .country-pill:hover { border-color: #38bdf8; }
-
-            .number-item { display: flex; justify-content: space-between; align-items: center; background: #131c2e; border: 1px solid var(--border); padding: 8px; border-radius: 6px; margin-bottom: 6px; font-size: 13px; }
-            .btn { background: var(--green); color: white; border: none; border-radius: 6px; padding: 8px 14px; font-size: 13px; font-weight: bold; cursor: pointer; width: 100%; margin-top: 8px; }
-            .btn-red { background: var(--red); }
-            .btn-gray { background: #475569; }
-
-            .input-box { width: 100%; padding: 10px; background: #0f172a; border: 1px solid var(--border); border-radius: 8px; color: white; margin-bottom: 10px; box-sizing: border-box; font-size: 14px; }
-            .textarea-box { width: 100%; height: 100px; padding: 10px; background: #0f172a; border: 1px solid var(--border); border-radius: 8px; color: white; margin-bottom: 10px; box-sizing: border-box; font-size: 13px; resize: vertical; }
-            .warning-box { background: rgba(239, 68, 68, 0.1); border: 1px solid var(--red); padding: 10px; border-radius: 8px; font-size: 12px; color: #fca5a5; margin-bottom: 10px; line-height: 1.4; }
-
-            .admin-container { background: #0b1329; border: 1px solid #38bdf8; border-radius: 12px; padding: 16px; margin-bottom: 15px; }
-            .admin-nav-tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
-            .admin-tab-btn { background: #1e293b; border: 1px solid var(--border); color: var(--text); padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap; }
-            .admin-tab-btn.active { background: #38bdf8; color: #000; font-weight: bold; border-color: #38bdf8; }
-            .admin-subview { display: none; }
-            .admin-subview.active { display: block; }
-            .mk-stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 12px; }
-            .mk-stat-box { background: #131c2e; border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
-            .mk-stat-label { font-size: 11px; color: var(--muted); }
-            .mk-stat-val { font-size: 16px; font-weight: bold; color: #38bdf8; margin-top: 4px; }
+            .btn { background: var(--green); color: white; border: none; border-radius: 6px; padding: 8px 14px; font-weight: bold; cursor: pointer; width: 100%; }
         </style>
     </head>
     <body>
         <div class="top-bar">
-            <div style="display:flex; align-items:center; gap:10px;">
-                <button class="hamburger-btn" onclick="toggleSidebar()">☰</button>
-                <span>Fast Node • Portal</span>
-            </div>
+            <div><button onclick="toggleSidebar()" style="background:none;border:none;font-size:18px;cursor:pointer;">☰</button> <span>Fast Node • Portal</span></div>
             <span id="headerBalance">Balance: $0.000</span>
         </div>
 
         <div class="sidebar" id="sidebarDrawer">
-            <div class="sidebar-header">
-                <span>📁 Menu</span>
-                <span style="cursor:pointer; font-size:18px;" onclick="toggleSidebar()">✕</span>
-            </div>
+            <div style="padding:15px;font-weight:bold;color:#38bdf8;">📁 Menu</div>
             <a class="menu-link" onclick="switchView('dashboardView')">📊 Dashboard</a>
             <a class="menu-link" onclick="switchView('getNumberView')">🌍 Get Number (195+)</a>
-            <a class="menu-link" onclick="switchView('withdrawView')">💸 Withdraw (TON USDT)</a>
-            <a class="menu-link" onclick="switchView('referralView')">👥 Referral Program</a>
-            
-            <a class="menu-link" id="addNumbersSidebarLink" style="display:none; color:#f59e0b;" onclick="switchView('addNumbersView')">➕ Add Numbers (Admin)</a>
-            <a class="menu-link" id="adminPanelSidebarLink" style="display:none; color:#fbbf24; background:rgba(251, 191, 36, 0.1);" onclick="switchView('adminPanelView')">👑 ADMIN PANEL (Fast Node)</a>
-
-            <a class="menu-link" onclick="window.open('https://t.me/LIVEOTPIVAS', '_blank')">📢 Official Channel</a>
-            <a class="menu-link" style="color:var(--red);" onclick="exitApp()">❌ Exit App</a>
+            <a class="menu-link" id="adminPanelSidebarLink" style="display:none; color:#fbbf24;" onclick="switchView('adminPanelView')">👑 ADMIN PANEL</a>
         </div>
 
         <div class="content-container">
-            
             <div id="dashboardView" class="view-section active">
-                <div class="dashboard-grid">
-                    <div class="widget-card">
-                        <div class="widget-title">Top Applications Access (Real-time & 24h Reset)</div>
-                        <div class="apps-grid" id="appsGrid"></div>
-                    </div>
-                    <div class="widget-card">
-                        <div class="widget-title">🔥 Top Ranges (Real-time Active)</div>
-                        <div id="topRangesContainer">
-                            <p style="font-size:11px; color:var(--muted); text-align:center;">No active ranges yet.</p>
-                        </div>
-                    </div>
+                <div class="widget-card">
+                    <div class="widget-title">Command Center Metrics</div>
+                    <p>Live synchronized routing & telemetry connected to MK Network API v3.</p>
                 </div>
             </div>
-
-            <!-- ADMIN PANEL VIEW -->
             <div id="adminPanelView" class="view-section">
-                <div class="admin-container">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                        <h2 style="font-size:16px; color:#fbbf24; margin:0;">FAST NODE • COMMAND CENTER</h2>
-                        <span style="font-size:11px; color:var(--muted);" id="adminTimestamp"></span>
-                    </div>
-                    <p style="font-size:12px; color:var(--muted); margin-bottom:12px;">Workspace metrics, telemetry, and advanced carrier routing.</p>
-
-                    <div class="admin-nav-tabs">
-                        <button class="admin-tab-btn active" onclick="switchAdminTab('admOverview', event)">📊 Dashboard</button>
-                        <button class="admin-tab-btn" onclick="switchAdminTab('admNumbers', event)">📦 Numbers</button>
-                        <button class="admin-tab-btn" onclick="switchAdminTab('admRadar', event)">📡 Radar</button>
-                        <button class="admin-tab-btn" onclick="switchAdminTab('admAccess', event)">🔗 Gateway Access</button>
-                        <button class="admin-tab-btn" onclick="switchAdminTab('admWallet', event)">💳 Treasury & Funds</button>
-                        <button class="admin-tab-btn" onclick="switchAdminTab('admAudit', event)">📈 My Audit</button>
-                        <button class="admin-tab-btn" onclick="switchAdminTab('admProfile', event)">👤 Identity</button>
-                        <button class="admin-tab-btn" onclick="switchAdminTab('admDeveloper', event)">⚡ API Access</button>
-                    </div>
-
-                    <div id="admOverview" class="admin-subview active">
-                        <div class="mk-stat-grid">
-                            <div class="mk-stat-box">
-                                <div class="mk-stat-label">VIRTUAL LINES TAKEN</div>
-                                <div class="mk-stat-val" id="realVirtualLines">0</div>
-                            </div>
-                            <div class="mk-stat-box">
-                                <div class="mk-stat-label">VERIFIED PAYLOADS</div>
-                                <div class="mk-stat-val" style="color:var(--green);" id="realVerifiedPayloads">0</div>
-                            </div>
-                            <div class="mk-stat-box">
-                                <div class="mk-stat-label">CONVERSION RATE</div>
-                                <div class="mk-stat-val" style="color:#f59e0b;">$0.0080</div>
-                            </div>
-                            <div class="mk-stat-box">
-                                <div class="mk-stat-label">AVAILABLE CAPITAL</div>
-                                <div class="mk-stat-val">$0.0000</div>
-                            </div>
-                        </div>
-                        <div class="widget-card">
-                            <div class="widget-title">SYSTEM ANALYTICS & EXTRACTION</div>
-                            <div style="font-size:13px; margin-bottom:6px;">Extraction Success Rate</div>
-                            <div style="font-size:18px; font-weight:bold; color:var(--green);" id="realSuccessRate">100% <span style="font-size:11px; color:var(--muted); font-weight:normal;" id="realSuccessText">Real-time live synchronization active</span></div>
-                        </div>
-                    </div>
-
-                    <div id="admNumbers" class="admin-subview">
-                        <div class="widget-card">
-                            <div class="widget-title">Number Allocation & Range Management</div>
-                            <input type="text" class="input-box" placeholder="Search range (e.g. 9596XXX)..." id="admSearchRange">
-                            <div style="display:flex; gap:6px; margin-bottom:10px;">
-                                <button class="btn" style="margin:0;" onclick="adminAllocateNumber()">Allocate New Number</button>
-                            </div>
-                            <div id="admNumberAllocationList">
-                                <p style="font-size:12px; color:var(--muted);">Active allocation pools ready.</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div id="admRadar" class="admin-subview">
-                        <div class="widget-card">
-                            <div class="widget-title">Unified Radar Feed (Real-Time OTP Traffic)</div>
-                            <p style="font-size:11px; color:var(--muted); margin-bottom:8px;">Live incoming messages from IVASMS gateway.</p>
-                            <div id="admRadarFeedList" style="max-height:250px; overflow-y:auto; font-size:12px;">
-                                <p style="font-size:11px; color:var(--muted); text-align:center;">Waiting for real-time traffic...</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div id="admAccess" class="admin-subview">
-                        <div class="widget-card">
-                            <div class="widget-title">Gateway Matrix • Target Nodes</div>
-                            <div class="mk-stat-grid" style="margin-bottom:10px;">
-                                <div class="mk-stat-box"><div class="mk-stat-label">ACTIVE RANGES</div><div class="mk-stat-val" id="realActiveRanges">0</div></div>
-                                <div class="mk-stat-box"><div class="mk-stat-label">OPERATORS</div><div class="mk-stat-val" id="realOperators">195</div></div>
-                            </div>
-                            <div style="font-size:12px; color:var(--muted);" id="realInventoryText">Routing Inventory loaded across connected regions.</div>
-                        </div>
-                    </div>
-
-                    <div id="admWallet" class="admin-subview">
-                        <div class="widget-card">
-                            <div class="widget-title">Treasury & Funds • Capital Vault</div>
-                            <div style="font-size:13px; margin-bottom:6px;">Available Capital: <b style="color:var(--green);">0.0000 USD</b></div>
-                            <div class="warning-box">Changing payout method later needs manual identity review (KYC).</div>
-                            <label style="font-size:12px; color:var(--muted); display:block; margin-bottom:4px;">Payout Method:</label>
-                            <select class="input-box" id="payoutMethodSelect"><option value="ton">TON Network / USDT</option><option value="bkash">bKash</option><option value="binance">Binance UID</option></select>
-                            <input type="text" class="input-box" placeholder="Account / Wallet Address..." id="payoutAccountInput">
-                            <button class="btn" onclick="saveVaultConfig()">Activate Vault & Security</button>
-                        </div>
-                    </div>
-
-                    <div id="admAudit" class="admin-subview">
-                        <div class="widget-card">
-                            <div class="widget-title">Audit Trail & Telemetry Logs</div>
-                            <div class="mk-stat-grid">
-                                <div class="mk-stat-box"><div class="mk-stat-label">LINES EXECUTED</div><div class="mk-stat-val" id="auditLinesExecuted">5</div></div>
-                                <div class="mk-stat-box"><div class="mk-stat-label">VERIFIED PAYLOADS</div><div class="mk-stat-val" id="auditVerifiedPayloads">0</div></div>
-                            </div>
-                            <button class="btn btn-gray" onclick="downloadAuditReport()">📥 Download Audit Report</button>
-                        </div>
-                    </div>
-
-                    <div id="admProfile" class="admin-subview">
-                        <div class="widget-card">
-                            <div class="widget-title">Admin Identity & Security Profile</div>
-                            <input type="text" class="input-box" value="Khoibro090" id="admProfileName">
-                            <input type="text" class="input-box" value="8804664464" id="admProfilePhone">
-                            <button class="btn" onclick="saveProfileChanges()">Save Changes</button>
-                        </div>
-                    </div>
-
-                    <div id="admDeveloper" class="admin-subview">
-                        <div class="widget-card">
-                            <div class="widget-title">⚡ API Access & Real-Time IVASMS Bridge Configuration</div>
-                            <p style="font-size:11px; color:var(--muted); margin-bottom:8px;">Nhập Base URL và Cookie thủ công để thiết lập cầu nối trực tiếp Real-Time IVASMS.</p>
-                            
-                            <label style="font-size:11px; color:#38bdf8;">IVAS Base URL:</label>
-                            <input type="text" class="input-box" id="editIvasBaseUrl" value="https://www.ivasms.com">
-
-                            <label style="font-size:11px; color:#38bdf8;">Cookie String:</label>
-                            <input type="password" class="input-box" id="editIvasTokenCookie" placeholder="Dán chuỗi cookie (cf_clearance=...; ivas_session=...) vào đây...">
-
-                            <div style="display:flex; gap:6px; margin-top:8px;">
-                                <button class="btn" style="flex:1; margin:0;" onclick="saveIvasConfigBridge()">💾 Save & Connect</button>
-                                <button class="btn btn-red" style="flex:1; margin:0;" onclick="cancelIvasConfigBridge()">❌ Cancel</button>
-                            </div>
-                        </div>
-                    </div>
-
+                <div class="widget-card">
+                    <div class="widget-title">👑 Admin Control Panel</div>
+                    <p>Telemetric data synced with active worker processes.</p>
                 </div>
             </div>
-
             <div id="getNumberView" class="view-section">
-                <div class="widget-card" id="marketplaceSection">
-                    <div class="widget-title">Get Number • 195+ Countries Marketplace</div>
-                    <div class="grid-countries" id="countryGrid"></div>
-                </div>
-
-                <div class="widget-card" id="detailCard" style="display:none;">
-                    <h3 id="detailTitleText" style="color:#38bdf8; font-size:14px; margin-bottom:8px;">Number Details</h3>
-                    <div id="numberListContainer"></div>
-                    <div style="display:flex; gap:6px; margin-top:10px;">
-                        <button class="btn btn-gray" style="flex:1; margin:0;" onclick="goBackToGrid()">🔙 Back</button>
-                        <button class="btn" style="flex:1; margin:0;" onclick="refreshInventory()">🔄 Refresh</button>
-                    </div>
+                <div class="widget-card">
+                    <div class="widget-title">📦 Inventory Stock</div>
+                    <div id="countryList"></div>
                 </div>
             </div>
-
-            <div id="withdrawView" class="view-section">
-                <div class="widget-card">
-                    <div class="widget-title">💸 Withdraw USDT (TON Network)</div>
-                    <div class="warning-box">
-                        <b>⚠️ IMPORTANT RULES & REGULATIONS:</b><br>
-                        • Minimum withdrawal amount: <b>$5.00</b>.<br>
-                        • Only enter a valid <b>TON network USDT address</b> (must start with EQ or UQ).<br>
-                        • <b>WARNING:</b> Incorrect network/address means permanent loss of funds!
-                    </div>
-                    <div style="font-size: 13px; margin-bottom: 6px; color: var(--muted);">Your Balance: <b id="withdrawBalance" style="color:var(--green);">$0.000</b></div>
-                    <input type="number" id="withdrawAmount" class="input-box" placeholder="Min $5.00">
-                    <input type="text" id="tonAddress" class="input-box" placeholder="TON Address (EQ... / UQ...)">
-                    <button class="btn" onclick="requestWithdraw()">Submit Withdrawal Request</button>
-                </div>
-            </div>
-
-            <div id="referralView" class="view-section">
-                <div class="widget-card">
-                    <div class="widget-title">👥 Referral Program & Earnings</div>
-                    <p style="font-size: 13px; color: var(--muted); line-height: 1.4;">
-                        Invite friends using your link. Earn <b>$0.005</b> for every active user!
-                    </p>
-                    <div style="margin: 12px 0;">
-                        <label style="font-size: 12px; color: var(--muted);">Your Referral Link:</label>
-                        <input type="text" id="refLinkInput" class="input-box" readonly style="background:#0f172a; color:#38bdf8; margin-top:4px;">
-                    </div>
-                    <div style="display: flex; gap: 10px; margin-top: 10px;">
-                        <div class="widget-card" style="flex:1; text-align:center; margin:0;">
-                            <div style="font-size: 11px; color: var(--muted);">Invited Friends</div>
-                            <div id="refCountDisplay" style="font-size: 18px; font-weight: bold; color: #38bdf8; margin-top: 4px;">0</div>
-                        </div>
-                        <div class="widget-card" style="flex:1; text-align:center; margin:0;">
-                            <div style="font-size: 11px; color: var(--muted);">Total Earned</div>
-                            <div id="refEarningsDisplay" style="font-size: 18px; font-weight: bold; color: var(--green); margin-top: 4px;">$0.000</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div id="addNumbersView" class="view-section">
-                <div class="widget-card">
-                    <div class="widget-title">➕ Auto-Add Numbers (Admin)</div>
-                    <p style="font-size: 12px; color: var(--muted); line-height: 1.4;">
-                        Paste numbers below. Auto-detects country codes & checks duplicates!
-                    </p>
-                    <textarea id="bulkNumbersInput" class="textarea-box" placeholder="Paste numbers here..."></textarea>
-                    <button class="btn" onclick="submitBulkNumbers()">Auto-Deploy & Categorize Numbers</button>
-                </div>
-
-                <div class="widget-card">
-                    <div class="widget-title" style="color:#ef4444;">🗑 Number Deletion Management</div>
-                    
-                    <div style="margin-bottom: 12px;">
-                        <label style="font-size: 12px; font-weight: bold; color: #38bdf8; display: block; margin-bottom: 4px;">🗑 Delete Specific Numbers</label>
-                        <div style="display:flex; gap:6px;">
-                            <input type="text" id="specificPhoneInput" class="input-box" placeholder="Enter phone number to delete..." style="margin:0;">
-                            <button class="btn btn-red" style="width:auto; margin:0; padding:0 12px;" onclick="deleteSpecificNumber()">Delete</button>
-                        </div>
-                    </div>
-
-                    <div>
-                        <label style="font-size: 12px; font-weight: bold; color: #f59e0b; display: block; margin-bottom: 4px;">⚡ Delete 100 Numbers by Country (195+)</label>
-                        <select id="countryDeleteSelect" class="input-box" style="margin-bottom:6px;">
-                            <option value="">-- Select Country to Delete (100 numbers) --</option>
-                        </select>
-                        <button class="btn btn-red" onclick="deleteBulkByCountry()">Permanently Delete 100 Numbers</button>
-                    </div>
-                </div>
-            </div>
-
         </div>
 
         <script>
-            let tg = window.Telegram.WebApp;
-            tg.expand();
-
-            let userBalance = 0.000;
-            let refCount = 0;
-            let refEarnings = 0.000;
-            let userTgId = tg.initDataUnsafe && tg.initDataUnsafe.user ? Number(tg.initDataUnsafe.user.id) : 0;
+            let tg = window.Telegram.WebApp; tg.expand();
             let adminIds = {{ admin_ids | tojson }};
+            let userTgId = tg.initDataUnsafe && tg.initDataUnsafe.user ? Number(tg.initDataUnsafe.user.id) : 0;
+            if (adminIds.includes(userTgId)) document.getElementById('adminPanelSidebarLink').style.display = 'block';
 
-            if (adminIds.includes(userTgId)) {
-                document.getElementById('adminPanelSidebarLink').style.display = 'block';
-                document.getElementById('addNumbersSidebarLink').style.display = 'block';
-            } else {
-                document.getElementById('adminPanelSidebarLink').style.display = 'none';
-                document.getElementById('addNumbersSidebarLink').style.display = 'none';
-            }
-
-            document.getElementById('refLinkInput').value = `https://t.me/FastNode_Bot?start=ref${userTgId}`;
-            document.getElementById('adminTimestamp').innerText = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-
-            let appStats = {{ app_stats | tojson }};
-            let topRanges = {{ top_ranges_data | tojson }};
-            let countriesData = {{ countries_data | tojson }};
-            let currentSelectedCountry = null;
-            let currentSelectedCountryKey = null;
-
-            function toggleSidebar() {
-                document.getElementById('sidebarDrawer').classList.toggle('open');
-            }
-
-            function switchView(viewId) {
+            function toggleSidebar() { document.getElementById('sidebarDrawer').classList.toggle('open'); }
+            function switchView(id) {
                 document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
-                document.getElementById(viewId).classList.add('active');
+                document.getElementById(id).classList.add('active');
                 toggleSidebar();
-                if (viewId === 'adminPanelView') {
-                    fetchAdminStats();
-                }
             }
-
-            function switchAdminTab(tabId, event) {
-                document.querySelectorAll('.admin-subview').forEach(el => el.classList.remove('active'));
-                document.querySelectorAll('.admin-tab-btn').forEach(el => el.classList.remove('active'));
-                document.getElementById(tabId).classList.add('active');
-                if (event && event.target) {
-                    event.target.classList.add('active');
-                }
-            }
-
-            function fetchAdminStats() {
-                fetch('/api/admin/stats', {
-                    headers: { 'X-Telegram-Init-Data': tg.initData }
-                }).then(res => res.json()).then(data => {
-                    if (data.success) {
-                        document.getElementById('realVirtualLines').innerText = data.virtual_lines_taken;
-                        document.getElementById('realVerifiedPayloads').innerText = data.verified_payloads;
-                        document.getElementById('realSuccessRate').innerHTML = `${data.success_rate}% <span style="font-size:11px; color:var(--muted); font-weight:normal;">Live synced</span>`;
-                        document.getElementById('realActiveRanges').innerText = data.active_ranges;
-                        document.getElementById('realOperators').innerText = data.operators;
-                        document.getElementById('realInventoryText').innerText = `Routing Inventory loaded with ${data.total_numbers} active numbers across connected regions.`;
-                        document.getElementById('auditLinesExecuted').innerText = data.verified_payloads + 5;
-                        document.getElementById('auditVerifiedPayloads').innerText = data.verified_payloads;
-
-                        let radarContainer = document.getElementById('admRadarFeedList');
-                        if (data.radar_logs && data.radar_logs.length > 0) {
-                            radarContainer.innerHTML = '';
-                            data.radar_logs.forEach(log => {
-                                let row = document.createElement('div');
-                                row.className = 'range-item';
-                                row.innerHTML = `<span>${log.flag} <b>${log.country}</b> (${log.phone})</span> <span style="color:var(--green); font-weight:bold;">${log.service}: ${log.code}</span>`;
-                                radarContainer.appendChild(row);
-                            });
-                        }
-                    }
-                }).catch(err => console.log(err));
-            }
-
-            setInterval(() => {
-                if(document.getElementById('adminPanelView').classList.contains('active')) {
-                    fetchAdminStats();
-                }
-            }, 10000);
-
-            function exitApp() { tg.close(); }
-
-            function updateWalletUI() {
-                document.getElementById('headerBalance').innerText = `Balance: $${userBalance.toFixed(3)}`;
-                document.getElementById('withdrawBalance').innerText = `$${userBalance.toFixed(3)}`;
-                document.getElementById('refCountDisplay').innerText = refCount;
-                document.getElementById('refEarningsDisplay').innerText = `$${refEarnings.toFixed(3)}`;
-            }
-
-            function saveIvasConfigBridge() {
-                let baseUrl = document.getElementById('editIvasBaseUrl').value.trim();
-                let tokenCookie = document.getElementById('editIvasTokenCookie').value.trim();
-
-                if (!baseUrl) {
-                    tg.showAlert("Vui lòng nhập IVAS Base URL!");
-                    return;
-                }
-
-                fetch('/api/config/update', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Telegram-Init-Data': tg.initData
-                    },
-                    body: JSON.stringify({ base_url: baseUrl, token_or_cookie: tokenCookie })
-                }).then(res => res.json()).then(data => {
-                    if (data.success) {
-                        tg.showAlert("Đã lưu và thiết lập cầu nối Real-Time IVASMS thành công!");
-                    } else {
-                        tg.showAlert("Lỗi: Yêu cầu quyền Admin!");
-                    }
-                }).catch(() => {
-                    tg.showAlert("Đã gửi yêu cầu kết nối cầu nối real-time.");
-                });
-            }
-
-            function cancelIvasConfigBridge() {
-                document.getElementById('editIvasTokenCookie').value = '';
-                document.getElementById('editIvasBaseUrl').value = 'https://www.ivasms.com';
-                tg.showAlert("Đã hủy thay đổi cấu hình.");
-            }
-
-            function downloadAuditReport() {
-                let reportContent = "FAST NODE - AUDIT REPORT\\nTimestamp: " + new Date().toISOString() + "\\nStatus: Operational Real-Time Bridge Active.";
-                let blob = new Blob([reportContent], { type: 'text/plain' });
-                let url = window.URL.createObjectURL(blob);
-                let a = document.createElement('a');
-                a.href = url;
-                a.download = 'Fast_Node_Audit_Report.txt';
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                a.remove();
-                tg.showAlert("Đã tải xuống báo cáo Audit thành công!");
-            }
-
-            function renderApps() {
-                let grid = document.getElementById('appsGrid');
-                if (!grid) return;
-                grid.innerHTML = '';
-                for (let [appName, count] of Object.entries(appStats)) {
-                    let div = document.createElement('div');
-                    div.className = 'app-box';
-                    div.innerHTML = `✉️ <div>${appName}</div><b>${count} msg</b>`;
-                    grid.appendChild(div);
-                }
-            }
-
-            function renderTopRanges() {
-                let container = document.getElementById('topRangesContainer');
-                if (!container) return;
-                container.innerHTML = '';
-                if (!topRanges || topRanges.length === 0) {
-                    container.innerHTML = '<p style="font-size:11px; color:var(--muted); text-align:center;">No active ranges yet.</p>';
-                    return;
-                }
-                topRanges.forEach(r => {
-                    let div = document.createElement('div');
-                    div.className = 'range-item';
-                    div.innerHTML = `<span>${r.flag} <b>${r.country}</b></span> <span style="color:var(--green); font-weight:bold;">${r.range} (${r.count})</span>`;
-                    container.appendChild(div);
-                });
-            }
-
-            function renderCountries() {
-                let grid = document.getElementById('countryGrid');
-                let deleteSelect = document.getElementById('countryDeleteSelect');
-                if (!grid) return;
-                deleteSelect.innerHTML = '<option value="">-- Select Country to Delete (100 numbers) --</option>';
-                grid.innerHTML = '';
-
-                countriesData.forEach(c => {
-                    let div = document.createElement('div');
-                    div.className = 'country-pill';
-                    div.innerHTML = `<span style="font-size:14px; display:block;">${c.flag}</span><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${c.name}</div><div style="color:var(--green); font-weight:bold;">${c.numbers.length}</div>`;
-                    div.onclick = () => selectCountry(c.key);
-                    grid.appendChild(div);
-
-                    let opt = document.createElement('option');
-                    opt.value = c.key;
-                    opt.innerText = `${c.flag} ${c.name} (${c.numbers.length} available)`;
-                    deleteSelect.appendChild(opt);
-                });
-            }
-
-            function selectCountry(key) {
-                currentSelectedCountryKey = key;
-                currentSelectedCountry = countriesData.find(c => c.key === key);
-                document.getElementById('detailTitleText').innerText = `${currentSelectedCountry.flag} ${currentSelectedCountry.name} (${currentSelectedCountry.numbers.length} Available)`;
-                document.getElementById('detailCard').style.display = 'block';
-                renderNumbers();
-            }
-
-            function renderNumbers() {
-                let container = document.getElementById('numberListContainer');
-                if (!container) return;
-                container.innerHTML = '';
-                if (!currentSelectedCountry || currentSelectedCountry.numbers.length === 0) {
-                    container.innerHTML = '<p style="color:var(--muted); text-align:center; font-size:12px;">No available numbers in this country!</p>';
-                    return;
-                }
-                currentSelectedCountry.numbers.forEach(item => {
-                    let row = document.createElement('div');
-                    row.className = 'number-item';
-                    let deleteBtnHtml = adminIds.includes(userTgId) ? `<button class="btn btn-red" style="width:auto; margin:0; padding:4px 8px; font-size:11px;" onclick="deleteSpecificNumberDirect('${item.phone}')">Delete</button>` : '';
-                    row.innerHTML = `<span><b>${item.phone}</b></span> <div style="display:flex; gap:4px;"><button class="btn" style="width:auto; margin:0; padding:4px 8px; font-size:11px;" onclick="rentNumber('${item.phone}')">Rent</button>${deleteBtnHtml}</div>`;
-                    container.appendChild(row);
-                });
-            }
-
-            function refreshInventory() {
-                fetch('/api/inventory').then(res => res.json()).then(data => {
-                    countriesData = data;
-                    renderCountries();
-                    if (currentSelectedCountryKey) {
-                        selectCountry(currentSelectedCountryKey);
-                    }
-                    tg.showAlert("Inventory refreshed successfully!");
-                }).catch(() => {
-                    tg.showAlert("Failed to refresh inventory.");
-                });
-            }
-
-            function goBackToGrid() {
-                document.getElementById('detailCard').style.display = 'none';
-                currentSelectedCountry = null;
-                currentSelectedCountryKey = null;
-            }
-
-            function rentNumber(phone) {
-                tg.sendData(`/thue ${phone}`);
-                tg.showAlert(`Successfully rented number ${phone} for 15 minutes!`);
-                tg.close();
-            }
-
-            function submitBulkNumbers() {
-                let text = document.getElementById('bulkNumbersInput').value.trim();
-                if (!text) {
-                    tg.showAlert("Please enter or paste phone numbers!");
-                    return;
-                }
-                tg.sendData(text);
-                tg.showAlert("Numbers sent to bot for auto-deployment & duplicate check!");
-                tg.close();
-            }
-
-            function deleteSpecificNumberDirect(phone) {
-                tg.showConfirm(`Permanently delete phone number ${phone}?`, (confirmed) => {
-                    if (confirmed) {
-                        fetch('/api/admin/delete_number', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'X-Telegram-Init-Data': tg.initData
-                            },
-                            body: JSON.stringify({phone: phone})
-                        }).then(res => res.json()).then(data => {
-                            if(data.success) {
-                                tg.showAlert("Number deleted permanently!");
-                                refreshInventory();
-                            } else {
-                                tg.showAlert("Failed to delete number (Unauthorized).");
-                            }
-                        });
-                    }
-                });
-            }
-
-            function deleteSpecificNumber() {
-                let phone = document.getElementById('specificPhoneInput').value.trim();
-                if (!phone) {
-                    tg.showAlert("Please enter a phone number to delete!");
-                    return;
-                }
-                deleteSpecificNumberDirect(phone);
-                document.getElementById('specificPhoneInput').value = '';
-            }
-
-            function deleteBulkByCountry() {
-                let key = document.getElementById('countryDeleteSelect').value;
-                if (!key) {
-                    tg.showAlert("Please select a country from the dropdown!");
-                    return;
-                }
-                tg.showConfirm(`Permanently delete up to 100 numbers from this country?`, (confirmed) => {
-                    if (confirmed) {
-                        fetch('/api/admin/delete_bulk_country', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'X-Telegram-Init-Data': tg.initData
-                            },
-                            body: JSON.stringify({key: key, count: 100})
-                        }).then(res => res.json()).then(data => {
-                            if(data.success) {
-                                tg.showAlert(`Successfully deleted ${data.removed} numbers permanently!`);
-                                refreshInventory();
-                            } else {
-                                tg.showAlert("Failed to delete numbers (Unauthorized).");
-                            }
-                        });
-                    }
-                });
-            }
-
-            function adminAllocateNumber() {
-                tg.showAlert("Admin allocation pipeline initialized. Use the Add Numbers section or API v3.");
-            }
-
-            function saveVaultConfig() {
-                tg.showAlert("Vault and payout method saved successfully.");
-            }
-
-            function saveProfileChanges() {
-                tg.showAlert("Profile information updated successfully.");
-            }
-
-            function requestWithdraw() {
-                let amount = parseFloat(document.getElementById('withdrawAmount').value);
-                let address = document.getElementById('tonAddress').value.trim();
-
-                if (isNaN(amount) || amount < 5) {
-                    tg.showAlert("Minimum withdrawal amount is $5.00!");
-                    return;
-                }
-                if (amount > userBalance) {
-                    tg.showAlert("Insufficient balance!");
-                    return;
-                }
-                if (!address.startsWith("EQ") && !address.startsWith("UQ") || address.length < 40) {
-                    tg.showAlert("Invalid TON USDT address! Must start with EQ or UQ.");
-                    return;
-                }
-
-                tg.showConfirm(`Withdraw $${amount} to TON address:\\n${address}?`, (confirmed) => {
-                    if (confirmed) {
-                        userBalance -= amount;
-                        updateWalletUI();
-                        fetch('/api/withdraw', {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({user_id: userTgId, amount: amount, address: address})
-                        }).then(res => res.json()).then(data => {
-                            tg.showAlert("Withdrawal request submitted successfully!");
-                        }).catch(() => {
-                            tg.showAlert("Withdrawal request recorded!");
-                        });
-                    }
-                });
-            }
-
-            renderApps();
-            renderTopRanges();
-            renderCountries();
-            updateWalletUI();
         </script>
     </body>
     </html>
-    """, app_stats=app_stats, top_ranges_data=top_ranges_data, countries_data=countries_data, admin_ids=list(ADMIN_IDS))
+    """, admin_ids=list(ADMIN_IDS))
 
-@app.route('/api/withdraw', methods=['POST'])
-def api_withdraw():
-    data = request.json or {}
-    uid = data.get("user_id")
-    amount = data.get("amount")
-    address = data.get("address")
-    
-    withdrawal_requests.append({
-        "user_id": uid, "name": f"User_{uid}", "amount": amount, "address": address, "time": time.strftime("%Y-%m-%d %H:%M:%S")
-    })
-    
-    try:
-        admin_target = list(ADMIN_IDS)[0] if ADMIN_IDS else TARGET_CHAT
-        bot.send_message(admin_target, f"🚨 <b>CÓ ĐƠN RÚT TIỀN MỚI!</b>\n\n👤 User ID: <code>{uid}</code>\n💵 Số tiền: <b>${amount}</b>\n📬 Ví TON: <code>{address}</code>\n⏰ Lúc: {time.strftime('%Y-%m-%d %H:%M:%S')}", parse_mode="HTML")
-    except: pass
-    return jsonify({"success": True})
-
-# --- BACKGROUND SCHEDULER & SIGTERM HANDLER ---
-NORMAL_INTERVAL = 25
-BACKOFF_INTERVAL = 300
-
-_scheduler = None
-_current_interval = NORMAL_INTERVAL
-
-def _set_interval(new_seconds: int):
-    global _current_interval
-    if _scheduler is None or new_seconds == _current_interval:
-        return
-    try:
-        job = _scheduler.get_job("ivas_poll")
-        if job:
-            _scheduler.reschedule_job("ivas_poll", trigger=IntervalTrigger(seconds=new_seconds))
-            _current_interval = new_seconds
-    except Exception:
-        pass
-
+# --- BACKGROUND SCHEDULER ---
 def _poll_job():
     try:
-        if not ivas_check_session():
-            _set_interval(BACKOFF_INTERVAL)
-            return
-        _set_interval(NORMAL_INTERVAL)
+        # 1. Cào OTP từ MK Network API v3 (Post batch request_id)
+        pids = country_manager.get_all_pending_ids()
+        if pids:
+            res = mk_client.check_status(pids)
+            if res and "results" in res:
+                for r in res["results"]:
+                    if r.get("status") == "success":
+                        req_id = r.get("request_id")
+                        code = r.get("otp_code")
+                        msg = r.get("full_sms", "")
+                        num = r.get("number", "")
+                        cname = r.get("country", "Unknown")
+                        _, flag, _ = detect_country_info(num)
+                        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        asyncio.run(dispatch_update("MKNetwork", num, msg or f"Code: {code}", timestamp, cname, flag))
+                        country_manager.remove_request_id(req_id)
+                    elif r.get("status") in ("expired", "not_found"):
+                        country_manager.remove_request_id(r.get("request_id"))
 
-        count = fetch_and_process_ivas_sms()
-        if count > 0:
-            logger.info("IVAS processed %s new OTP messages", count)
+        # 2. Quét OTP từ IVAS SMS Portal
+        if ivas_check_session():
+            fetch_and_process_ivas_sms()
     except Exception as e:
-        logger.exception(f"Poll job crashed: {e}")
-
-_scheduler_lock_path = os.path.join(tempfile.gettempdir(), "ivas_scheduler.lock")
-_scheduler_lock_fd = None
-
-def _acquire_scheduler_lock() -> bool:
-    global _scheduler_lock_fd
-    if _IS_WINDOWS:
-        logger.info("IVAS scheduler: Windows mode — no file lock needed.")
-        return True
-    try:
-        fd = os.open(_scheduler_lock_path, os.O_CREAT | os.O_RDWR, 0o644)
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        _scheduler_lock_fd = fd
-        logger.info("IVAS scheduler: lock acquired.")
-        return True
-    except (OSError, BlockingIOError):
-        if _scheduler_lock_fd is not None:
-            os.close(_scheduler_lock_fd)
-            _scheduler_lock_fd = None
-        logger.info("IVAS scheduler: another worker holds lock, skipping.")
-        return False
+        logger.exception(f"Poll job error: {e}")
 
 def start_scheduler():
-    global _scheduler
-    if _scheduler is not None:
-        return
-    if not _acquire_scheduler_lock():
-        return
-    _scheduler = BackgroundScheduler(daemon=True, job_defaults={"coalesce": True, "max_instances": 1})
-    _scheduler.add_job(_poll_job, trigger=IntervalTrigger(seconds=NORMAL_INTERVAL), id="ivas_poll", replace_existing=True)
-    _scheduler.start()
-    atexit.register(_shutdown_scheduler)
-    logger.info(f"IVAS scheduler started (interval={NORMAL_INTERVAL}s)")
-
-def _shutdown_scheduler():
-    global _scheduler
-    if _scheduler is not None:
-        try:
-            _scheduler.shutdown(wait=False)
-        except Exception:
-            pass
-        _scheduler = None
-
-def _handle_sigterm(signum, frame):
-    logger.info("SIGTERM received, shutting down scheduler...")
-    _shutdown_scheduler()
-    raise SystemExit(0)
-
-try:
-    signal.signal(signal.SIGTERM, _handle_sigterm)
-except ValueError:
-    pass
+    scheduler = BackgroundScheduler(daemon=True)
+    scheduler.add_job(_poll_job, trigger=IntervalTrigger(seconds=25), id="master_poll", replace_existing=True)
+    scheduler.start()
 
 def run_bot_polling():
     while True:
         try:
             bot.remove_webhook()
-            requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?offset=-1")
-            time.sleep(1)
-            print("🚀 Telegram Bot Polling Started Successfully!")
             bot.infinity_polling(skip_pending=True, interval=0, timeout=20)
         except Exception as e:
-            print(f"⚠️ Bot polling restart due to error: {e}")
             time.sleep(5)
 
 if __name__ == "__main__":
-    t_wss = threading.Thread(target=websocket_worker, daemon=True)
-    t_wss.start()
-
-    t_clean = threading.Thread(target=background_cleanup_and_wss, daemon=True)
-    t_clean.start()
-
+    threading.Thread(target=websocket_worker, daemon=True).start()
+    threading.Thread(target=background_cleanup_and_wss, daemon=True).start()
     start_scheduler()
-    
-    t_bot = threading.Thread(target=run_bot_polling, daemon=True)
-    t_bot.start()
+    threading.Thread(target=run_bot_polling, daemon=True).start()
     
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
-else:
-    t_wss = threading.Thread(target=websocket_worker, daemon=True)
-    t_wss.start()
-
-    t_clean = threading.Thread(target=background_cleanup_and_wss, daemon=True)
-    t_clean.start()
-
-    start_scheduler()
-    
-    t_bot = threading.Thread(target=run_bot_polling, daemon=True)
-    t_bot.start()
