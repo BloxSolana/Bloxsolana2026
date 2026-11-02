@@ -14,7 +14,7 @@ from firebase_admin import credentials, firestore
 # ==========================================
 # Configuration & Admin Setup
 # ==========================================
-BOT_TOKEN = "YOUR_BOT_TOKEN"
+BOT_TOKEN = "9139656226:AAGcCECoQVdl6bQL0TbLigqUFo3DzOGK3FA"
 ADMIN_ID = 6726769296  # ID cá nhân của Admin
 BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/"
 BOT_USERNAME = ""
