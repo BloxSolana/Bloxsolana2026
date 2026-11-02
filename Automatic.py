@@ -1,4 +1,4 @@
-# Automatic_4.py - Tích hợp MK Network API v3 & Giữ nguyên hệ thống cũ
+# Automatic_5.py - Tích hợp đồng bộ dữ liệu Web App & Telegram Bot chuẩn xác
 import asyncio
 import random
 import re
@@ -74,7 +74,7 @@ user_configs = {}
 
 user_wallets = {}          
 withdrawal_requests = []   
-live_radar_logs = []       # Lưu các bản tin OTP thực tế để hiển thị lên Radar
+live_radar_logs = []
 
 app_stats = {
     "WhatsApp": 0, "ClickBank": 0, "Apple": 0, "Shopee": 0, "Facebook": 0,
@@ -127,22 +127,6 @@ class MKClient:
         if limit: params["limit"] = limit
         if offset: params["offset"] = offset
         return self._request("GET", "/access_list", params=params)
-
-    def access_list_all(self, page_size: int = 100):
-        items = []
-        offset = 0
-        while True:
-            data = self.access_list(limit=page_size, offset=offset)
-            if not data:
-                break
-            page = data.get("items", [])
-            items.extend(page)
-            pag = data.get("pagination", {})
-            total = pag.get("total", len(items))
-            offset += len(page)
-            if offset >= total or not page:
-                break
-        return items
 
     def get_number(self, range_code: str):
         return self._request("POST", "/getnum/number", json={"range": range_code})
@@ -700,7 +684,6 @@ def handle_admin_text_inputs(message):
             if full_key not in inventory_numbers:
                 inventory_numbers[full_key] = {"flag": flag, "name": cname, "numbers": []}
             
-            # Check duplicate
             exists = any(n["phone"] == clean_phone for n in inventory_numbers[full_key]["numbers"])
             if not exists:
                 inventory_numbers[full_key]["numbers"].append({
@@ -980,7 +963,7 @@ def api_delete_bulk_country():
 @app.route("/api/ivas/health", methods=["GET"])
 @require_admin
 def ivas_health_api():
-    with ivas_lock:
+    with _ivas_lock:
         return jsonify({
             "ok": True,
             **ivas_health
@@ -1822,6 +1805,8 @@ BACKOFF_INTERVAL = 300
 
 _scheduler = None
 _current_interval = NORMAL_INTERVAL
+
+_ivas_lock = threading.Lock()
 
 def _set_interval(new_seconds: int):
     global _current_interval
