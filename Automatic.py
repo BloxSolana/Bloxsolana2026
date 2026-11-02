@@ -997,5 +997,30 @@ def main():
         except Exception:
             time.sleep(3)
 
+# ==========================================
+# Thêm đoạn này vào ngay dưới cùng của file (thay cho if __name__ == "__main__": main())
+# ==========================================
+import http.server
+import socketserver
+
+class SimpleHandler(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/html")
+        self.end_headers()
+        self.wfile.write(b"Bot FE NODE is running successfully!")
+
+def run_web_server():
+    port = int(os.environ.get("PORT", 10000))
+    with socketserver.TCPServer(("", port), SimpleHandler) as httpd:
+        print(f"Web server started on port {port}")
+        httpd.serve_forever()
+
 if __name__ == "__main__":
+    # Chạy Web Server ở một luồng riêng để đánh lừa Render mở cổng
+    web_thread = threading.Thread(target=run_web_server, daemon=True)
+    web_thread.start()
+    
+    # Chạy con bot chính của bro
     main()
+                    
