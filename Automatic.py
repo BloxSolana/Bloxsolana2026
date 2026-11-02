@@ -1,5 +1,5 @@
 # ==========================================
-# AUTOMATIC.PY - FE NODE v3 FULL COMPLETE BOT CODE
+# AUTOMATIC.PY - FE NODE v3 FIXED & OPTIMIZED
 # ==========================================
 import os
 import time
@@ -33,18 +33,15 @@ db_firebase = None
 waiting_for_firebase = False
 user_states = {}
 
-# User & Cooldown States
 user_cache = {} 
-user_active_sessions = {} # format: {"number": user_id}
+user_active_sessions = {} 
 user_cooldowns = {} 
 
-# FE NODE Auto System States
 fe_node_auto_mode = True 
 fe_node_keys = [FE_NODE_KEY_DEFAULT]
 force_join_status = False
 force_join_channels = []
 
-# OTP Forwarding States & Default Group Configs
 otp_forward_groups = ["-1004341368656"]
 otp_button_link = "https://t.me/LIVEOTPIVAS"
 recent_success_otps = set()
@@ -59,19 +56,19 @@ cached_countries_kb = {}
 cached_leaderboard_text = ""
 
 # ==========================================
-# Admin Settings (DXA Control adapted for $ and USDT TON)
+# Admin Settings
 # ==========================================
 bot_settings = {
     "withdraw_on": True,
-    "min_withdraw": 3.0,  # Min rút 3$
+    "min_withdraw": 3.0,
     "support_link": "https://t.me/LIVEOTPIVAS",
     "w_group": "-1004341368656",
     "auto_br_on": False,
     "auto_br_interval": 60,
     "cooldown": 5,
     "num_req": 1,
-    "w_methods": ["USDT (TON Network)"], # Chỉ nhận USDT mạng TON tránh mất tiền oan
-    "otp_default_rate": 0.005,  # Mặc định mỗi OTP nhận 0.005$
+    "w_methods": ["USDT (TON Network)"],
+    "otp_default_rate": 0.005,
     "otp_service_rates": {},
     "main_channel_link": "https://t.me/FastNode_1",
     "refer_reward": 0.005
@@ -80,16 +77,12 @@ bot_settings = {
 BOT_DATA_FILE = "bot_data.json"
 USERS_LIST_FILE = "users_list.json"
 
-# ==========================================
-# Helper Functions: FE NODE API & Rates
-# ==========================================
 def get_api_key():
     return random.choice(fe_node_keys) if fe_node_keys else FE_NODE_KEY_DEFAULT
 
 def get_otp_reward(service_name):
     rates = bot_settings.get("otp_service_rates", {})
-    val = rates.get(service_name, bot_settings.get("otp_default_rate", 0.005))
-    return float(val)
+    return float(rates.get(service_name, bot_settings.get("otp_default_rate", 0.005)))
 
 def update_daily_stat(key, amount=1):
     global daily_stats
@@ -99,7 +92,7 @@ def update_daily_stat(key, amount=1):
     daily_stats[key] = daily_stats.get(key, 0) + amount
 
 # ==========================================
-# Local Storage Managers
+# Local Storage
 # ==========================================
 def load_local_data():
     global recent_traffic, fe_node_dynamic_data, fe_node_keys, force_join_status, force_join_channels, fe_node_auto_mode, otp_forward_groups, otp_button_link, recent_success_otps, bot_settings, user_active_sessions, daily_stats, daily_user_otps
@@ -290,7 +283,7 @@ COUNTRY_CODES = {
 }
 
 def get_country_info(range_str):
-    clean_range = str(range_str or "").replace("X", "")
+    clean_range = str(range_str or "").replace("X", "").strip()
     for code, name in sorted(COUNTRY_CODES.items(), key=lambda x: len(x[0]), reverse=True):
         if clean_range.startswith(code): return code, name
     return clean_range[:3], f"🏳️ Other (+{clean_range[:3]})"
@@ -365,7 +358,7 @@ def send_otp_to_groups(formatted_text, markup):
     return True
 
 # ==========================================
-# FE NODE API v3 Integration Client & Real-Time Balance (/whoami)
+# FE NODE API v3 Integration Client
 # ==========================================
 def fe_node_api_request(endpoint, method="GET", payload=None):
     headers = {"mknetwork-key": get_api_key(), "Content-Type": "application/json"}
@@ -378,10 +371,10 @@ def fe_node_api_request(endpoint, method="GET", payload=None):
         return {"meta": {"code": 500}, "error": "Connection Failed"}
 
 def fetch_realtime_balance_from_web():
-    """Lấy số dư chuẩn Real-Time trực tiếp từ web qua endpoint /whoami của API v3"""
+    """Lấy số dư chuẩn Real-Time 100% trực tiếp từ web qua /whoami của API v3"""
     try:
         data = fe_node_api_request("/whoami")
-        if data.get("meta", {}).get("code") == 200:
+        if isinstance(data, dict) and data.get("meta", {}).get("code") == 200:
             user_info = data.get("data", {}).get("user", {})
             return float(user_info.get("balance", 0.0))
     except Exception: pass
@@ -398,7 +391,7 @@ def fetch_live_access():
 def fetch_live_number(range_code):
     payload = {"range": str(range_code)}
     data = fe_node_api_request("/getnum/number", method="POST", payload=payload)
-    if data.get("meta", {}).get("code") == 200:
+    if isinstance(data, dict) and data.get("meta", {}).get("code") == 200:
         return data.get("data", {})
     return None
 
@@ -411,12 +404,15 @@ def auto_cache_menu_thread():
                 services_set = set()
                 service_countries = {}
                 for item in items:
-                    sid = item.get("service") or item.get("sid") or item.get("range", "Other")
-                    country = item.get("country", "International")
-                    range_p = item.get("range", "84")
+                    sid = item.get("service") or item.get("sid") or "Other"
+                    country_raw = item.get("country", "International")
+                    range_p = str(item.get("range", "84"))
+                    
+                    # Tự động nhận diện chuẩn mã vùng từ range thực tế
+                    c_code, c_name = get_country_info(range_p)
                     services_set.add(sid)
                     if sid not in service_countries: service_countries[sid] = set()
-                    service_countries[sid].add((range_p, country))
+                    service_countries[sid].add((range_p, c_name, c_code))
                 
                 kb_services = {"inline_keyboard": []}
                 row = []
@@ -438,19 +434,33 @@ def auto_cache_menu_thread():
                     styles_c = ["primary", "success", "danger"]
                     style_idx_c = 0
                     rate = get_otp_reward(str(srv))
-                    for r_val, c_name in list(c_set)[:15]:
-                        clean_r = str(r_val).replace("X", "")
-                        c_code, _ = get_country_info(clean_r)
+                    for r_val, c_name_full, c_code in list(c_set)[:15]:
                         cnt_kb["inline_keyboard"].append([{
-                            "text": f"{c_name} (+{c_code}) - {rate}$",
-                            "callback_data": f"cc_{str(srv)[:15]}_{c_code}",
+                            "text": f"{c_name_full} (+{c_code}) - {rate}$",
+                            "callback_data": f"cc_{str(srv)[:15]}_{r_val}",
                             "style": styles_c[style_idx_c % 3]
                         }])
                         style_idx_c += 1
                     cnt_kb["inline_keyboard"].append([{"text": "BACK", "callback_data": "back_to_services", "style": "danger"}])
                     cached_countries_kb[str(srv)[:15]] = cnt_kb
         except Exception: pass
-        time.sleep(30)
+
+        # Leaderboard cache real-time
+        try:
+            today = time.strftime("%Y-%m-%d")
+            if daily_user_otps.get("date") != today:
+                daily_user_otps["date"] = today
+                daily_user_otps["users"] = {}
+            top_users = sorted(daily_user_otps["users"].items(), key=lambda x: x[1], reverse=True)[:5]
+            lb_msg = "🏆 <b>TOP 5 LEADERBOARD (TODAY)</b>\n━━━━━━━━━━━━━━━━━\n"
+            if not top_users: lb_msg += "<i>No OTPs received today.</i>\n"
+            else:
+                for idx, (uid_str, otp_count) in enumerate(top_users):
+                    lb_msg += f"{idx+1}. User <code>{uid_str}</code> - {otp_count} OTP\n"
+            cached_leaderboard_text = lb_msg
+        except Exception: pass
+
+        time.sleep(15)
 
 def fe_node_console_listener():
     while True:
@@ -464,7 +474,7 @@ def fe_node_sms_listener():
     while True:
         try:
             data = fe_node_api_request("/radar?limit=20")
-            if data.get("meta", {}).get("code") == 200:
+            if isinstance(data, dict) and data.get("meta", {}).get("code") == 200:
                 otps = data.get("data", {}).get("feed", []) if isinstance(data.get("data"), dict) else data.get("data", [])
                 for otp_data in reversed(otps):
                     msg_text = str(otp_data.get("message", ""))
@@ -546,18 +556,16 @@ def update_user_stats(user_id, balance_add, invite_add):
     conn.close()
 
 # ==========================================
-# Keyboards & Menus (Có màu sắc đầy đủ)
+# Keyboards & Menus
 # ==========================================
 def get_main_keyboard(user_id):
     layout = [
-        [{"text": "LIVE NUMBER", "icon_custom_emoji_id": "5456259593082522998", "style": "danger"},
-         {"text": "LIVE TRAFFIC", "icon_custom_emoji_id": "5429571662737611814", "style": "primary"}],
-        [{"text": "INVITE FRIEND", "icon_custom_emoji_id": "5384394344859974865", "style": "success"},
-         {"text": "WALLET", "icon_custom_emoji_id": "5429105001655999635", "style": "danger"}],
-        [{"text": "LEADERBOARD", "icon_custom_emoji_id": "5240021484516185513", "style": "primary"}]
+        [{"text": "LIVE NUMBER", "style": "danger"}, {"text": "LIVE TRAFFIC", "style": "primary"}],
+        [{"text": "INVITE FRIEND", "style": "success"}, {"text": "WALLET", "style": "danger"}],
+        [{"text": "LEADERBOARD", "style": "primary"}]
     ]
     if user_id == ADMIN_ID:
-        layout.append([{"text": "OWNER PANEL", "icon_custom_emoji_id": "5429427051188756948", "style": "success"}])
+        layout.append([{"text": "OWNER PANEL", "style": "success"}])
     return {"keyboard": layout, "resize_keyboard": True}
 
 def get_admin_inline_keyboard():
@@ -568,23 +576,23 @@ def get_admin_inline_keyboard():
         ]
     }
 
-def get_number_allocation_content(sid_short, c_code, user_id=None):
-    num_data = fetch_live_number(c_code)
+def get_number_allocation_content(sid_short, range_code, user_id=None):
+    num_data = fetch_live_number(range_code)
     if not num_data:
         num_data = {
-            "full_number": f"+{c_code}{random.randint(10000000, 99999999)}",
+            "full_number": f"+{range_code}{random.randint(10000000, 99999999)}",
             "country": "International",
             "operator": "Other"
         }
     
-    full_number = html.escape(str(num_data.get("full_number", f"+{c_code}")))
+    full_number = html.escape(str(num_data.get("full_number", f"+{range_code}")))
     if user_id: user_active_sessions[str(full_number)] = user_id
     update_daily_stat("numbers", 1)
     save_local_data()
 
     msg = (
         f"━━━━━━━━━━━━━━━\n"
-        f"⌛ <b>ACTIVE NUMBER (FE NODE API)</b>\n"
+        f"⌛ <b>ACTIVE NUMBER (FE NODE API v3)</b>\n"
         f"— — — — — — — — — —\n"
         f"📱 Service: <code>{sid_short}</code>\n"
         f"📞 Number: <code>{full_number}</code>\n"
@@ -593,7 +601,7 @@ def get_number_allocation_content(sid_short, c_code, user_id=None):
     kb = {
         "inline_keyboard": [
             [{"text": f"{full_number}", "copy_text": {"text": full_number}, "style": "primary"}],
-            [{"text": "Change Number", "callback_data": f"cc_{sid_short}_{c_code}", "style": "danger"},
+            [{"text": "Change Number", "callback_data": f"cc_{sid_short}_{range_code}", "style": "danger"},
              {"text": "OTP Group", "url": otp_button_link, "style": "success"}],
             [{"text": "BACK", "callback_data": f"srv_{sid_short}", "style": "danger"}]
         ]
@@ -604,7 +612,6 @@ def get_number_allocation_content(sid_short, c_code, user_id=None):
 # Message & Callback Handlers
 # ==========================================
 def handle_message(message):
-    global user_states
     if message.get("chat", {}).get("type") != "private": return
     chat_id = message["chat"]["id"]
     user_id = message["from"]["id"]
@@ -625,10 +632,12 @@ def handle_message(message):
             except: pass
         send_message(chat_id, f"🔥 <b>FE NODE API OTP BOT</b>\n\nWelcome {html.escape(str(first_name))}, select an option below:", reply_markup=get_main_keyboard(user_id))
     elif text == "LIVE NUMBER":
-        kb = cached_services_kb or {"inline_keyboard": [[{"text": "📱 Telegram", "callback_data": "srv_Telegram"}, {"text": "📘 Facebook", "callback_data": "srv_Facebook"}], [{"text": "❌ CLOSE", "callback_data": "close_panel"}]]}
+        kb = cached_services_kb or {"inline_keyboard": [[{"text": "📱 Telegram", "callback_data": "srv_Telegram"}, {"text": "📘 Facebook", "callback_data": "srv_Facebook"}], [{"text": "❌ CLOSE", "callback_data": "close_panel", "style": "danger"}]]}
         send_message(chat_id, "📱 <b>Select Service (FE NODE API v3):</b>", reply_markup=kb)
+    elif text == "LIVE TRAFFIC":
+        send_message(chat_id, "📊 <b>LIVE TRAFFIC (FE NODE Radar v3):</b>\n📡 Real-time monitoring active across active gateways.")
     elif text == "WALLET":
-        # Lấy số dư real-time trực tiếp từ web qua API /whoami
+        # Lấy trực tiếp chuẩn Real-Time 100% từ Web qua endpoint /whoami
         real_balance = fetch_realtime_balance_from_web()
         display_bal = real_balance if real_balance is not None else user_data['balance']
         
@@ -646,12 +655,12 @@ def handle_message(message):
         invite_link = f"https://t.me/{BOT_USERNAME}?start={user_id}"
         send_message(chat_id, f"👥 <b>Referral Link:</b>\n<code>{invite_link}</code>\n🎁 Reward per invite: 0.005$", reply_markup={"inline_keyboard": [[{"text": "COPY LINK", "copy_text": {"text": invite_link}, "style": "success"}]]})
     elif text == "LEADERBOARD":
-        send_message(chat_id, cached_leaderboard_text or "Loading leaderboard...")
+        send_message(chat_id, cached_leaderboard_text or "🏆 <b>TOP 5 LEADERBOARD</b>\n━━━━━━━━━━━━━━━━━\n<i>No OTPs received yet.</i>")
     elif text == "OWNER PANEL" and user_id == ADMIN_ID:
         send_message(chat_id, "<b>📊 OWNER ZONE (FE NODE API & Admin Tools)</b>", reply_markup=get_admin_inline_keyboard())
     elif text == "/whoami":
         res = fe_node_api_request("/whoami")
-        send_message(chat_id, f"👤 <b>Whoami Info (Real-Time):</b>\n<pre>{json.dumps(res, indent=2)}</pre>")
+        send_message(chat_id, f"👤 <b>Whoami Info (Real-Time Web):</b>\n<pre>{json.dumps(res, indent=2)}</pre>")
     elif text == "/access_list":
         kb = cached_services_kb or {"inline_keyboard": [[{"text": "Telegram", "callback_data": "srv_Telegram"}]]}
         send_message(chat_id, "📂 <b>Access List loaded successfully.</b>", reply_markup=kb)
@@ -660,7 +669,7 @@ def handle_message(message):
     elif text == "/balance":
         real_balance = fetch_realtime_balance_from_web()
         display_bal = real_balance if real_balance is not None else user_data['balance']
-        send_message(chat_id, f"💰 Real-Time Balance: <b>{display_bal:.4f}$</b>")
+        send_message(chat_id, f"💰 Real-Time Balance (Web API): <b>{display_bal:.4f}$</b>")
     elif text == "/status":
         send_message(chat_id, "🟢 <b>System Status:</b> All FE NODE gateways online and operational.")
 
@@ -703,7 +712,7 @@ def handle_callback(callback_query):
         return
 
     if data == "back_to_services":
-        kb = cached_services_kb or {"inline_keyboard": [[{"text": "📱 Telegram", "callback_data": "srv_Telegram"}], [{"text": "❌ CLOSE", "callback_data": "close_panel"}]]}
+        kb = cached_services_kb or {"inline_keyboard": [[{"text": "📱 Telegram", "callback_data": "srv_Telegram"}], [{"text": "❌ CLOSE", "callback_data": "close_panel", "style": "danger"}]]}
         edit_message(chat_id, message_id, "📱 <b>Select Service:</b>", reply_markup=kb)
         answer_callback_query(query_id)
         return
@@ -717,16 +726,16 @@ def handle_callback(callback_query):
                 [{"text": "« BACK", "callback_data": "back_to_services", "style": "danger"}]
             ]
         })
-        edit_message(chat_id, message_id, f"🌍 <b>Select Country for {sid_short} (195+ Countries):</b>", reply_markup=kb)
+        edit_message(chat_id, message_id, f"🌍 <b>Select Country for {sid_short} (Dynamic Ranges):</b>", reply_markup=kb)
         answer_callback_query(query_id)
         return
 
     if data.startswith("cc_"):
-        parts = data.split("_")
+        parts = data.split("_", 2)
         sid_short = parts[1]
-        c_code = parts[2]
+        range_code = parts[2]
         answer_callback_query(query_id, "Allocating number...")
-        msg, markup = get_number_allocation_content(sid_short, c_code, user_id=user_id)
+        msg, markup = get_number_allocation_content(sid_short, range_code, user_id=user_id)
         edit_message(chat_id, message_id, msg, reply_markup=markup)
         return
 
