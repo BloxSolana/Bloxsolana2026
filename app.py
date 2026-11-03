@@ -35,9 +35,8 @@ REWARD_MILLI_PER_OTP   = 4    # $0.004
 MIN_WITHDRAW_MILLI     = 3000 # $3.000
 
 MK_POLL_ENABLED = True
-# Tăng lên 30s để tránh bị API đánh dấu Spam (Rate Limit) do IP Render thay đổi
-MK_POLL_MIN_SEC = 30 
-MK_POLL_MAX_SEC = 60
+MK_POLL_MIN_SEC = 15 
+MK_POLL_MAX_SEC = 45
 MK_POLL_BATCH   = 100
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -68,6 +67,7 @@ FALLBACK_COUNTRIES = {
 
 ADMIN_PENDING_APPROVE = {} 
 MSG_TO_DELETE = {}
+_mk_poller = None
 
 # =====================================================
 # HELPERS
@@ -108,11 +108,6 @@ async def safe_delete_msg(chat_id, message_id, delay=0):
 def track_msg(chat_id, message_id):
     if chat_id not in MSG_TO_DELETE: MSG_TO_DELETE[chat_id] = []
     MSG_TO_DELETE[chat_id].append(message_id)
-
-def is_valid_ton_address(address):
-    if not address: return False
-    pattern = r"^(EQ|UQ)[a-zA-Z0-9_-]{46}$"
-    return bool(re.match(pattern, address))
 
 def dict_factory(cursor, row):
     d = {}
@@ -157,7 +152,7 @@ def get_db():
 async def init_db():
     db = get_db()
     db.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, username TEXT, first_name TEXT, usd_milli INTEGER NOT NULL DEFAULT 0, wallet_ton TEXT, referrer INTEGER, joined_at TEXT)")
-    db.execute("CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, request_id TEXT UNIQUE, phone TEXT, country TEXT, operator TEXT, range_code TEXT, status TEXT NOT NULL DEFAULT 'PENDING', otp_code TEXT, full_sms TEXT, reward_milli INTEGER NOT NULL DEFAULT 0, msg_id INTEGER, created_at TEXT, expires_at TEXT, updated_at TEXT)")
+    db.execute("CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, request_id INTEGER UNIQUE, phone TEXT, country TEXT, operator TEXT, range_code TEXT, status TEXT NOT NULL DEFAULT 'PENDING', otp_code TEXT, full_sms TEXT, reward_milli INTEGER NOT NULL DEFAULT 0, msg_id INTEGER, created_at TEXT, expires_at TEXT, updated_at TEXT)")
     db.execute("CREATE TABLE IF NOT EXISTS transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, amount INTEGER NOT NULL, tx_type TEXT, note TEXT, created_at TEXT)")
     db.execute("CREATE TABLE IF NOT EXISTS withdrawals (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, amount_milli INTEGER NOT NULL, wallet_ton TEXT, status TEXT NOT NULL DEFAULT 'PENDING', reject_reason TEXT, tx_hash TEXT, proof_photo TEXT, created_at TEXT, processed_at TEXT)")
     try: db.execute("ALTER TABLE withdrawals ADD COLUMN reject_reason TEXT")
@@ -211,12 +206,6 @@ async def change_usd(uid, amount_milli, tx_type, note):
         db.execute("UPDATE users SET usd_milli=? WHERE user_id=?", (new, uid))
         db.execute("INSERT INTO transactions (user_id, amount, tx_type, note, created_at) VALUES (?, ?, ?, ?, ?)", (uid, amount_milli, tx_type, note, now_text()))
         db.commit(); return True, new
-    finally: db.close()
-
-async def get_transactions(uid, limit=15):
-    db = get_db()
-    try:
-        return db.execute("SELECT amount, tx_type, note, created_at FROM transactions WHERE user_id=? ORDER BY id DESC LIMIT ?", (uid, limit)).fetchall()
     finally: db.close()
 
 async def create_withdrawal(uid, amount_milli, wallet_ton):
@@ -310,7 +299,7 @@ def expired_kb():
     ])
 
 # =====================================================
-# MK API CORE
+# MK API CORE (ĐÃ TỐI ƯU VÀ FIX LỖI)
 # =====================================================
 HTTP_ERRORS = {
     401: "API key không hợp lệ.", 403: "API bị khoá / chờ duyệt.",
@@ -371,8 +360,20 @@ def strip_secrets(obj):
 def fmt_api(d):
     return html.escape(json.dumps(strip_secrets(d), ensure_ascii=False, indent=2, default=str)[:3500])
 
+async def fetch_realtime_balance_from_web():
+    """Lấy số dư thực tế trực tiếp từ web qua endpoint /whoami để khớp tuyệt đối"""
+    try:
+        data, err = await api_get("whoami")
+        if not err and isinstance(data, dict):
+            user_info = data.get("data", {}).get("user", {})
+            bal = user_info.get("balance")
+            if bal is not None:
+                return float(bal)
+    except Exception: pass
+    return None
+
 # =====================================================
-# TẠO ĐƠN
+# TẠO ĐƠN (ÉP KIỂU REQUEST_ID THÀNH INT)
 # =====================================================
 async def create_number_order(uid, range_code, msg_id=None):
     if not range_code or len(range_code) > 80 or any(c.isspace() for c in range_code):
@@ -392,7 +393,12 @@ async def create_number_order(uid, range_code, msg_id=None):
         logger.error(f"API không trả về request_id: {data}")
         return False, "API thiếu request_id."
 
-    rid_str = str(rid).strip()
+    try:
+        rid_int = int(rid)
+    except (ValueError, TypeError):
+        logger.error(f"request_id không phải số nguyên: {rid}")
+        return False, "API trả về request_id không hợp lệ."
+
     exp = (now() + timedelta(minutes=ORDER_LIFETIME_MINUTES)).isoformat(timespec="seconds")
     db = get_db()
     try:
@@ -400,7 +406,7 @@ async def create_number_order(uid, range_code, msg_id=None):
             INSERT INTO orders (user_id, request_id, phone, country, operator,
                 range_code, status, created_at, expires_at, updated_at, msg_id)
             VALUES (?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?, ?)
-        """, (uid, rid_str, str(phone or "N/A"), str(country or "?"),
+        """, (uid, rid_int, str(phone or "N/A"), str(country or "?"),
               str(operator or "?"), range_code, now_text(), exp, now_text(), msg_id))
         db.commit()
     except Exception as e:
@@ -408,7 +414,7 @@ async def create_number_order(uid, range_code, msg_id=None):
     finally: db.close()
 
     return True, {
-        "request_id": rid_str, "phone": phone or "N/A",
+        "request_id": rid_int, "phone": phone or "N/A",
         "country": country or "?", "operator": operator or "?",
         "expires_at": exp,
     }
@@ -444,21 +450,8 @@ async def get_pending_requests(limit=100):
     db = get_db()
     try:
         rows = db.execute("SELECT id, user_id, request_id, phone, msg_id FROM orders WHERE status='PENDING' ORDER BY id ASC LIMIT ?", (limit,)).fetchall()
-        return [{"id": r[0], "user_id": r[1], "request_id": r[2], "phone": r[3], "msg_id": r[4]} for r in rows]
+        return [{"id": r[0], "user_id": r[1], "request_id": int(r[2]), "phone": r[3], "msg_id": r[4]} for r in rows]
     finally: db.close()
-
-def fmt_order(row):
-    extra = ""
-    if row["status"] == "COMPLETED":
-        try:
-            if row["otp_code"]:    extra += f"\n🔑 OTP: <code>{safe(row['otp_code'])}</code>"
-            if row["full_sms"]:    extra += f"\n💬 SMS: {safe(row['full_sms'], 200)}"
-            if row["reward_milli"]: extra += f"\n💵 Thưởng: <b>{usd(row['reward_milli'])}</b>"
-        except (IndexError, KeyError): pass
-    return (
-        f"📦 <b>ĐƠN #{row['id']}</b>\nRequest ID: <code>{safe(row['request_id'])}</code>\nSố: <code>{safe(row['phone'])}</code>\n"
-        f"Quốc gia: {safe(row['country'])}\nNhà mạng: {safe(row['operator'])}\nTrạng thái: {status_text(row['status'])}\nHết hạn: {safe(row['expires_at'])}{extra}"
-    )
 
 # =====================================================
 # START / HELP
@@ -506,7 +499,10 @@ async def cmd_wallet(message: Message):
     except: pass
     await register_user(message.from_user)
     u = await get_user(message.from_user.id)
-    msg = await message.answer("💵 <b>VÍ USD (từ OTP)</b>\n\n" f"Số dư: <b>{usd(u['usd_milli'])}</b>\nThưởng/OTP: <b>{usd(REWARD_MILLI_PER_OTP)}</b>\nRút min: <b>{usd(MIN_WITHDRAW_MILLI)}</b>\n\n" "Lệnh rút: <code>/rut</code>")
+    real_bal = await fetch_realtime_balance_from_web()
+    display_bal = f"${real_bal:.3f}" if real_bal is not None else usd(u['usd_milli'])
+    
+    msg = await message.answer("💵 <b>VÍ USD (Real-Time)</b>\n\n" f"Số dư Web: <b>{display_bal}</b>\nThưởng/OTP: <b>{usd(REWARD_MILLI_PER_OTP)}</b>\nRút min: <b>{usd(MIN_WITHDRAW_MILLI)}</b>\n\n" "Lệnh rút: <code>/rut</code>")
     track_msg(message.from_user.id, msg.message_id)
 
 # =====================================================
@@ -522,7 +518,7 @@ async def cb_menu_order_help(call: CallbackQuery):
     await call.answer("Đang tải...")
     data, err = await api_get("access_list", params={"limit": 200})
     country_dict = {}
-    if not err:
+    if not err and isinstance(data, dict):
         items = data.get("data", {}).get("items", [])
         for item in items:
             c_name = item.get("country"); r_code = item.get("range")
@@ -547,7 +543,10 @@ async def cb_menu_profile(call: CallbackQuery):
 async def cb_menu_wallet(call: CallbackQuery):
     await register_user(call.from_user)
     u = await get_user(call.from_user.id)
-    await call.message.edit_text("💵 <b>VÍ USD</b>\n\n" f"Số dư: <b>{usd(u['usd_milli'])}</b>\nThưởng/OTP: <b>{usd(REWARD_MILLI_PER_OTP)}</b>\nRút min: <b>{usd(MIN_WITHDRAW_MILLI)}</b>\n\n" "Lệnh rút: <code>/rut</code>", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Quay lại", callback_data="home")]]))
+    real_bal = await fetch_realtime_balance_from_web()
+    display_bal = f"${real_bal:.3f}" if real_bal is not None else usd(u['usd_milli'])
+    
+    await call.message.edit_text("💵 <b>VÍ USD</b>\n\n" f"Số dư Web: <b>{display_bal}</b>\nThưởng/OTP: <b>{usd(REWARD_MILLI_PER_OTP)}</b>\nRút min: <b>{usd(MIN_WITHDRAW_MILLI)}</b>\n\n" "Lệnh rút: <code>/rut</code>", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Quay lại", callback_data="home")]]))
     await call.answer()
 
 @dp.callback_query(F.data == "menu_referral")
@@ -637,7 +636,6 @@ async def cb_wd_conf(call: CallbackQuery):
     wid = await create_withdrawal(call.from_user.id, amt_milli, u["wallet_ton"])
     await call.message.edit_text(f"✅ <b>ĐÃ TẠO LỆNH RÚT</b>\n\nMã: <code>#{wid}</code>\nSố tiền: <b>${amt_usd}.000</b>\nVí TON: <code>{u['wallet_ton']}</code>\nCòn lại: <b>{usd(new_usd)}</b>\n\nVui lòng chờ Admin duyệt.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Quay lại", callback_data="home")]]))
     
-    # GỬI THÔNG BÁO GỘP CHO ADMIN (Không spam)
     try:
         db = get_db()
         pending_count = db.execute("SELECT COUNT(*) FROM withdrawals WHERE status='PENDING'").fetchone()[0]
@@ -657,7 +655,7 @@ async def cb_list_countries(call: CallbackQuery):
     await call.answer("Đang tải...")
     data, err = await api_get("access_list", params={"limit": 200})
     country_dict = {}
-    if not err:
+    if not err and isinstance(data, dict):
         items = data.get("data", {}).get("items", [])
         for item in items:
             c_name = item.get("country"); r_code = item.get("range")
@@ -686,7 +684,6 @@ async def cb_choose_range(call: CallbackQuery):
     if not ok:
         await call.message.edit_text(f"❌ {safe(res)}", reply_markup=order_help_kb()); return
     
-    # Lấy ID đơn hàng vừa tạo để dùng cho nút Làm mới
     db = get_db()
     row = db.execute("SELECT id FROM orders WHERE request_id=?", (res['request_id'],)).fetchone()
     db.close()
@@ -694,7 +691,7 @@ async def cb_choose_range(call: CallbackQuery):
 
     await call.message.edit_text(f"✅ <b>ĐÃ NHẬN SỐ</b>\n\nSố: <code>{res['phone']}</code>\nQuốc gia: {safe(res['country'])}\nHết hạn: {safe(res['expires_at'])}\n\n⏳ Đang chờ OTP...", reply_markup=order_status_kb(order_id))
 
-# Nút làm mới trạng thái đơn
+# Nút Làm mới (Đã sửa để gọi trực tiếp POST check/status cho riêng request_id này)
 @dp.callback_query(F.data.startswith("refresh_order_"))
 async def cb_refresh_order(call: CallbackQuery):
     oid = int(call.data.replace("refresh_order_", ""))
@@ -702,28 +699,33 @@ async def cb_refresh_order(call: CallbackQuery):
     if not row:
         await call.answer("Không tìm thấy đơn!", show_alert=True); return
     
-    # Gọi API kiểm tra ngay lập tức đơn này
     await call.answer("Đang kiểm tra...")
     try:
-        ids = [int(row['request_id'])]
-        data, err = await api_request("POST", "check/status", {"request_ids": ids})
+        req_id = int(row['request_id'])
+        data, err = await api_request("POST", "check/status", {"request_ids": [req_id]})
         if not err and isinstance(data, dict):
-            results = data.get("data", {}).get("results", [])
-            if results:
+            inner = data.get("data") if isinstance(data, dict) else None
+            results = inner.get("results") if isinstance(inner, dict) else None
+            if isinstance(results, list) and results:
                 item = results[0]
-                if item.get("status") == "success":
-                    otp = item.get("otp_code")
-                    sms = item.get("full_sms")
-                    # Cập nhật DB
-                    await _mk_poller._update_completed(oid, otp, sms, REWARD_MILLI_PER_OTP)
-                    # Gửi thông báo
-                    await _mk_poller._broadcast_otp(row, otp, sms, REWARD_MILLI_PER_OTP)
-                    await call.message.edit_text(f"✅ <b>ĐÃ CÓ OTP</b>\n\nSố: <code>{row['phone']}</code>\nOTP: <code>{safe(otp)}</code>", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="📜 Check Lịch Sử", callback_data="user_orders_history")]]))
-                    return
+                if (item.get("status") or "").lower() == "success":
+                    otp = str(item.get("otp_code") or "").strip()
+                    sms = str(item.get("full_sms") or "").strip()
+                    if otp:
+                        if _mk_poller:
+                            reward = REWARD_MILLI_PER_OTP
+                            ok, _ = await change_usd(row["user_id"], reward, "OTP_REWARD", f"Thưởng OTP #{row['id']}")
+                            if not ok: reward = 0
+                            await _mk_poller._update_completed(oid, otp, sms, reward)
+                            await _mk_poller._broadcast_otp(row, otp, sms, reward)
+                        
+                        await call.message.edit_text(f"✅ <b>ĐÃ CÓ OTP</b>\n\nSố: <code>{row['phone']}</code>\nOTP: <code>{safe(otp)}</code>", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="📜 Check Lịch Sử", callback_data="user_orders_history")]]))
+                        return
     except Exception as e:
-        logger.error(f"Lỗi refresh đơn: {e}")
+        logger.error(f"Lỗi refresh đơn #{oid}: {e}")
 
-    # Nếu không có OTP hoặc lỗi, hiển thị lại trạng thái cũ
+    # Lấy lại row mới nhất từ DB
+    row = await get_order(oid)
     if row["status"] == "COMPLETED":
         text = f"✅ <b>ĐÃ CÓ OTP</b>\n\nSố: <code>{row['phone']}</code>\nQuốc gia: {safe(row['country'])}\nOTP: <code>{safe(row['otp_code'])}</code>"
         kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="📜 Check Lịch Sử", callback_data="user_orders_history")]])
@@ -736,7 +738,6 @@ async def cb_refresh_order(call: CallbackQuery):
         
     await call.message.edit_text(text, reply_markup=kb)
 
-# Nút Check OTP Lịch Sử
 @dp.callback_query(F.data == "user_orders_history")
 async def cb_user_orders_history(call: CallbackQuery):
     rows = await get_user_orders(call.from_user.id, limit=15)
@@ -751,9 +752,7 @@ async def cb_user_orders_history(call: CallbackQuery):
     
     buttons.append([InlineKeyboardButton(text="⬅️ Quay lại", callback_data="home")])
     await call.message.edit_text("📜 <b>LỊCH SỬ NHẬN SỐ GẦN ĐÂY</b>\n\nBấm vào số để xem chi tiết:", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
-    await call.answer()
 
-# Nút xem chi tiết Lịch Sử
 @dp.callback_query(F.data.startswith("view_history_"))
 async def cb_view_history(call: CallbackQuery):
     oid = int(call.data.replace("view_history_", ""))
@@ -806,7 +805,7 @@ async def cmd_nhanso(message: Message):
     await waiting_msg.edit_text(f"✅ <b>ĐÃ NHẬN SỐ</b>\n\nSố: <code>{res['phone']}</code>\nQuốc gia: {safe(res['country'])}\nHết hạn: {safe(res['expires_at'])}\n\n⏳ Đang chờ OTP...", reply_markup=order_status_kb(order_id))
 
 # =====================================================
-# ADMIN PANEL & CHỨC NĂNG
+# ADMIN PANEL
 # =====================================================
 @dp.callback_query(F.data == "admin_menu")
 async def cb_admin_menu(call: CallbackQuery):
@@ -902,7 +901,7 @@ async def cb_admin_clear_chat(call: CallbackQuery):
     if not is_admin(call.from_user.id): return
     try:
         await call.message.delete()
-        await call.message.answer("🗑 Đã xoá lịch sử tin nhắn trên màn hình.\n\n<i>(Lưu ý: Dữ liệu trong Database Turso vẫn được giữ nguyên an toàn).</i>", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Quay lại Admin Panel", callback_data="admin_menu")]]))
+        await call.message.answer("🗑 Đã xoá lịch sử tin nhắn trên màn hình.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Quay lại Admin Panel", callback_data="admin_menu")]]))
     except Exception: pass
     await call.answer("Đã xoá chat!")
 
@@ -963,9 +962,9 @@ async def cb_admin_clear_history(call: CallbackQuery):
     if not is_admin(call.from_user.id): return
     try:
         await call.message.delete()
-        await call.message.answer("🗑 Đã xoá lịch sử duyệt trên màn hình.\n\n<i>(Dữ liệu trong Database Turso vẫn được giữ nguyên).</i>", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Quay lại", callback_data="admin_menu")]]))
+        await call.message.answer("🗑 Đã xoá lịch sử duyệt trên màn hình.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Quay lại", callback_data="admin_menu")]]))
     except Exception: pass
-    await call.answer("Đã xoá lịch sử duyệt!")
+    await call.answer("Đã xoá lịch sử!")
 
 @dp.callback_query(F.data.startswith("adm_u_"))
 async def cb_adm_user_detail(call: CallbackQuery):
@@ -986,16 +985,16 @@ async def cb_adm_user_detail(call: CallbackQuery):
 @dp.callback_query(F.data.startswith("adm_cong_help_"))
 async def cb_adm_cong_help(call: CallbackQuery):
     uid = call.data.replace("adm_cong_help_", "")
-    text = f"➕ <b>HƯỚNG DẪN CỘNG TIỀN</b>\n\nGõ lệnh sau ra ngoài chat:\n\n<code>/congtien {uid} 10$</code>\n\n<i>(Thay 10$ bằng số tiền cần cộng)</i>"
+    text = f"➕ <b>HƯỚNG DẪN CỘNG TIỀN</b>\n\nGõ lệnh sau ra ngoài chat:\n\n<code>/congtien {uid} 10$</code>"
     await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Quay lại", callback_data=f"adm_u_{uid}")]]))
-    await call.answer("Đã copy lệnh!")
+    await call.answer()
 
 @dp.callback_query(F.data.startswith("adm_tru_help_"))
 async def cb_adm_tru_help(call: CallbackQuery):
     uid = call.data.replace("adm_tru_help_", "")
-    text = f"➖ <b>HƯỚNG DẪN TRỪ TIỀN</b>\n\nGõ lệnh sau ra ngoài chat:\n\n<code>/trutien {uid} 10$</code>\n\n<i>(Thay 10$ bằng số tiền cần trừ)</i>"
+    text = f"➖ <b>HƯỚNG DẪN TRỪ TIỀN</b>\n\nGõ lệnh sau ra ngoài chat:\n\n<code>/trutien {uid} 10$</code>"
     await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Quay lại", callback_data=f"adm_u_{uid}")]]))
-    await call.answer("Đã copy lệnh!")
+    await call.answer()
 
 @dp.callback_query(F.data.startswith("wd_admin_view_"))
 async def cb_wd_admin_view(call: CallbackQuery):
@@ -1007,12 +1006,10 @@ async def cb_wd_admin_view(call: CallbackQuery):
         if not row or row[4] != "PENDING":
             await call.answer("Đơn này đã được xử lý!", show_alert=True); return
         rid, uid, amt, wallet, status, name = row
-        
         text = f"💸 <b>YÊU CẦU RÚT TON</b>\n\n👤 User: <b>{name}</b> (<code>{uid}</code>)\n💵 Số tiền: <b>{usd(amt)}</b>\n🔗 Ví TON: <code>{wallet}</code>\n\n👇 Chọn thao tác xử lý:"
-        
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="✅ Duyệt (Gửi Bill)", callback_data=f"wd_approve_step1_{rid}")],
-            [InlineKeyboardButton(text="⏳ Để sau (Quay lại danh sách)", callback_data="admin_withdraws")],
+            [InlineKeyboardButton(text="⏳ Để sau", callback_data="admin_withdraws")],
             [InlineKeyboardButton(text="❌ Từ chối duyệt", callback_data=f"wd_reject_list_{rid}")]
         ])
         await call.message.edit_text(text, reply_markup=kb)
@@ -1024,7 +1021,7 @@ async def cb_wd_approve_step1(call: CallbackQuery):
     if not is_admin(call.from_user.id): return
     wid = int(call.data.replace("wd_approve_step1_", ""))
     ADMIN_PENDING_APPROVE[ADMIN_ID] = {"wid": wid, "step": "waiting_link"}
-    text = f"🔗 <b>THÊM LINK GIAO DỊCH</b>\n\nVui lòng gửi <b>Link giao dịch TON (TX Hash)</b> vào chat này.\nVí dụ: <code>https://tonscan.org/tx/abc123...</code>\n\n<i>(Bấm Hủy để quay lại nếu chưa muốn gửi)</i>"
+    text = f"🔗 <b>THÊM LINK GIAO DỊCH</b>\n\nVui lòng gửi <b>Link giao dịch TON (TX Hash)</b> vào chat này."
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Hủy", callback_data=f"wd_admin_view_{wid}")]])
     await call.message.edit_text(text, reply_markup=kb)
     await call.answer()
@@ -1041,7 +1038,7 @@ async def handle_admin_tx_hash(message: Message):
     state["step"] = "confirm_link"
     ADMIN_PENDING_APPROVE[ADMIN_ID] = state
 
-    text = f"🔗 <b>XÁC NHẬN LINK GIAO DỊCH</b>\n\nLink đã nhận:\n<code>{safe(tx_hash)}</code>\n\nBạn có chắc chắn muốn lưu link này không?"
+    text = f"🔗 <b>XÁC NHẬN LINK GIAO DỊCH</b>\n\nLink đã nhận:\n<code>{safe(tx_hash)}</code>"
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Xác nhận", callback_data="wd_confirm_link")],
         [InlineKeyboardButton(text="❌ Hủy", callback_data=f"wd_admin_view_{wid}")]
@@ -1059,7 +1056,7 @@ async def cb_wd_confirm_link(call: CallbackQuery):
     state["step"] = "waiting_photo"
     ADMIN_PENDING_APPROVE[ADMIN_ID] = state
 
-    text = f"🖼 <b>THÊM ẢNH BẰNG CHỨNG</b>\n\nVui lòng gửi <b>Ảnh chụp bill chuyển tiền</b> vào chat này.\n\n<i>(Bấm Hủy để quay lại nếu chưa muốn gửi)</i>"
+    text = f"🖼 <b>THÊM ẢNH BẰNG CHỨNG</b>\n\nVui lòng gửi <b>Ảnh chụp bill chuyển tiền</b> vào chat này."
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Hủy", callback_data=f"wd_admin_view_{wid}")]])
     await call.message.edit_text(text, reply_markup=kb)
     await call.answer()
@@ -1105,7 +1102,7 @@ async def cb_wd_confirm_photo(call: CallbackQuery):
 
     text = f"🎉 <b>RÚT TIỀN THÀNH CÔNG</b> 🎉\n\nChúc mừng bạn! Yêu cầu rút <b>{usd(amt)}</b> đã được duyệt.\n\nVí nhận: <code>{wallet}</code>\n"
     if tx_hash: text += f"Mã giao dịch (TX): <code>{tx_hash}</code>\n<a href='{tx_hash}'>👉 Xem trên Tonscan</a>\n\n"
-    text += "Cảm ơn bạn đã đồng hành cùng FAST IVAS. ❤️\nNếu có thắc mắc, liên hệ @Nothavedie."
+    text += "Cảm ơn bạn đã đồng hành cùng FAST IVAS. ❤️"
     
     try:
         await bot.send_photo(uid, photo_id, caption=text)
@@ -1164,15 +1161,6 @@ async def cb_wd_reject_final(call: CallbackQuery):
     try: await bot.send_message(uid, f"❌ <b>TỪ CHỐI RÚT TIỀN</b>\n\nĐơn <code>#{wid}</code> bị hủy.\nLý do: <b>{reason_text}</b>\nĐã hoàn <b>{usd(amt)}</b> vào ví.")
     except Exception: pass
 
-# =====================================================
-# LỆNH ADMIN GÕ TAY (CỘNG/TRỪ)
-# =====================================================
-def parse_money(text):
-    t = str(text).strip().replace(",", ".")
-    if t.endswith("$"): t = t[:-1]
-    try: return int(float(t) * 1000)
-    except: return None
-
 @dp.message(Command("congtien"))
 async def cmd_congtien(message: Message):
     try: await message.delete()
@@ -1180,9 +1168,8 @@ async def cmd_congtien(message: Message):
     if not is_admin(message.from_user.id): return
     parts = message.text.split()
     if len(parts) != 3 or not parts[1].isdigit():
-        await message.answer("Dùng: <code>/congtien ID SOTIEN</code> (VD: /congtien 6608703874 10$)"); return
-    uid = int(parts[1]); amt = parse_money(parts[2])
-    if amt is None or amt <= 0: await message.answer("Số tiền sai."); return
+        await message.answer("Dùng: <code>/congtien ID SOTIEN</code>"); return
+    uid = int(parts[1]); amt = int(float(parts[2].replace("$","")) * 1000)
     u = await get_user(uid)
     if not u: await message.answer("Không tìm thấy user."); return
     db = get_db()
@@ -1233,16 +1220,11 @@ async def cmd_trutien(message: Message):
     if not is_admin(message.from_user.id): return
     parts = message.text.split()
     if len(parts) != 3 or not parts[1].isdigit():
-        await message.answer("Dùng: <code>/trutien ID SOTIEN</code> (VD: /trutien 6608703874 10$)"); return
-    uid = int(parts[1]); amt = parse_money(parts[2])
-    if amt is None or amt <= 0: await message.answer("Số tiền sai."); return
-    u = await get_user(uid)
-    if not u: await message.answer("Không tìm thấy user."); return
+        await message.answer("Dùng: <code>/trutien ID SOTIEN</code>"); return
+    uid = int(parts[1]); amt = int(float(parts[2].replace("$","")) * 1000)
     ok, new_usd = await change_usd(uid, -amt, "ADMIN_REMOVE", "Admin thu hồi")
     if not ok: await message.answer(f"❌ {safe(new_usd)}"); return
     await message.answer(f"✅ Đã thu hồi {usd(amt)} từ {uid}.")
-    try: await bot.send_message(uid, f"⚠️ <b>THU HỒI TIỀN</b>\n\nSố tiền <b>{usd(amt)}</b> đã bị thu hồi bởi Admin.\nLiên hệ: @Nothavedie")
-    except Exception: pass
 
 @dp.message(Command("broadcast"))
 async def cmd_broadcast(message: Message):
@@ -1263,12 +1245,12 @@ async def cmd_broadcast(message: Message):
     await message.answer(f"📢 Xong. OK: {sent} · Fail: {failed}")
 
 # =====================================================
-# OTP POLLER (ĐÃ CHUYỂN SANG POST CHUẨN API)
+# OTP POLLER (CHUẨN API V3 POST VÀ MẢNG INT)
 # =====================================================
 class MkOtpPoller:
     MAX_CONSECUTIVE_ERRORS = 5
     def __init__(self):
-        self.interval = max(MK_POLL_MIN_SEC, 30)
+        self.interval = max(MK_POLL_MIN_SEC, 15)
         self._consecutive_errors = 0
 
     async def _broadcast_otp(self, row, otp_code, full_sms, reward_milli):
@@ -1325,11 +1307,12 @@ class MkOtpPoller:
             return 0, 0, False
         
         ids = []
+        by_req = {}
         for r in rows:
             try:
-                # Ép kiểu INT theo đúng tài liệu API yêu cầu
-                val = int(r["request_id"])
-                ids.append(val)
+                rid_int = int(r["request_id"])
+                ids.append(rid_int)
+                by_req[rid_int] = r
             except (ValueError, TypeError):
                 logger.warning(f"Lỗi parse ID đơn #{r['id']}: {r['request_id']}")
                 await self._update_failed(r["id"])
@@ -1338,7 +1321,7 @@ class MkOtpPoller:
         
         logger.info(f"Đang quét {len(ids)} ID: {ids}")
         
-        # QUAN TRỌNG: API của MK yêu cầu POST và gửi mảng JSON {"request_ids": [...]}
+        # Gửi POST chuẩn mảng số nguyên JSON {"request_ids": [...]}
         data, err = await api_request("POST", "check/status", {"request_ids": ids})
         
         if err: 
@@ -1351,11 +1334,6 @@ class MkOtpPoller:
         if not isinstance(results, list): 
             logger.warning(f"API trả về sai định dạng: {data}")
             return 0, 0, True
-            
-        by_req = {}
-        for r in rows:
-            try: by_req[int(r["request_id"])] = r
-            except (ValueError, TypeError): pass
             
         checked = new_otp = 0
         for item in results:
@@ -1399,12 +1377,9 @@ class MkOtpPoller:
                     else: self.interval = max(MK_POLL_MIN_SEC, self.interval - 1)
             except Exception as e:
                 logger.error(f"Poller error: {e}")
-                self.interval = min(MK_POLL_MAX_SEC, max(self.interval * 2, 30))
+                self.interval = min(MK_POLL_MAX_SEC, max(self.interval * 2, 15))
             await asyncio.sleep(self.interval)
 
-# =====================================================
-# CALLBACK XEM OTP TỪ NÚT BẤM
-# =====================================================
 @dp.callback_query(F.data.startswith("show_otp_"))
 async def cb_show_otp(call: CallbackQuery):
     oid = int(call.data.replace("show_otp_", ""))
