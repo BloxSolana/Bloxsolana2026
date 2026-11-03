@@ -299,7 +299,7 @@ def expired_kb():
     ])
 
 # =====================================================
-# MK API CORE (ĐÃ TỐI ƯU VÀ FIX LỖI BÓC TÁCH DỮ LIỆU)
+# MK API CORE
 # =====================================================
 HTTP_ERRORS = {
     401: "API key không hợp lệ.", 403: "API bị khoá / chờ duyệt.",
@@ -344,12 +344,9 @@ def unwrap(d):
 
 def field(d, *names, default=""):
     if not isinstance(d, dict): return default
-    # Quét toàn bộ từ root, sau đó đến dict con unwrap()
     sources = [d, unwrap(d)]
-    # Nếu d có khóa 'data' là dict, tiếp tục lục sâu vào trong
     if isinstance(d.get("data"), dict):
         sources.append(d.get("data"))
-        
     for src in sources:
         for n in names:
             val = src.get(n)
@@ -380,7 +377,7 @@ async def fetch_realtime_balance_from_web():
     return None
 
 # =====================================================
-# TẠO ĐƠN (BÓC TÁCH LINH HOẠT VÀ ÉP KIỂU INT)
+# TẠO ĐƠN (ĐÃ NÂNG CẤP QUÉT TÌM ID TỰ ĐỘNG)
 # =====================================================
 async def create_number_order(uid, range_code, msg_id=None):
     if not range_code or len(range_code) > 80 or any(c.isspace() for c in range_code):
@@ -391,21 +388,32 @@ async def create_number_order(uid, range_code, msg_id=None):
     data, err = await api_request("POST", "getnum/number", {"range": clean_range})
     if err: return False, err
 
-    # Bóc tách linh hoạt các trường ID thường gặp từ API MK Network
-    rid      = field(data, "request_id", "requestId", "id", "order_id", "orderId")
+    # Hàm đệ quy để tìm bất kỳ key nào chứa chữ 'id' hoặc 'request' và có giá trị là số
+    def find_valid_id(obj):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                k_lower = str(k).lower()
+                if ("id" in k_lower or "request" in k_lower) and str(v).isdigit():
+                    return int(v)
+            for v in obj.values():
+                res = find_valid_id(v)
+                if res is not None: return res
+        elif isinstance(obj, list):
+            for item in obj:
+                res = find_valid_id(item)
+                if res is not None: return res
+        return None
+
+    rid_int = find_valid_id(data)
+
+    if rid_int is None:
+        # In log ra để bro xem API thực sự trả về gì
+        logger.error(f"=== KHÔNG TÌM THẤY REQUEST_ID ===\nDữ liệu API trả về: {json.dumps(data, ensure_ascii=False)}")
+        return False, "Không tìm thấy ID trong phản hồi API (Xem log)."
+
     phone    = field(data, "number", "phone", "phone_number")
     country  = field(data, "country", "country_name")
     operator = field(data, "operator", "network", "carrier")
-
-    if rid is None or str(rid).strip() in ("", "None", "null"): 
-        logger.error(f"API không trả về request_id hợp lệ: {data}")
-        return False, "API trả về request_id không hợp lệ."
-
-    try:
-        rid_int = int(rid)
-    except (ValueError, TypeError):
-        logger.error(f"request_id không phải số nguyên: {rid}")
-        return False, "API trả về request_id không hợp lệ."
 
     exp = (now() + timedelta(minutes=ORDER_LIFETIME_MINUTES)).isoformat(timespec="seconds")
     db = get_db()
