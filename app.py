@@ -299,7 +299,7 @@ def expired_kb():
     ])
 
 # =====================================================
-# MK API CORE (ĐÃ TỐI ƯU VÀ FIX LỖI)
+# MK API CORE (ĐÃ TỐI ƯU VÀ FIX LỖI BÓC TÁCH DỮ LIỆU)
 # =====================================================
 HTTP_ERRORS = {
     401: "API key không hợp lệ.", 403: "API bị khoá / chờ duyệt.",
@@ -344,9 +344,17 @@ def unwrap(d):
 
 def field(d, *names, default=""):
     if not isinstance(d, dict): return default
-    for src in (d, unwrap(d)):
+    # Quét toàn bộ từ root, sau đó đến dict con unwrap()
+    sources = [d, unwrap(d)]
+    # Nếu d có khóa 'data' là dict, tiếp tục lục sâu vào trong
+    if isinstance(d.get("data"), dict):
+        sources.append(d.get("data"))
+        
+    for src in sources:
         for n in names:
-            if src.get(n) is not None: return src[n]
+            val = src.get(n)
+            if val is not None and str(val).strip() != "":
+                return val
     return default
 
 def strip_secrets(obj):
@@ -361,7 +369,6 @@ def fmt_api(d):
     return html.escape(json.dumps(strip_secrets(d), ensure_ascii=False, indent=2, default=str)[:3500])
 
 async def fetch_realtime_balance_from_web():
-    """Lấy số dư thực tế trực tiếp từ web qua endpoint /whoami để khớp tuyệt đối"""
     try:
         data, err = await api_get("whoami")
         if not err and isinstance(data, dict):
@@ -373,7 +380,7 @@ async def fetch_realtime_balance_from_web():
     return None
 
 # =====================================================
-# TẠO ĐƠN (ÉP KIỂU REQUEST_ID THÀNH INT)
+# TẠO ĐƠN (BÓC TÁCH LINH HOẠT VÀ ÉP KIỂU INT)
 # =====================================================
 async def create_number_order(uid, range_code, msg_id=None):
     if not range_code or len(range_code) > 80 or any(c.isspace() for c in range_code):
@@ -384,14 +391,15 @@ async def create_number_order(uid, range_code, msg_id=None):
     data, err = await api_request("POST", "getnum/number", {"range": clean_range})
     if err: return False, err
 
-    rid      = field(data, "request_id", "requestId", "id")
+    # Bóc tách linh hoạt các trường ID thường gặp từ API MK Network
+    rid      = field(data, "request_id", "requestId", "id", "order_id", "orderId")
     phone    = field(data, "number", "phone", "phone_number")
     country  = field(data, "country", "country_name")
     operator = field(data, "operator", "network", "carrier")
 
-    if rid is None or str(rid) == "None" or str(rid) == "": 
-        logger.error(f"API không trả về request_id: {data}")
-        return False, "API thiếu request_id."
+    if rid is None or str(rid).strip() in ("", "None", "null"): 
+        logger.error(f"API không trả về request_id hợp lệ: {data}")
+        return False, "API trả về request_id không hợp lệ."
 
     try:
         rid_int = int(rid)
@@ -691,7 +699,6 @@ async def cb_choose_range(call: CallbackQuery):
 
     await call.message.edit_text(f"✅ <b>ĐÃ NHẬN SỐ</b>\n\nSố: <code>{res['phone']}</code>\nQuốc gia: {safe(res['country'])}\nHết hạn: {safe(res['expires_at'])}\n\n⏳ Đang chờ OTP...", reply_markup=order_status_kb(order_id))
 
-# Nút Làm mới (Đã sửa để gọi trực tiếp POST check/status cho riêng request_id này)
 @dp.callback_query(F.data.startswith("refresh_order_"))
 async def cb_refresh_order(call: CallbackQuery):
     oid = int(call.data.replace("refresh_order_", ""))
@@ -724,7 +731,6 @@ async def cb_refresh_order(call: CallbackQuery):
     except Exception as e:
         logger.error(f"Lỗi refresh đơn #{oid}: {e}")
 
-    # Lấy lại row mới nhất từ DB
     row = await get_order(oid)
     if row["status"] == "COMPLETED":
         text = f"✅ <b>ĐÃ CÓ OTP</b>\n\nSố: <code>{row['phone']}</code>\nQuốc gia: {safe(row['country'])}\nOTP: <code>{safe(row['otp_code'])}</code>"
@@ -1245,7 +1251,7 @@ async def cmd_broadcast(message: Message):
     await message.answer(f"📢 Xong. OK: {sent} · Fail: {failed}")
 
 # =====================================================
-# OTP POLLER (CHUẨN API V3 POST VÀ MẢNG INT)
+# OTP POLLER
 # =====================================================
 class MkOtpPoller:
     MAX_CONSECUTIVE_ERRORS = 5
@@ -1321,7 +1327,6 @@ class MkOtpPoller:
         
         logger.info(f"Đang quét {len(ids)} ID: {ids}")
         
-        # Gửi POST chuẩn mảng số nguyên JSON {"request_ids": [...]}
         data, err = await api_request("POST", "check/status", {"request_ids": ids})
         
         if err: 
