@@ -31,8 +31,8 @@ TURSO_DATABASE_URL = os.getenv("TURSO_DATABASE_URL", "")
 TURSO_AUTH_TOKEN   = os.getenv("TURSO_AUTH_TOKEN", "")
 
 ORDER_LIFETIME_MINUTES = 15
-REWARD_MILLI_PER_OTP   = 2    # $0.002
-MIN_WITHDRAW_MILLI     = 1000 # $1.000
+REWARD_MILLI_PER_OTP   = 4    # $0.004
+MIN_WITHDRAW_MILLI     = 3000 # $3.000
 
 MK_POLL_ENABLED = True
 MK_POLL_MIN_SEC = 15 
@@ -68,7 +68,6 @@ FALLBACK_COUNTRIES = {
 ADMIN_PENDING_APPROVE = {} 
 MSG_TO_DELETE = {}
 _mk_poller = None
-
 HOT_RANGES_DATA = []
 
 # =====================================================
@@ -240,7 +239,7 @@ async def expire_old_orders():
     finally: db.close()
 
 # =====================================================
-# KEYBOARDS
+# KEYBOARDS (Giao diện Menu Reply Keyboard)
 # =====================================================
 def get_main_reply_kb(uid):
     keyboard = [
@@ -455,8 +454,8 @@ async def get_all_orders(limit=15):
 async def get_pending_requests(limit=100):
     db = get_db()
     try:
-        rows = db.execute("SELECT id, user_id, request_id, phone, msg_id FROM orders WHERE status='PENDING' ORDER BY id ASC LIMIT ?", (limit,)).fetchall()
-        return [{"id": r[0], "user_id": r[1], "request_id": int(r[2]), "phone": r[3], "msg_id": r[4]} for r in rows]
+        rows = db.execute("SELECT id, user_id, request_id, phone, msg_id, range_code FROM orders WHERE status='PENDING' ORDER BY id ASC LIMIT ?", (limit,)).fetchall()
+        return [{"id": r[0], "user_id": r[1], "request_id": int(r[2]), "phone": r[3], "msg_id": r[4], "range_code": r[5]} for r in rows]
     finally: db.close()
 
 # =====================================================
@@ -568,7 +567,7 @@ async def menu_admin_txt(message: Message):
     track_msg(message.from_user.id, msg.message_id)
 
 # =====================================================
-# MENU CALLBACKS (Dành cho Inline)
+# MENU CALLBACKS
 # =====================================================
 @dp.callback_query(F.data == "home")
 async def cb_home(call: CallbackQuery):
@@ -578,7 +577,7 @@ async def cb_home(call: CallbackQuery):
     track_msg(call.from_user.id, msg.message_id)
     await call.answer()
 
-# Hàm cập nhật dữ liệu Tuyến Hot Real-time từ Radar (Web)
+# Cập nhật Tuyến Hot thực tế (Không có fallback ảo)
 async def update_hot_ranges_data():
     global HOT_RANGES_DATA
     data, err = await api_get("access_list", params={"limit": 500})
@@ -586,14 +585,12 @@ async def update_hot_ranges_data():
     items = []
     if not err and isinstance(data, dict):
         d = data.get("data", {})
-        if isinstance(d, list):
-            items = d
-        elif isinstance(d, dict):
-            items = d.get("items", [])
+        if isinstance(d, list): items = d
+        elif isinstance(d, dict): items = d.get("items", [])
             
-    # FALLBACK: Nếu API lỗi hoặc không trả về data, dùng danh sách có sẵn
     if not items:
-        items = [{"range": v, "country": k, "health": "good"} for k, v in FALLBACK_COUNTRIES.items()]
+        HOT_RANGES_DATA = []
+        return
         
     radar, _ = await api_get("radar", params={"charts": "true", "limit": 100})
     by_country = {}
@@ -606,7 +603,9 @@ async def update_hot_ranges_data():
                 if isinstance(by_country_list, list):
                     for c in by_country_list:
                         by_country[c.get("country")] = c.get("count", 0)
-            
+                        
+    total_radar_otps = sum(by_country.values())
+    
     scored = []
     for item in items:
         rng = item.get("range")
@@ -614,30 +613,34 @@ async def update_hot_ranges_data():
         country = item.get("country", "Khác")
         health = item.get("health", "idle")
         
-        score = 100 if health == "excellent" else (50 if health == "good" else 10)
-        if country in by_country:
-            score += by_country[country] * 10
-            
-        scored.append({"range": rng, "country": country, "score": score})
+        base_score = 10
+        if health == "excellent": base_score = 50
+        elif health == "good": base_score = 30
         
-    if not scored:
-        # Nếu vẫn lỗi, gán mặc định
-        scored = [{"range": v, "country": k, "score": 50} for k, v in list(FALLBACK_COUNTRIES.items())[:10]]
-
-    max_score = max([s["score"] for s in scored]) or 1
-    
+        real_otps = by_country.get(country, 0)
+        total_score = base_score + real_otps
+        
+        scored.append({
+            "range": rng, 
+            "country": country, 
+            "score": total_score, 
+            "real_otps": real_otps
+        })
+        
     for s in scored:
-        s["percent"] = min(99, int((s["score"] / max_score) * 100))
-        
-    HOT_RANGES_DATA = sorted(scored, key=lambda x: x["score"], reverse=True)[:10]
+        if total_radar_otps > 0:
+            s["percent"] = int((s["real_otps"] / total_radar_otps) * 100)
+        else:
+            s["percent"] = 0 
+            
+    HOT_RANGES_DATA = sorted(scored, key=lambda x: x["score"], reverse=True)[:8]
 
 async def cb_hot_ranges_internal(uid, chat_id, message_id=None):
     global HOT_RANGES_DATA
-    if not HOT_RANGES_DATA:
-        await update_hot_ranges_data()
+    await update_hot_ranges_data()
 
     if not HOT_RANGES_DATA:
-        msg = await bot.send_message(chat_id, "Hệ thống đang bảo trì, vui lòng thử lại sau!", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Quay lại Menu", callback_data="home")]]))
+        msg = await bot.send_message(chat_id, "⚠️ Không có dữ liệu tuyến từ API MK Network lúc này. Vui lòng thử lại sau!", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Quay lại Menu", callback_data="home")]]))
         track_msg(chat_id, msg.message_id)
         return
     
@@ -648,12 +651,12 @@ async def cb_hot_ranges_internal(uid, chat_id, message_id=None):
         "<i>⚠️ Tỷ lệ % được tính dựa trên lưu lượng OTP thực tế trên Radar.</i>\n\n"
     )
     
-    for i, r in enumerate(HOT_RANGES_DATA[:8], 1):
+    for i, r in enumerate(HOT_RANGES_DATA, 1):
         text += f"{i}. 🌍 <b>{r['country']}</b> (<code>{r['range']}</code>) - Tỷ lệ: <b>{r['percent']}%</b>\n"
         
     buttons = []
     row = []
-    for i, r in enumerate(HOT_RANGES_DATA[:8], 1):
+    for i, r in enumerate(HOT_RANGES_DATA, 1):
         row.append(InlineKeyboardButton(text=f"{i}. {r['country']} ({r['percent']}%)", callback_data=f"rng_{r['range']}"))
         if len(row) == 2:
             buttons.append(row); row = []
@@ -672,13 +675,7 @@ async def cb_hot_ranges_internal(uid, chat_id, message_id=None):
 @dp.callback_query(F.data == "hot_ranges_refresh")
 async def cb_hot_ranges_refresh(call: CallbackQuery):
     await call.answer("Đang cập nhật dữ liệu mới nhất...")
-    await update_hot_ranges_data()
     await cb_hot_ranges_internal(call.from_user.id, call.message.chat.id, call.message.message_id)
-
-@dp.callback_query(F.data == "hot_ranges")
-async def cb_hot_ranges(call: CallbackQuery):
-    await cb_hot_ranges_internal(call.from_user.id, call.message.chat.id, call.message.message_id)
-    await call.answer()
 
 async def cb_leaderboard_internal(uid, chat_id, message_id=None):
     today_str = now().strftime("%Y-%m-%d")
@@ -864,7 +861,7 @@ async def cb_wd_choose_amount(call: CallbackQuery):
     balance = int(u['usd_milli'])
     buttons = []
     row = []
-    for i in [1, 2, 4, 6, 8, 10]:
+    for i in [3, 4, 5, 6, 8, 10]:
         row.append(InlineKeyboardButton(text=f"${i}", callback_data=f"wd_amt_{i}"))
         if len(row) == 3: buttons.append(row); row = []
     if row: buttons.append(row)
@@ -1548,7 +1545,7 @@ async def cmd_broadcast(message: Message):
     await message.answer(f"📢 Xong. OK: {sent} · Fail: {failed}")
 
 # =====================================================
-# OTP POLLER & HOT RANGES TASK
+# OTP POLLER (GỬI OTP TRỰC TIẾP KÈM NÚT COPY, LẤY SỐ MỚI, QUAY LẠI)
 # =====================================================
 class MkOtpPoller:
     MAX_CONSECUTIVE_ERRORS = 5
@@ -1563,33 +1560,32 @@ class MkOtpPoller:
         
         platform = detect_otp_platform(full_sms)
         
-        country = row.get('country', 'Unknown')
-        flag = "🌐"
-        if "Vietnam" in country: flag = "🇻🇳"
-        elif "Indonesia" in country: flag = "🇮🇩"
-        elif "Cambodia" in country: flag = "🇰🇭"
-        elif "Myanmar" in country: flag = "🇲🇲"
-        
+        # 1. Nút cho Group (Chỉ Copy OTP)
         kb_group = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📋 COPY OTP", copy_text=otp_code),
-             InlineKeyboardButton(text="📢 CHANNEL", url=OTP_GROUP_URL)],
-            [InlineKeyboardButton(text="🎱 GET NUMBER", url=f"https://t.me/{(await bot.get_me()).username}?start=home")]
+            [InlineKeyboardButton(text="📋 COPY OTP", copy_text=otp_code)]
         ])
         
+        # 2. Nút cho User (Copy, Lấy số mới, Quay lại)
         kb_user = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📋 Sao chép OTP", copy_text=otp_code)],
             [InlineKeyboardButton(text="🔄 Lấy số mới", callback_data=f"new_num_{row['range_code']}")],
             [InlineKeyboardButton(text="⬅️ Quay lại Menu", callback_data="home")]
         ])
 
+        # Giao diện Group (Hiển thị rõ mã OTP)
         group_text = (
-            f"<b>ZM Number Service OTPs</b> <code>OTP Service</code>\n"
-            f"───────────────\n\n"
-            f"{flag} <b>#{country[:2].upper()}</b> | <code>{mask_phone(row['phone'])}</code> | 💠\n"
-            f"<b>{platform}</b> 🔴\n\n"
-            f"───────────────"
+            f"🔔 <b>OTP MỚI</b>\n\n"
+            f"<blockquote>"
+            f"👤 <b>User:</b> {user_link(row['user_id'], user_name)}\n"
+            f"📱 <b>Số:</b> <code>{mask_phone(row['phone'])}</code>\n"
+            f"📌 <b>Nền tảng:</b> <b>{platform}</b>"
+            f"</blockquote>\n\n"
+            f"🔑 <b>MÃ OTP:</b> <code>{otp_code}</code>\n"
         )
-        
+        if full_sms: 
+            group_text += f"\n<blockquote>💬 {safe(full_sms, 300)}</blockquote>"
+
+        # Giao diện User (Hiển thị rõ mã OTP)
         user_text = (
             f"🔔 <b>OTP MỚI ĐÃ VỀ</b>\n\n"
             f"<blockquote>"
@@ -1598,14 +1594,15 @@ class MkOtpPoller:
             f"📌 <b>Nền tảng:</b> <b>{platform}</b>\n"
             f"💵 <b>Thưởng:</b> <b>{usd(reward_milli)}</b>"
             f"</blockquote>\n\n"
-            f"🔑 <b>MÃ OTP:</b> <code>{safe(otp_code)}</code>\n"
+            f"🔑 <b>MÃ OTP:</b> <code>{otp_code}</code>\n"
         )
         if full_sms: 
             user_text += f"\n<blockquote>💬 {safe(full_sms, 300)}</blockquote>"
 
         if OTP_GROUP_ID:
             try:
-                await bot.send_message(OTP_GROUP_ID, group_text, reply_markup=kb_group)
+                g_msg = await bot.send_message(OTP_GROUP_ID, group_text, reply_markup=kb_group)
+                track_msg(OTP_GROUP_ID, g_msg.message_id)
             except Exception: pass
             
         try:
@@ -1724,25 +1721,6 @@ class MkOtpPoller:
                 self.interval = min(MK_POLL_MAX_SEC, max(self.interval * 2, 15))
             await asyncio.sleep(self.interval)
 
-async def hot_ranges_task():
-    """Task chạy ngầm cập nhật Tuyến Hot mỗi 1 phút (Real-time)"""
-    while True:
-        try:
-            await update_hot_ranges_data()
-            logger.info(f"Đã cập nhật {len(HOT_RANGES_DATA)} tuyến Hot (Real-time).")
-        except Exception as e:
-            logger.error(f"Lỗi hot_ranges_task: {e}")
-        await asyncio.sleep(60) # 1 phút cập nhật 1 lần (Real-time)
-
-@dp.callback_query(F.data.startswith("show_otp_"))
-async def cb_show_otp(call: CallbackQuery):
-    oid = int(call.data.replace("show_otp_", ""))
-    row = await get_order(oid)
-    if not row or not row.get("otp_code"):
-        await call.answer("Không tìm thấy mã OTP cho đơn này!", show_alert=True); return
-    platform = detect_otp_platform(row.get("full_sms", ""))
-    await call.answer(f"Mã OTP {platform} của bạn là: {row['otp_code']}", show_alert=True)
-
 # =====================================================
 # WEB SERVER & MAIN
 # =====================================================
@@ -1801,10 +1779,6 @@ async def main():
         _mk_poller = MkOtpPoller()
         asyncio.create_task(_mk_poller.run_forever())
         logger.info("Poller task created.")
-
-    # Chạy task cập nhật Tuyến Hot (Real-time 1 phút)
-    asyncio.create_task(hot_ranges_task())
-    logger.info("Hot Ranges task created.")
 
     logger.info("FAST IVAS starting...")
     # THÊM drop_pending_updates=True ĐỂ TRÁNH LỖI CONFLICT KHI RESTART
