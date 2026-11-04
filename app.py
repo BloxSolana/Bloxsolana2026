@@ -53,7 +53,10 @@ logger = logging.getLogger("FAST_IVAS")
 bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp  = Dispatcher()
 
-# Mã vùng điện thoại để nhận diện quốc gia (Ưu tiên số dài trước)
+# Biến lưu username thực tế của bot
+BOT_USERNAME = ""
+
+# Mã vùng điện thoại để nhận diện quốc gia
 COUNTRY_PREFIXES = {
     "84": ("Vietnam", "🇻🇳"), "231": ("Liberia", "🇱🇷"), "224": ("Guinea", "🇬🇳"),
     "232": ("Sierra Leone", "🇸🇱"), "62": ("Indonesia", "🇮🇩"), "855": ("Cambodia", "🇰🇭"),
@@ -76,7 +79,6 @@ COUNTRY_PREFIXES = {
 
 def get_country_by_phone(phone):
     if not phone: return "Unknown", "🌐"
-    # Sắp xếp key theo độ dài giảm dần để check mã 3 số trước mã 2 số
     for prefix in sorted(COUNTRY_PREFIXES.keys(), key=len, reverse=True):
         if phone.startswith(prefix):
             return COUNTRY_PREFIXES[prefix]
@@ -125,7 +127,6 @@ async def safe_delete_msg(chat_id, message_id, delay=0):
 def track_msg(chat_id, message_id):
     if chat_id not in MSG_TO_DELETE: MSG_TO_DELETE[chat_id] = []
     MSG_TO_DELETE[chat_id].append(message_id)
-    # Tự động xoá rác, chỉ giữ 2 tin nhắn mới nhất
     while len(MSG_TO_DELETE[chat_id]) > 2:
         old_msg = MSG_TO_DELETE[chat_id].pop(0)
         asyncio.create_task(safe_delete_msg(chat_id, old_msg))
@@ -421,7 +422,6 @@ async def create_number_order(uid, range_code, msg_id=None):
     country  = field(data, "country", "country_name")
     operator = field(data, "operator", "network", "carrier")
 
-    # Cải thiện nhận diện quốc gia
     if not country or country == "Unknown":
         real_country, _ = get_country_by_phone(phone)
         if real_country != "Unknown":
@@ -533,7 +533,7 @@ async def menu_wd_txt(message: Message):
 async def menu_referral_txt(message: Message):
     try: await message.delete()
     except: pass
-    link = f"https://t.me/FastIvasOTP_bot?start={message.from_user.id}"
+    link = f"https://t.me/{BOT_USERNAME}?start={message.from_user.id}"
     text = f"👥 <b>INVITE FRIENDS</b>\n\nInvite your friends to join FAST IVAS and earn commission:\n<code>{link}</code>"
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⬅️ Back to Menu", callback_data="home")]
@@ -603,7 +603,6 @@ async def cb_ranges_stats_internal(uid, chat_id, message_id=None):
     today_str = now().strftime("%Y-%m-%d")
     db = get_db()
     try:
-        # Lấy tất cả đơn hàng thành công trong ngày hôm nay
         rows = db.execute("SELECT phone, country FROM orders WHERE status='COMPLETED' AND created_at >= ?", (today_str,)).fetchall()
         
         if not rows:
@@ -612,7 +611,6 @@ async def cb_ranges_stats_internal(uid, chat_id, message_id=None):
             stats = {}
             for r in rows:
                 phone = r[0]
-                # Ưu tiên nhận diện từ số điện thoại để chuẩn xác nhất
                 c_name, c_flag = get_country_by_phone(phone)
                 
                 if c_name not in stats:
@@ -620,7 +618,6 @@ async def cb_ranges_stats_internal(uid, chat_id, message_id=None):
                 stats[c_name]["count"] += 1
                 
             total_otps = len(rows)
-            # Sắp xếp theo số lượng giảm dần
             sorted_stats = sorted(stats.items(), key=lambda x: x[1]['count'], reverse=True)
             
             text = f"📊 <b>RANGES STATS TODAY</b> (Total: {total_otps} OTPs)\n\n"
@@ -764,7 +761,7 @@ async def cb_menu_wallet(call: CallbackQuery):
 
 @dp.callback_query(F.data == "menu_referral")
 async def cb_menu_referral(call: CallbackQuery):
-    link = f"https://t.me/FastIvasOTP_bot?start={call.from_user.id}"
+    link = f"https://t.me/{BOT_USERNAME}?start={call.from_user.id}"
     text = f"👥 <b>INVITE FRIENDS</b>\n\nInvite your friends to join FAST IVAS and earn commission:\n<code>{link}</code>"
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⬅️ Back to Menu", callback_data="home")]
@@ -1520,7 +1517,7 @@ class MkOtpPoller:
             [InlineKeyboardButton(text="👁 View OTP", callback_data=f"show_otp_{row['id']}")],
             [
                 InlineKeyboardButton(text="📢 Main Channel", url=MAIN_CHANNEL_URL),
-                InlineKeyboardButton(text="🤖 Get Numbers", url=f"https://t.me/FastIvasOTP_bot?start=home")
+                InlineKeyboardButton(text="🤖 Get Numbers", url=f"https://t.me/{BOT_USERNAME}?start=home")
             ]
         ])
         
@@ -1734,8 +1731,12 @@ async def set_bot_commands():
     except Exception as e: logger.error(f"Error setting admin commands: {e}")
 
 async def main():
-    global _mk_poller
-    try: await set_bot_commands()
+    global _mk_poller, BOT_USERNAME
+    try: 
+        # Lấy username thực tế của bot để tạo link chính xác
+        me = await bot.get_me()
+        BOT_USERNAME = me.username
+        await set_bot_commands()
     except Exception as e: logger.error(f"Error setting menu: {e}")
 
     await init_db(); await expire_old_orders()
