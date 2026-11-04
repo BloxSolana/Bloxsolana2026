@@ -68,7 +68,6 @@ FALLBACK_COUNTRIES = {
 ADMIN_PENDING_APPROVE = {} 
 MSG_TO_DELETE = {}
 _mk_poller = None
-HOT_RANGES_DATA = []
 
 # =====================================================
 # HELPERS
@@ -240,15 +239,14 @@ async def expire_old_orders():
     finally: db.close()
 
 # =====================================================
-# KEYBOARDS (Menu Reply Keyboard như ảnh)
+# KEYBOARDS
 # =====================================================
 def get_main_reply_kb(uid):
     keyboard = [
         [KeyboardButton(text="👤 Account"), KeyboardButton(text="🎱 Number")],
         [KeyboardButton(text="💰 Withdraw"), KeyboardButton(text="💌 Invite")],
-        [KeyboardButton(text="🔥 Tuyến Hot"), KeyboardButton(text="🏆 BXH Hôm Nay")],
-        [KeyboardButton(text="📜 Lịch sử"), KeyboardButton(text="💵 Ví USD")],
-        [KeyboardButton(text="📢 Nhóm OTP")]
+        [KeyboardButton(text="🏆 BXH Hôm Nay"), KeyboardButton(text="📜 Lịch sử")],
+        [KeyboardButton(text="💵 Ví USD"), KeyboardButton(text="📢 Nhóm OTP")]
     ]
     if is_admin(uid):
         keyboard.append([KeyboardButton(text="🛡 ADMIN PANEL")])
@@ -511,8 +509,7 @@ async def menu_wd_txt(message: Message):
 async def menu_referral_txt(message: Message):
     try: await message.delete()
     except: pass
-    me = await bot.get_me()
-    link = f"https://t.me/{me.username}?start={message.from_user.id}"
+    link = f"https://t.me/{bot.username}?start={message.from_user.id}"
     text = f"👥 <b>GIỚI THIỆU</b>\n\nMời bạn bè tham gia FAST IVAS để nhận hoa hồng:\n<code>{link}</code>"
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📋 Sao chép Link", copy_text=link)],
@@ -520,12 +517,6 @@ async def menu_referral_txt(message: Message):
     ])
     msg = await message.answer(text, reply_markup=kb)
     track_msg(message.from_user.id, msg.message_id)
-
-@dp.message(F.text == "🔥 Tuyến Hot")
-async def menu_hot_txt(message: Message):
-    try: await message.delete()
-    except: pass
-    await cb_hot_ranges_internal(message.from_user.id, message.chat.id)
 
 @dp.message(F.text == "🏆 BXH Hôm Nay")
 async def menu_leaderboard_txt(message: Message):
@@ -572,7 +563,6 @@ async def menu_admin_txt(message: Message):
 # =====================================================
 @dp.callback_query(F.data == "home")
 async def cb_home(call: CallbackQuery):
-    # Xoá tin nhắn cũ và gửi tin nhắn mới kèm Reply Keyboard để không bị đơ
     try: await call.message.delete()
     except: pass
     msg = await call.message.answer("🚀 <b>FAST IVAS</b>\n\nChọn chức năng:", reply_markup=get_main_reply_kb(call.from_user.id))
@@ -699,8 +689,7 @@ async def cb_menu_wallet(call: CallbackQuery):
 
 @dp.callback_query(F.data == "menu_referral")
 async def cb_menu_referral(call: CallbackQuery):
-    me = await bot.get_me()
-    link = f"https://t.me/{me.username}?start={call.from_user.id}"
+    link = f"https://t.me/{bot.username}?start={call.from_user.id}"
     text = f"👥 <b>GIỚI THIỆU</b>\n\nMời bạn bè tham gia FAST IVAS để nhận hoa hồng:\n<code>{link}</code>"
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📋 Sao chép Link", copy_text=link)],
