@@ -21,7 +21,7 @@ from aiogram.exceptions import TelegramBadRequest
 # =====================================================
 # CONFIG
 # =====================================================
-BOT_TOKEN      = "8622066775:AAEB1CZhA0CKBFlmA6CEx4zHNzMXGZqjrFg"
+BOT_TOKEN      = "8622066775:AAG1_WA634q5SEctcbq-xdqlWJ3an-M1Lpw"
 ADMIN_ID       = 6726769296
 OTP_GROUP_ID   = -1004341368656
 OTP_GROUP_URL  = "https://t.me/LIVEOTPIVAS"
@@ -71,25 +71,25 @@ COUNTRY_FLAGS = {
     "Guinea-Bissau": "🇬🇼", "Maldives": "🇲🇻"
 }
 
-# Danh sách dự phòng nếu API lỗi
+# ĐÃ FIX CỨNG RANGE CODE CHUẨN (Zambia 260XXX, Sudan 2491XXX...)
 FALLBACK_COUNTRIES = {
     "Vietnam": "84XXX", "Liberia": "231XXX", "Guinea": "2246XXX",
     "Sierra Leone": "2327XXX", "Indonesia": "62XXX", "Cambodia": "855XXX",
-    "Myanmar": "9596XXX", "Zambia": "2609XXX", "Tanzania": "255XXX",
-    "Lesotho": "2666XXX", "Mozambique": "2588XXX", "Yemen": "9677XXX",
-    "Algeria": "2135XXX", "Tunisia": "2162XXX", "Nigeria": "234XXX",
-    "Nepal": "977XXX", "Afghanistan": "9370XXX", "Lebanon": "961XXX",
-    "Morocco": "2126XXX", "Libya": "2189XXX", "Madagascar": "2613XXX",
-    "Ethiopia": "2519XXX", "Senegal": "2217XXX", "Zimbabwe": "2637XXX",
-    "Norway": "47XXX", "Egypt": "2012XXX", "Palestine": "9725XXX",
-    "Uzbekistan": "998XXX", "Sudan": "2491XXX", "Cameroon": "237XXX",
-    "Benin": "2290XXX", "Mali": "223XXX", "Ghana": "233XXX",
-    "Kenya": "254XXX", "Uganda": "256XXX", "Rwanda": "250XXX",
-    "Chad": "235XXX", "Niger": "227XXX", "Somalia": "252XXX",
-    "Angola": "244XXX", "Botswana": "267XXX", "Namibia": "264XXX",
-    "Gabon": "241XXX", "Congo": "242XXX", "Togo": "228XXX",
-    "Burkina Faso": "226XXX", "Mauritania": "222XXX", "Gambia": "220XXX",
-    "Guinea-Bissau": "245XXX", "Maldives": "960XXX"
+    "Myanmar": "9596XXX", "Zambia": "260XXX", 
+    "Tanzania": "255XXX", "Lesotho": "2666XXX", "Mozambique": "2588XXX", 
+    "Yemen": "9677XXX", "Algeria": "2135XXX", "Tunisia": "2162XXX", 
+    "Nigeria": "234XXX", "Nepal": "977XXX", "Afghanistan": "9370XXX", 
+    "Lebanon": "961XXX", "Morocco": "2126XXX", "Libya": "2189XXX",
+    "Madagascar": "2613XXX", "Ethiopia": "2519XXX", "Senegal": "2217XXX", 
+    "Zimbabwe": "2637XXX", "Norway": "47XXX", "Egypt": "2012XXX", 
+    "Palestine": "9725XXX", "Uzbekistan": "998XXX", "Sudan": "2491XXX", 
+    "Cameroon": "237XXX", "Benin": "2290XXX", "Mali": "223XXX", 
+    "Ghana": "233XXX", "Kenya": "254XXX", "Uganda": "256XXX", 
+    "Rwanda": "250XXX", "Chad": "235XXX", "Niger": "227XXX", 
+    "Somalia": "252XXX", "Angola": "244XXX", "Botswana": "267XXX", 
+    "Namibia": "264XXX", "Gabon": "241XXX", "Congo": "242XXX", 
+    "Togo": "228XXX", "Burkina Faso": "226XXX", "Mauritania": "222XXX", 
+    "Gambia": "220XXX", "Guinea-Bissau": "245XXX", "Maldives": "960XXX"
 }
 
 def get_country_flag(country_name):
@@ -106,7 +106,6 @@ _mk_poller = None
 # =====================================================
 # HELPERS
 # =====================================================
-# Lấy giờ Việt Nam
 def now():      return datetime.now(VN_TZ)
 def now_text(): return now().isoformat(timespec="seconds")
 
@@ -628,21 +627,10 @@ async def cb_home(call: CallbackQuery):
     track_msg(call.from_user.id, msg.message_id)
     await call.answer()
 
-# HÀM HIỂN THỊ BẢNG CHỌN QUỐC GIA
+# HÀM HIỂN THỊ BẢNG CHỌN QUỐC GIA (BỎ GỌI API, DÙNG DANH SÁCH FIX CỨNG)
 async def cb_list_countries_internal(uid, chat_id, message_id=None):
     try:
-        data, err = await api_get("access_list", params={"limit": 50}) 
-        country_dict = {}
-        if not err and isinstance(data, dict):
-            items = data.get("data", {}).get("items", [])
-            for item in items:
-                c_name = item.get("country")
-                r_code = item.get("range")
-                if c_name and r_code:
-                    if c_name not in country_dict: 
-                        country_dict[c_name] = str(r_code)
-        if not country_dict: country_dict = FALLBACK_COUNTRIES
-
+        country_dict = FALLBACK_COUNTRIES.copy()
         sorted_countries = sorted(list(country_dict.keys()))[:50]
         
         buttons = []
@@ -679,7 +667,6 @@ async def cb_list_countries(call: CallbackQuery):
 
 @dp.callback_query(F.data == "menu_order_help")
 async def cb_menu_order_help(call: CallbackQuery):
-    # Bắt sự kiện cho các nút cũ còn sót lại
     await call.answer("Loading...")
     await cb_list_countries_internal(call.from_user.id, call.message.chat.id, call.message.message_id)
 
@@ -1622,7 +1609,6 @@ class MkOtpPoller:
         platform = detect_otp_platform(full_sms)
         flag = get_country_flag(row['country'])
         
-        # Nút cho Group (View OTP, Channel, Get Number)
         kb_group = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="👁 View OTP", callback_data=f"show_otp_{row['id']}")],
             [
@@ -1631,13 +1617,11 @@ class MkOtpPoller:
             ]
         ])
         
-        # Nút cho User (Bỏ nút Copy, chỉ giữ Get New Number và Back)
         kb_user = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🔄 Get New Number", callback_data=f"new_num_{row['range_code']}")],
             [InlineKeyboardButton(text="⬅️ Back to Menu", callback_data="home")]
         ])
 
-        # Giao diện Group (Dùng <code> để nằm cùng dòng)
         group_text = (
             f"🔔 <b>NEW OTP RECEIVED</b>\n"
             f"<blockquote>"
@@ -1649,7 +1633,6 @@ class MkOtpPoller:
         )
         if full_sms: group_text += f"\n<blockquote>💬 {safe(full_sms, 300)}</blockquote>"
 
-        # Giao diện User (Dùng <code> để nằm cùng dòng)
         user_text = (
             f"🔔 <b>NEW OTP RECEIVED</b>\n"
             f"<blockquote>"
