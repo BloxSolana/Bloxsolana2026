@@ -21,7 +21,7 @@ from aiogram.exceptions import TelegramBadRequest
 # =====================================================
 # CONFIG
 # =====================================================
-BOT_TOKEN      = "8622066775:AAEB1CZhA0CKBFlmA6CEx4zHNzMXGZqjrFg" # Nhớ thay token mới của bro vào đây
+BOT_TOKEN      = "8622066775:AAE0b37izrhaG8ZKrGqmCVS_5tTPQS9hzMo" # Nhớ thay token mới của bro vào đây
 ADMIN_ID       = 6726769296
 OTP_GROUP_ID   = -1004341368656
 OTP_GROUP_URL  = "https://t.me/LIVEOTPIVAS"
