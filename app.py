@@ -178,7 +178,6 @@ async def safe_delete_msg(chat_id, message_id, delay=0):
 def track_msg(chat_id, message_id):
     if chat_id not in MSG_TO_DELETE: MSG_TO_DELETE[chat_id] = []
     MSG_TO_DELETE[chat_id].append(message_id)
-    # Tự động xóa tin nhắn cũ, chỉ giữ lại 1 tin nhắn mới nhất
     while len(MSG_TO_DELETE[chat_id]) > 1:
         old_msg = MSG_TO_DELETE[chat_id].pop(0)
         asyncio.create_task(safe_delete_msg(chat_id, old_msg))
@@ -608,8 +607,8 @@ async def get_all_orders(limit=15):
 async def get_pending_requests(limit=100):
     db = get_db()
     try:
-        rows = db.execute("SELECT id, user_id, request_id, provider, phone, msg_id, range_code, country FROM orders WHERE status='PENDING' ORDER BY id ASC LIMIT ?", (limit,)).fetchall()
-        return [{"id": r[0], "user_id": r[1], "request_id": r[2], "provider": r[3], "phone": r[4], "msg_id": r[5], "range_code": r[6], "country": r[7]} for r in rows]
+        rows = db.execute("SELECT id, user_id, request_id, provider, phone, msg_id, range_code, country, operator FROM orders WHERE status='PENDING' ORDER BY id ASC LIMIT ?", (limit,)).fetchall()
+        return [{"id": r[0], "user_id": r[1], "request_id": r[2], "provider": r[3], "phone": r[4], "msg_id": r[5], "range_code": r[6], "country": r[7], "operator": r[8]} for r in rows]
     finally: db.close()
 
 # =====================================================
@@ -969,7 +968,6 @@ async def cb_platform_stats(call: CallbackQuery):
     today_str = now().strftime("%Y-%m-%d")
     db = get_db()
     try:
-        # Sử dụng COALESCE để thay thế null/rỗng bằng 'Other'
         rows = db.execute("""
             SELECT COALESCE(NULLIF(platform, ''), 'Other') as p, COUNT(id) 
             FROM orders 
@@ -1001,7 +999,7 @@ async def cb_platform_stats(call: CallbackQuery):
     try:
         await call.message.edit_text(text, reply_markup=kb)
     except TelegramBadRequest:
-        pass # Bỏ qua lỗi nếu nội dung không thay đổi, giúp không bị đơ nút
+        pass 
 
 async def cb_leaderboard_internal(uid, chat_id, message_id=None):
     today_str = now().strftime("%Y-%m-%d")
@@ -1922,7 +1920,11 @@ class MkOtpPoller:
         u = await get_user(row["user_id"])
         if u and u["first_name"]: user_name = u["first_name"]
         
-        flag = get_country_flag(row['country'])
+        display_country = row['country']
+        if row.get("provider") == "NP":
+            display_country = ISO_MAP.get(row['country'], row['country'])
+            
+        flag = get_country_flag(display_country)
         
         kb_group = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="👁 View OTP", callback_data=f"show_otp_{row['id']}")],
@@ -1937,11 +1939,14 @@ class MkOtpPoller:
             [InlineKeyboardButton(text="⬅️ Back to Menu", callback_data="home")]
         ])
 
+        # Nếu là đơn của NP, ẩn dòng Reward đi vì không có tiền
+        reward_line = f"💵 <b>Reward :</b> {usd(reward_milli)}\n" if reward_milli > 0 else ""
+
         group_text = (
             f"🔔 <b>NEW OTP RECEIVED</b>\n"
             f"<blockquote>"
             f"🟢 <b>Service :</b> {platform}\n"
-            f"🌍 <b>Country :</b> {row['country']} {flag}\n"
+            f"🌍 <b>Country :</b> {display_country} {flag}\n"
             f"📞 <b>Number :</b> {mask_phone(row['phone'])}\n"
             f"🔑 <b>OTP :</b> <code>{otp_code}</code>"
             f"</blockquote>"
@@ -1953,10 +1958,10 @@ class MkOtpPoller:
             f"<blockquote>"
             f"📦 <b>Order :</b> #{row['id']}\n"
             f"🟢 <b>Service :</b> {platform}\n"
-            f"🌍 <b>Country :</b> {row['country']} {flag}\n"
+            f"🌍 <b>Country :</b> {display_country} {flag}\n"
             f"📞 <b>Number :</b> {row['phone']}\n"
             f"🔑 <b>OTP :</b> <code>{otp_code}</code>\n"
-            f"💵 <b>Reward :</b> {usd(reward_milli)}"
+            f"{reward_line}"
             f"</blockquote>"
         )
         if full_sms: user_text += f"\n<blockquote>💬 {safe(full_sms, 300)}</blockquote>"
@@ -1969,29 +1974,30 @@ class MkOtpPoller:
                 try: await bot.send_message(ADMIN_ID, f"⚠️ Error sending OTP to Group: {e}")
                 except: pass
             
+        # Bỏ điều kiện chặn Admin để ai cũng nhận được
         try:
-            if row["user_id"] not in (ADMIN_ID, OTP_GROUP_ID):
-                if row.get("msg_id"):
-                    try:
-                        await bot.edit_message_text(
-                            chat_id=row["user_id"], message_id=row["msg_id"],
-                            text=user_text, reply_markup=kb_user
-                        )
-                        return
-                    except Exception:
-                        pass 
-                
-                u_msg = await bot.send_message(row["user_id"], user_text, reply_markup=kb_user)
-                track_msg(row["user_id"], u_msg.message_id)
+            if row.get("msg_id"):
+                try:
+                    await bot.edit_message_text(
+                        chat_id=row["user_id"], message_id=row["msg_id"],
+                        text=user_text, reply_markup=kb_user
+                    )
+                    return
+                except Exception:
+                    pass 
+            
+            u_msg = await bot.send_message(row["user_id"], user_text, reply_markup=kb_user)
+            track_msg(row["user_id"], u_msg.message_id)
         except Exception as e:
             logger.error(f"Error sending OTP to User: {e}")
 
     async def _process_otp(self, row, otp, sms):
+        # Mặc định thưởng cho MK
         reward = REWARD_MILLI_PER_OTP
         
-        # Nếu là NP, lấy tên Service. Nếu là MK, dò trong SMS.
         if row.get("provider") == "NP":
-            platform = row.get("operator", "Other")
+            reward = 0 # Đơn NP thì không thưởng
+            platform = row.get("operator", "Other").capitalize()
         else:
             platform = detect_otp_platform(sms)
         
@@ -2009,8 +2015,10 @@ class MkOtpPoller:
             return False
         finally: db.close()
         
-        ok, _ = await change_usd(row["user_id"], reward, "OTP_REWARD", f"Reward OTP #{row['id']}")
-        if not ok: reward = 0
+        if reward > 0:
+            ok, _ = await change_usd(row["user_id"], reward, "OTP_REWARD", f"Reward OTP #{row['id']}")
+            if not ok: reward = 0
+            
         await self._broadcast_otp(row, otp, sms, reward, platform)
         return True
 
@@ -2075,7 +2083,7 @@ class MkOtpPoller:
             if data and data.get("has_otp"):
                 otp = str(data.get("otp_code") or "").strip()
                 if otp:
-                    sms = f"OTP from NumberPanel: {otp}"
+                    sms = f"Your OTP is: {otp}" # Xóa chữ NumberPanel
                     success = await self._process_otp(r, otp, sms)
                     if success:
                         new_otp += 1
