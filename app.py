@@ -35,6 +35,10 @@ MK_API_BASE    = "https://mknetworkbd.com/api/v3/public"
 NP_API_KEY     = "np_live_lrRtdKcOeg-syi8UCpmaA_idYmBZY0zbpwl5P--gF-g"
 NP_API_BASE    = "https://numberpanel.tech/api" 
 
+# Cấu hình Basha API (Nguồn 3)
+BASHA_API_KEY  = "bsh_OIU1o9DdaQLzznNZ1VyNgS8OknJqIYVh"
+BASHA_API_BASE = "https://basha.cc/api"
+
 TURSO_DATABASE_URL = os.getenv("TURSO_DATABASE_URL", "")
 TURSO_AUTH_TOKEN   = os.getenv("TURSO_AUTH_TOKEN", "")
 
@@ -75,7 +79,7 @@ COUNTRY_PREFIXES = {
     "Sudan": "+249", "Tanzania": "+255", "Thailand": "+66", "Timor-Leste": "+670",
     "Togo": "+228", "Tunisia": "+216", "Uganda": "+256", "Uzbekistan": "+998",
     "Yemen": "+967", "Zambia": "+260", "Zimbabwe": "+263", "Morocco": "+212",
-    "Haiti": "+509", "Malaysia": "+60"
+    "Haiti": "+509", "Malaysia": "+60", "Turkey": "+90", "Russia": "+7"
 }
 
 ISO_MAP = {
@@ -108,7 +112,8 @@ COUNTRY_FLAGS = {
     "Botswana": "🇧🇼", "Namibia": "🇳🇦", "Gabon": "🇬🇦", "Congo": "🇨🇬",
     "Togo": "🇹🇬", "Burkina Faso": "🇧🇫", "Mauritania": "🇲🇷", "Gambia": "🇬🇲",
     "Guinea-Bissau": "🇬🇼", "Maldives": "🇲🇻", "Timor-Leste": "🇹🇱",
-    "Haiti": "🇭🇹", "Thailand": "🇹🇭", "Philippines": "🇵🇭", "Malaysia": "🇲🇾"
+    "Haiti": "🇭🇹", "Thailand": "🇹🇭", "Philippines": "🇵🇭", "Malaysia": "🇲🇾",
+    "Turkey": "🇹🇷", "Russia": "🇷🇺"
 }
 
 FALLBACK_COUNTRIES = {
@@ -150,6 +155,16 @@ def get_network_icon(net):
     if "TWITTER" in net or "X" in net: return "🐦"
     return "🌐"
 
+def get_country_from_phone(phone):
+    clean_phone = phone.lstrip('+')
+    # Sắp xếp prefix theo độ dài giảm dần để bắt chính xác nhất (vd: 2246 trước 224)
+    sorted_prefixes = sorted(COUNTRY_PREFIXES.items(), key=lambda x: len(x[1]), reverse=True)
+    for country, prefix in sorted_prefixes:
+        prefix_num = prefix.replace("+", "")
+        if clean_phone.startswith(prefix_num):
+            return country
+    return "Unknown"
+
 ADMIN_PENDING_APPROVE = {} 
 MSG_TO_DELETE = {}
 _mk_poller = None
@@ -158,29 +173,14 @@ _mk_poller = None
 # LANGUAGE SETTINGS
 # =====================================================
 LANGUAGES = [
-    ("en", "🇺🇸 English"), ("vi", "🇻🇳 Tiếng Việt"), ("es", "🇪🇸 Español"),
-    ("fr", "🇫🇷 Français"), ("de", "🇩🇪 Deutsch"), ("pt", "🇵🇹 Português"),
-    ("it", "🇮🇹 Italiano"), ("nl", "🇳🇱 Nederlands"), ("ru", "🇷🇺 Русский"),
-    ("uk", "🇺🇦 Українська"), ("pl", "🇵🇱 Polski"), ("tr", "🇹🇷 Türkçe"),
-    ("ar", "🇸🇦 العربية"), ("hi", "🇮🇳 हिन्दी"), ("bn", "🇧🇩 বাংলা"),
-    ("ur", "🇵🇰 اردو"), ("id", "🇮🇩 Bahasa Indonesia"), ("ms", "🇲🇾 Bahasa Melayu"),
-    ("th", "🇹🇭 ไทย"), ("zh", "🇨🇳 中文"), ("ja", "🇯🇵 日本語"),
-    ("ko", "🇰🇷 한국어"), ("fil", "🇵🇭 Filipino"), ("sw", "🇰🇪 Kiswahili"),
-    ("am", "🇪🇹 አማርኛ"), ("ha", "🇳🇬 Hausa"), ("yo", "🇳🇬 Yorùbá"),
-    ("ig", "🇳🇬 Igbo"), ("zu", "🇿🇦 isiZulu"), ("af", "🇿🇦 Afrikaans"),
-    ("sv", "🇸🇪 Svenska"), ("no", "🇳🇴 Norsk"), ("da", "🇩🇰 Dansk"),
-    ("fi", "🇫🇮 Suomi"), ("el", "🇬🇷 Ελληνικά"), ("cs", "🇨🇿 Čeština"),
-    ("sk", "🇸🇰 Slovenčina"), ("hu", "🇭🇺 Magyar"), ("ro", "🇷🇴 Română"),
-    ("bg", "🇧🇬 Български"), ("hr", "🇭🇷 Hrvatski"), ("sr", "🇷🇸 Српски"),
-    ("he", "🇮🇱 עברית"), ("fa", "🇮🇷 فارسی"), ("ne", "🇳🇵 नेपाली"),
-    ("si", "🇱🇰 සිංහල"), ("my", "🇲🇲 မြန်မာ"), ("km", "🇰🇭 ខ្មែរ"),
-    ("lo", "🇱🇦 ລາວ"), ("uz", "🇺🇿 Oʻzbekcha"), ("az", "🇦🇿 Azərbaycanca")
+    ("en", "🇺🇸 English"), 
+    ("vi", "🇻🇳 Tiếng Việt")
 ]
 LANGUAGE_PAGE_SIZE = 10
 
 TRANSLATIONS = {
     "en": {
-        "account": "👤 Account", "number1": "🎱 Number", "number2": "📱 Numbers 2",
+        "account": "👤 Account", "number1": "🎱 Number", "number2": "📱 Numbers 2", "number3": "🔢 Numbers 3",
         "withdraw": "💰 Withdraw", "invite": "💌 Invite", "stats": "📊 Ranges Stats",
         "leaderboard": "🏆 Leaderboard", "history": "📜 History", "wallet": "💵 Wallet",
         "otp_group": "📢 OTP Group", "language": "🌐 Language", "admin_panel": "🛡 ADMIN PANEL",
@@ -190,10 +190,11 @@ TRANSLATIONS = {
         "service": "🔧 Service", "country": "🌍 Country",
         "number": "Number", "wait_otp": "⏳ Waiting for OTP...",
         "remove_code": "❌ Remove Country Code", "change_num": "🔄 Change Number",
-        "main_menu": "🏠 Main Menu", "back": "⬅️ Back"
+        "main_menu": "🏠 Main Menu", "back": "⬅️ Back",
+        "cancel_order": "❌ Cancel Order", "new_numbers": "🔢 New Numbers"
     },
     "vi": {
-        "account": "👤 Tài khoản", "number1": "🎱 Số (MK)", "number2": "📱 Số (NP)",
+        "account": "👤 Tài khoản", "number1": "🎱 Số (MK)", "number2": "📱 Số (NP)", "number3": "🔢 Số (Basha)",
         "withdraw": "💰 Rút tiền", "invite": "💌 Mời bạn bè", "stats": "📊 Thống kê",
         "leaderboard": "🏆 Bảng xếp hạng", "history": "📜 Lịch sử", "wallet": "💵 Ví",
         "otp_group": "📢 Nhóm OTP", "language": "🌐 Ngôn ngữ", "admin_panel": "🛡 QUẢN TRỊ",
@@ -203,7 +204,8 @@ TRANSLATIONS = {
         "service": "🔧 Dịch vụ", "country": "🌍 Quốc gia",
         "number": "Số", "wait_otp": "⏳ Đang chờ OTP...",
         "remove_code": "❌ Xóa mã quốc gia", "change_num": "🔄 Đổi số",
-        "main_menu": "🏠 Menu chính", "back": "⬅️ Quay lại"
+        "main_menu": "🏠 Menu chính", "back": "⬅️ Quay lại",
+        "cancel_order": "❌ Hủy đơn", "new_numbers": "🔢 Lấy số mới"
     }
 }
 
@@ -294,6 +296,18 @@ def fmt_date(iso_str):
         else:
             dt = dt.astimezone(VN_TZ)
         return dt.strftime("%d/%m %H:%M")
+    except:
+        return iso_str[:16].replace("T", " ")
+
+def fmt_date_full(iso_str):
+    if not iso_str: return "N/A"
+    try:
+        dt = datetime.fromisoformat(iso_str)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc).astimezone(VN_TZ)
+        else:
+            dt = dt.astimezone(VN_TZ)
+        return dt.strftime("%H:%M:%S - %d/%m/%Y")
     except:
         return iso_str[:16].replace("T", " ")
 
@@ -438,11 +452,11 @@ async def get_main_reply_kb(uid):
     t = {k: await get_text(uid, k) for k in TRANSLATIONS["en"].keys()}
     keyboard = [
         [KeyboardButton(text=t["account"]), KeyboardButton(text=t["number1"])],
-        [KeyboardButton(text=t["number2"]), KeyboardButton(text=t["withdraw"])],
-        [KeyboardButton(text=t["invite"]), KeyboardButton(text=t["stats"])],
-        [KeyboardButton(text=t["leaderboard"]), KeyboardButton(text=t["history"])],
-        [KeyboardButton(text=t["wallet"]), KeyboardButton(text=t["otp_group"])],
-        [KeyboardButton(text=t["language"])]
+        [KeyboardButton(text=t["number2"]), KeyboardButton(text=t["number3"])],
+        [KeyboardButton(text=t["withdraw"]), KeyboardButton(text=t["invite"])],
+        [KeyboardButton(text=t["stats"]), KeyboardButton(text=t["leaderboard"])],
+        [KeyboardButton(text=t["history"]), KeyboardButton(text=t["wallet"])],
+        [KeyboardButton(text=t["otp_group"]), KeyboardButton(text=t["language"])]
     ]
     if is_admin(uid):
         keyboard.append([KeyboardButton(text=t["admin_panel"])])
@@ -545,6 +559,27 @@ async def np_api_request(method, endpoint, payload=None, params=None):
                 return data, None
     except asyncio.TimeoutError: return None, "Connection timeout."
     except Exception: return None, "Cannot connect to NP API."
+
+async def basha_api_request(method, endpoint, payload=None):
+    headers = {
+        "Authorization": f"Bearer {BASHA_API_KEY}",
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+    }
+    url = f"{BASHA_API_BASE}/{endpoint.lstrip('/')}"
+    timeout = aiohttp.ClientTimeout(total=25)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as s:
+            async with s.request(method, url, headers=headers, json=payload) as r:
+                raw = await r.text()
+                try: data = json.loads(raw)
+                except json.JSONDecodeError: data = {"response": raw[:1000]}
+                
+                if r.status >= 400:
+                    return None, f"Basha API Error ({r.status}): {raw[:100]}"
+                return data, None
+    except asyncio.TimeoutError: return None, "Connection timeout."
+    except Exception as e: return None, f"Cannot connect to Basha API: {e}"
 
 def unwrap(d):
     if not isinstance(d, dict): return {}
@@ -729,6 +764,12 @@ async def menu_numbers2_txt(message: Message):
     buttons.append([InlineKeyboardButton(text="⬅️ Back to Menu", callback_data="home")])
     msg = await message.answer("📱 <b>NUMBER PANEL (NEW)</b>\n\nVui lòng chọn Dịch vụ bạn muốn lấy số:", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
     track_msg(message.from_user.id, msg.message_id)
+
+@dp.message(F.text.contains("🔢"))
+async def menu_numbers3_txt(message: Message):
+    try: await message.delete()
+    except: pass
+    await cb_list_basha_countries_internal(message.from_user.id, message.chat.id)
 
 @dp.message(F.text.contains("💰"))
 async def menu_wd_txt(message: Message):
@@ -917,7 +958,6 @@ async def cb_np_country(call: CallbackQuery):
     country_code = parts[1]
     await call.answer("Đang lấy số...")
     
-    # Lấy 2 số cho NP
     payload = {"service": service, "country": country_code}
     
     async def fetch_one():
@@ -957,29 +997,34 @@ async def cb_np_country(call: CallbackQuery):
     text += f"🔧 Service: {service.capitalize()}\n"
     text += f"🌍 Country: {flag} {c_full}\n\n"
     for i, r in enumerate(results, 1):
-        text += f"📱 Number {i}: <code>{r['phone']}</code>\n"
+        phone_disp = r['phone'] if r['phone'].startswith('+') else f"+{r['phone']}"
+        text += f"📱 Number {i}: <code>{phone_disp}</code>\n"
     text += f"\n⚠️ Use this number within 15 minutes!\n⏳ Waiting for OTP..."
     
-    # Nút bấm
     buttons = []
-    # Nút Remove Code
     if results:
-        # Chỉ cho phép remove code của số đầu tiên
-        buttons.append([InlineKeyboardButton(text=await get_text(call.from_user.id, "remove_code"), callback_data=f"rm_code_{order_ids[0]}_{results[0]['phone']}")])
+        buttons.append([InlineKeyboardButton(text=await get_text(call.from_user.id, "remove_code"), callback_data=f"rm_code_{order_ids[0]}")])
         
     buttons.append([
         InlineKeyboardButton(text=await get_text(call.from_user.id, "change_num"), callback_data=f"np_svc_{service}"),
         InlineKeyboardButton(text="💬 OTP Group", url=OTP_GROUP_URL)
     ])
+    
+    cancel_data = f"cancel_multi_{'_'.join(map(str, order_ids))}"
     buttons.append([
-        InlineKeyboardButton(text=await get_text(call.from_user.id, "back"), callback_data=f"np_cty_{service}_{country_code}"),
+        InlineKeyboardButton(text=await get_text(call.from_user.id, "cancel_order"), callback_data=cancel_data),
+        InlineKeyboardButton(text=await get_text(call.from_user.id, "new_numbers"), callback_data=f"np_svc_{service}")
+    ])
+    
+    buttons.append([
+        InlineKeyboardButton(text=await get_text(call.from_user.id, "back"), callback_data=f"list_np_services"),
         InlineKeyboardButton(text=await get_text(call.from_user.id, "main_menu"), callback_data="home")
     ])
     
     await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
 
 
-# --- MK NETWORK FLOW (CẬP NHẬT GIAO DIỆN ẢNH 1) ---
+# --- MK NETWORK FLOW ---
 async def cb_list_countries_internal(uid, chat_id, message_id=None):
     try:
         country_dict = FALLBACK_COUNTRIES.copy()
@@ -1020,7 +1065,6 @@ async def cb_choose_range(call: CallbackQuery):
     range_code = call.data.replace("rng_", "")
     await call.answer("Getting numbers...")
     
-    # Gọi API song song lấy 2 số
     res1 = await create_number_order(call.from_user.id, range_code, msg_id=call.message.message_id)
     res2 = await create_number_order(call.from_user.id, range_code, msg_id=call.message.message_id)
     
@@ -1038,7 +1082,6 @@ async def cb_choose_range(call: CallbackQuery):
         )
         return
     
-    # Tìm các order_id trong DB
     db = get_db()
     order_ids = []
     try:
@@ -1055,68 +1098,207 @@ async def cb_choose_range(call: CallbackQuery):
     text += f"🔧 Service: {operator}\n"
     text += f"🌍 Country: {flag} {c_full}\n\n"
     for i, r in enumerate(success_results, 1):
-        text += f"📱 Number {i}: <code>{r['phone']}</code>\n"
+        phone_disp = r['phone'] if r['phone'].startswith('+') else f"+{r['phone']}"
+        text += f"📱 Number {i}: <code>{phone_disp}</code>\n"
     text += f"\n⚠️ Use this number within {ORDER_LIFETIME_MINUTES} minutes!\n⏳ Waiting for OTP..."
     
     buttons = []
     if success_results:
-        # Nút xóa mã quốc gia
-        buttons.append([InlineKeyboardButton(text="❌ Remove Country Code", callback_data=f"rm_code_{order_ids[0]}_{success_results[0]['phone']}")])
+        buttons.append([InlineKeyboardButton(text=await get_text(call.from_user.id, "remove_code"), callback_data=f"rm_code_{order_ids[0]}")])
         
     buttons.append([
-        InlineKeyboardButton(text="🔄 Change Number", callback_data=f"rng_{range_code}"),
+        InlineKeyboardButton(text=await get_text(call.from_user.id, "change_num"), callback_data=f"rng_{range_code}"),
         InlineKeyboardButton(text="💬 OTP Group", url=OTP_GROUP_URL)
     ])
+    
+    cancel_data = f"cancel_multi_{'_'.join(map(str, order_ids))}"
     buttons.append([
-        InlineKeyboardButton(text="⬅️ Back", callback_data="list_countries"),
-        InlineKeyboardButton(text="🏠 Main Menu", callback_data="home")
+        InlineKeyboardButton(text=await get_text(call.from_user.id, "cancel_order"), callback_data=cancel_data),
+        InlineKeyboardButton(text=await get_text(call.from_user.id, "new_numbers"), callback_data="list_countries")
+    ])
+    
+    buttons.append([
+        InlineKeyboardButton(text=await get_text(call.from_user.id, "back"), callback_data="list_countries"),
+        InlineKeyboardButton(text=await get_text(call.from_user.id, "main_menu"), callback_data="home")
     ])
     
     await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
 
-@dp.callback_query(F.data.startswith("rm_code_"))
-async def cb_remove_code(call: CallbackQuery):
-    parts = call.data.replace("rm_code_", "").split("_", 1)
-    order_id = int(parts[0])
-    phone = parts[1]
-    
-    # Tìm prefix
-    prefix = ""
-    db = get_db()
+# --- BASHA FLOW (Nguồn 3) ---
+# Tạo danh sách số mẫu cho Basha (bro có thể sửa lại list này theo thực tế)
+BASHA_NUMBERS = [
+    "3197006544898", # Netherlands
+    "447700900123",  # UK
+    "84987654321",   # Vietnam
+    "628123456789",  # Indonesia
+    "2348012345678", # Nigeria
+    "12025550146",   # US
+    "5511999999999", # Brazil
+    "919876543210",  # India
+    "79001234567",   # Russia
+    "905321234567"   # Turkey
+]
+
+async def cb_list_basha_countries_internal(uid, chat_id, message_id=None):
     try:
-        row = db.execute("SELECT country FROM orders WHERE id=?", (order_id,)).fetchone()
-        if row:
-            country = row[0]
-            prefix = COUNTRY_PREFIXES.get(country, "")
-    finally: db.close()
+        # Tự động nhóm số theo quốc gia
+        country_dict = {}
+        for num in BASHA_NUMBERS:
+            c_name = get_country_from_phone(num)
+            if c_name not in country_dict:
+                country_dict[c_name] = []
+            country_dict[c_name].append(num)
+            
+        sorted_countries = sorted(list(country_dict.keys()))
+        
+        buttons = []
+        for i in range(0, len(sorted_countries), 2):
+            row = []
+            c1 = sorted_countries[i]
+            flag1 = get_country_flag(c1)
+            count1 = len(country_dict[c1])
+            row.append(InlineKeyboardButton(text=f"{flag1} {c1} ({count1})", callback_data=f"basha_rng_{c1}"))
+            if i + 1 < len(sorted_countries):
+                c2 = sorted_countries[i+1]
+                flag2 = get_country_flag(c2)
+                count2 = len(country_dict[c2])
+                row.append(InlineKeyboardButton(text=f"{flag2} {c2} ({count2})", callback_data=f"basha_rng_{c2}"))
+            buttons.append(row)
+            
+        buttons.append([InlineKeyboardButton(text="⬅️ Back to Menu", callback_data="home")])
+
+        text = "🔢 <b>BASHA NUMBERS</b>\n\nSelect a country to get a number:"
+        
+        if message_id:
+            try: await bot.delete_message(chat_id, message_id)
+            except: pass
+        
+        msg = await bot.send_message(chat_id, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+        track_msg(chat_id, msg.message_id)
+    except Exception as e:
+        logger.error(f"Lỗi tạo bảng quốc gia Basha: {e}")
+
+@dp.callback_query(F.data.startswith("basha_rng_"))
+async def cb_choose_basha_range(call: CallbackQuery):
+    country = call.data.replace("basha_rng_", "")
+    await call.answer("Getting numbers...")
     
-    if not prefix:
-        await call.answer("Prefix not found!", show_alert=True)
+    # Lấy ngẫu nhiên 1 số từ list mẫu cho quốc gia này
+    country_nums = [n for n in BASHA_NUMBERS if get_country_from_phone(n) == country]
+    if not country_nums:
+        await call.message.edit_text("⚠️ No numbers available for this country.")
         return
         
-    # Xóa prefix và dấu +
-    clean_phone = phone
-    if clean_phone.startswith(prefix):
-        clean_phone = clean_phone[len(prefix):]
-    elif clean_phone.startswith("+"):
-        clean_phone = clean_phone[1:]
+    phone = random.choice(country_nums)
+    rid = phone
+    exp = (now() + timedelta(minutes=ORDER_LIFETIME_MINUTES)).isoformat(timespec="seconds")
+    
+    db = get_db()
+    order_id = 0
+    try:
+        cur = db.execute("""
+            INSERT INTO orders (user_id, request_id, provider, phone, country, operator,
+                range_code, status, created_at, expires_at, updated_at, msg_id)
+            VALUES (?, ?, 'BASHA', ?, ?, 'Basha', ?, 'PENDING', ?, ?, ?, ?)
+        """, (call.from_user.id, rid, phone, country, country, now_text(), exp, now_text(), call.message.message_id))
+        order_id = cur.lastrowid
+        db.commit()
+    finally: db.close()
+    
+    flag = get_country_flag(country)
+    phone_disp = phone if phone.startswith('+') else f"+{phone}"
+    
+    text = f"✅ <b>Number Assigned (Basha)!</b>\n\n"
+    text += f"🔧 Service: Basha API\n"
+    text += f"🌍 Country: {flag} {country}\n\n"
+    text += f"📱 Number: <code>{phone_disp}</code>\n"
+    text += f"\n⚠️ Use this number within {ORDER_LIFETIME_MINUTES} minutes!\n⏳ Waiting for OTP..."
+    
+    buttons = []
+    buttons.append([InlineKeyboardButton(text=await get_text(call.from_user.id, "remove_code"), callback_data=f"rm_code_{order_id}")])
         
-    # Xóa ký tự không phải số ở đầu
+    buttons.append([
+        InlineKeyboardButton(text=await get_text(call.from_user.id, "change_num"), callback_data=f"basha_rng_{country}"),
+        InlineKeyboardButton(text="💬 OTP Group", url=OTP_GROUP_URL)
+    ])
+    
+    cancel_data = f"cancel_multi_{order_id}"
+    buttons.append([
+        InlineKeyboardButton(text=await get_text(call.from_user.id, "cancel_order"), callback_data=cancel_data),
+        InlineKeyboardButton(text=await get_text(call.from_user.id, "new_numbers"), callback_data="menu_numbers3")
+    ])
+    
+    buttons.append([
+        InlineKeyboardButton(text=await get_text(call.from_user.id, "back"), callback_data="menu_numbers3"),
+        InlineKeyboardButton(text=await get_text(call.from_user.id, "main_menu"), callback_data="home")
+    ])
+    
+    await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+
+# --- SHARED CALLBACKS ---
+@dp.callback_query(F.data.startswith("rm_code_"))
+async def cb_remove_code(call: CallbackQuery):
+    order_id = int(call.data.replace("rm_code_", ""))
+    
+    db = get_db()
+    try:
+        row = db.execute("SELECT country, phone FROM orders WHERE id=?", (order_id,)).fetchone()
+        if not row:
+            await call.answer("Order not found", show_alert=True); return
+        country, phone = row
+    finally: db.close()
+    
+    prefix = COUNTRY_PREFIXES.get(country, "")
+    clean_phone = phone.lstrip("+") 
+    
+    if prefix:
+        prefix_num = prefix.replace("+", "")
+        if clean_phone.startswith(prefix_num):
+            clean_phone = clean_phone[len(prefix_num):]
+            
     clean_phone = clean_phone.lstrip("0")
     
-    # Cập nhật lại text của tin nhắn
     text = call.message.html_text
-    text = text.replace(phone, clean_phone)
+    old_disp = phone if phone.startswith('+') else f"+{phone}"
     
-    # Tắt nút Remove Code (xóa nút đi)
+    if f"<code>{old_disp}</code>" in text:
+        text = text.replace(f"<code>{old_disp}</code>", f"<code>{clean_phone}</code>")
+    else:
+        text = text.replace(old_disp, clean_phone)
+        
     kb = call.message.reply_markup.inline_keyboard
     new_kb = []
-    for row in kb:
-        new_row = [btn for btn in row if not btn.callback_data.startswith("rm_code_")]
+    for row_kb in kb:
+        new_row = [btn for btn in row_kb if not btn.callback_data.startswith("rm_code_")]
         if new_row: new_kb.append(new_row)
         
-    await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=new_kb))
-    await call.answer("Removed country code!")
+    try:
+        await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=new_kb))
+        await call.answer("Removed country code!")
+    except Exception as e:
+        await call.answer("Error updating message!")
+
+@dp.callback_query(F.data.startswith("cancel_multi_"))
+async def cb_cancel_multi(call: CallbackQuery):
+    ids_str = call.data.replace("cancel_multi_", "")
+    ids = [int(x) for x in ids_str.split("_") if x.isdigit()]
+    
+    db = get_db()
+    try:
+        for oid in ids:
+            row = db.execute("SELECT provider, phone, request_id FROM orders WHERE id=? AND status='PENDING'", (oid,)).fetchone()
+            if row:
+                if row[0] == "NP":
+                    await np_api_request("POST", "release_number", payload={"number": row[1]})
+                db.execute("UPDATE orders SET status='CANCELLED', updated_at=? WHERE id=?", (now_text(), oid))
+        db.commit()
+    finally: db.close()
+    
+    await call.answer("Cancelled...")
+    try: await call.message.delete()
+    except: pass
+    msg = await call.message.answer("🚫 Order cancelled successfully by user.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔄 Get New Number", callback_data="list_countries")], [InlineKeyboardButton(text="⬅️ Back to Menu", callback_data="home")]]))
+    track_msg(call.from_user.id, msg.message_id)
 
 async def cb_ranges_stats_internal(uid, chat_id, message_id=None):
     today_str = now().strftime("%Y-%m-%d")
@@ -1255,7 +1437,7 @@ async def cb_user_orders_history_internal(uid, chat_id, message_id=None, page=1)
         flag = get_country_flag(country)
         date_str = fmt_date(c_at)
         icon = "✅" if status == "COMPLETED" else "⌛" if status == "EXPIRED" else "🚫" if status == "CANCELLED" else "❌" if status == "FAILED" else "⏳"
-        p_tag = "[MK]" if provider == "MK" else "[NP]"
+        p_tag = "[MK]" if provider == "MK" else "[NP]" if provider == "NP" else "[BS]"
         btn_text = f"{icon} {flag} {mask_phone(phone)} {p_tag}| {date_str}"
         buttons.append([InlineKeyboardButton(text=btn_text, callback_data=f"view_history_{oid}")])
     
@@ -1451,7 +1633,10 @@ async def cb_view_history(call: CallbackQuery):
     date_created = fmt_date(row.get('created_at'))
     date_expires = fmt_date(row.get('expires_at'))
     stt_text = status_text(row['status'])
-    provider_tag = "MK Network" if row.get("provider") == "MK" else "Number Panel"
+    
+    if row.get("provider") == "MK": provider_tag = "MK Network"
+    elif row.get("provider") == "NP": provider_tag = "Number Panel"
+    else: provider_tag = "Basha"
     
     text = f"📦 <b>ORDER DETAILS #{oid}</b> ({provider_tag})\n\n"
     text += f"Number: <code>{safe(row['phone'])}</code>\nCountry: {safe(row['country'])}\nStatus: <b>{stt_text}</b>\nCreated: {date_created}\nExpires: {date_expires}\n"
@@ -1539,7 +1724,7 @@ async def cb_run_cmd(call: CallbackQuery):
         try: pending = db.execute("SELECT COUNT(*) FROM orders WHERE status='PENDING'").fetchone()[0]
         finally: db.close()
         poller = "OFF" if not _mk_poller else f"ON ({_mk_poller.interval}s, err={_mk_poller._consecutive_errors})"
-        text = "🟢 <b>FAST IVAS ONLINE</b>\n\n" f"DB: <code>Turso Cloud</code>\nMK Key: {'✓' if MK_API_KEY else '✗'}\nNP Key: {'✓' if NP_API_KEY else '✗'}\n" f"OTP group: <code>{OTP_GROUP_ID}</code>\nPending Orders: <b>{pending}</b>\nPoller: {safe(poller)}\n" f"Reward/OTP: <b>{usd(REWARD_MILLI_PER_OTP)}</b>\nMin Withdraw: <b>{usd(MIN_WITHDRAW_MILLI)}</b>"
+        text = "🟢 <b>FAST IVAS ONLINE</b>\n\n" f"DB: <code>Turso Cloud</code>\nMK Key: {'✓' if MK_API_KEY else '✗'}\nNP Key: {'✓' if NP_API_KEY else '✗'}\nBasha Key: {'✓' if BASHA_API_KEY else '✗'}\n" f"OTP group: <code>{OTP_GROUP_ID}</code>\nPending Orders: <b>{pending}</b>\nPoller: {safe(poller)}\n" f"Reward/OTP: <b>{usd(REWARD_MILLI_PER_OTP)}</b>\nMin Withdraw: <b>{usd(MIN_WITHDRAW_MILLI)}</b>"
         await call.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Back", callback_data="admin_menu")]]))
     elif cmd == "whoami":
         data, err = await api_get("whoami")
@@ -1679,14 +1864,18 @@ async def cb_adm_user_detail(call: CallbackQuery):
         counts = db.execute("SELECT provider, COUNT(*) FROM orders WHERE user_id=? GROUP BY provider", (uid,)).fetchall()
         mk_count = next((c[1] for c in counts if c[0] == "MK"), 0)
         np_count = next((c[1] for c in counts if c[0] == "NP"), 0)
+        basha_count = next((c[1] for c in counts if c[0] == "BASHA"), 0)
     finally: db.close()
 
+    joined_time = fmt_date_full(u['joined_at'])
+    
     text = f"👤 <b>USER DETAILS</b>\n\n" \
            f"ID: <code>{uid}</code>\n" \
            f"Name: {safe(u['first_name'])}\n" \
            f"Username: @{safe(u['username'] or '—')}\n" \
+           f"Joined: <b>{joined_time}</b>\n" \
            f"Balance: <b>{usd(u['usd_milli'])}</b>\n" \
-           f"🎱 Numbers 1: <b>{mk_count}</b> | 📱 Numbers 2: <b>{np_count}</b>\n\n" \
+           f"🎱 Numbers 1: <b>{mk_count}</b> | 📱 Numbers 2: <b>{np_count}</b> | 🔢 Numbers 3: <b>{basha_count}</b>\n\n" \
            f"👇 Choose action:"
            
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -1726,7 +1915,11 @@ async def cb_adm_numbers_history(call: CallbackQuery):
         lines = [f"📜 <b>NUMBERS HISTORY</b>\nUser ID: <code>{uid}</code>\nTotal: <b>{total}</b>\n"]
         for oid, request_id, provider, phone, country, status, created, expires, updated, platform in rows:
             state = status_text(status or "UNKNOWN")
-            source_name = "🎱 Numbers 1 (MK)" if provider == "MK" else "📱 Numbers 2 (NP)"
+            
+            if provider == "MK": source_name = "🎱 Numbers 1 (MK)"
+            elif provider == "NP": source_name = "📱 Numbers 2 (NP)"
+            else: source_name = "🔢 Numbers 3 (Basha)"
+            
             platform_str = f"\nPlatform: {safe(platform)}" if platform else ""
             lines.append(
                 f"<b>Order #{oid}</b> | {safe(state)}\n"
@@ -2014,7 +2207,7 @@ async def cmd_broadcast(message: Message):
     await message.answer(f"📢 Done. OK: {sent} · Fail: {failed}")
 
 # =====================================================
-# OTP POLLER (GIAO DIỆN CHUYÊN NGHIỆP NHƯ ẢNH 2)
+# OTP POLLER (GIAO DIỆN CHUYÊN NGHIỆP NHƯ ẢNH 2 & THÊM TAG USER)
 # =====================================================
 class MkOtpPoller:
     MAX_CONSECUTIVE_ERRORS = 5
@@ -2040,16 +2233,13 @@ class MkOtpPoller:
             display_country = ISO_MAP.get(row['country'], row['country'])
         flag = get_country_flag(display_country)
         
-        # Đếm Today OTP
         today_count = await self._get_today_otp_count(row["user_id"])
-        
-        # Format tiền thưởng
         reward_str = f"+{usd(reward_milli)} USD" if reward_milli > 0 else "0 USD"
 
-        # Giao diện OTP chuẩn Ảnh 2
         user_text = (
             f"📱 <b>{platform}</b> 🌍 {display_country}\n"
-            f"<b>OTP Received</b>\n\n"
+            f"<b>OTP Received</b>\n"
+            f"👤 User: {user_link(row['user_id'], user_name)}\n\n"
             f"🔒 <b>OTP :</b> <code>{otp_code}</code>\n"
             f"📞 <code>{row['phone']}</code>\n"
             f"📊 Today OTP : <b>{today_count}</b>\n"
@@ -2064,7 +2254,6 @@ class MkOtpPoller:
             [InlineKeyboardButton(text="🏠 Main Menu", callback_data="home")]
         ])
 
-        # Tin nhắn cho Group
         kb_group = InlineKeyboardMarkup(inline_keyboard=[
             [
                 InlineKeyboardButton(text="📢 Main Channel", url=MAIN_CHANNEL_URL),
@@ -2073,20 +2262,19 @@ class MkOtpPoller:
         ])
         group_text = (
             f"📱 <b>{platform}</b> 🌍 {display_country}\n"
-            f"<b>OTP Received</b>\n\n"
+            f"<b>OTP Received</b>\n"
+            f"👤 User: {user_link(row['user_id'], user_name)}\n\n"
             f"🔒 <b>OTP :</b> <code>{otp_code}</code>\n"
             f"📞 <code>{mask_phone(row['phone'])}</code>\n"
             f"📊 Today OTP : <b>{today_count}</b>"
         )
         if full_sms: group_text += f"\n<blockquote>💬 {safe(full_sms, 300)}</blockquote>"
 
-        # Gửi cho Group
         if OTP_GROUP_ID:
             try: await bot.send_message(OTP_GROUP_ID, group_text, reply_markup=kb_group)
             except Exception as e: 
                 logger.error(f"Error sending OTP to Group: {e}")
             
-        # Gửi cho User
         try:
             u_msg = await bot.send_message(row["user_id"], user_text, reply_markup=kb_user)
             track_msg(row["user_id"], u_msg.message_id)
@@ -2099,6 +2287,9 @@ class MkOtpPoller:
         if row.get("provider") == "NP":
             reward = 0 
             platform = row.get("operator", "Other").capitalize()
+        elif row.get("provider") == "BASHA":
+            reward = 0
+            platform = "Basha Service"
         else:
             platform = detect_otp_platform(sms)
         
@@ -2129,6 +2320,7 @@ class MkOtpPoller:
         
         mk_rows = [r for r in rows if r.get("provider") == "MK"]
         np_rows = [r for r in rows if r.get("provider") == "NP"]
+        basha_rows = [r for r in rows if r.get("provider") == "BASHA"]
         
         checked = new_otp = 0
         api_error = False
@@ -2185,6 +2377,22 @@ class MkOtpPoller:
                     sms = f"Your OTP is: {otp}"
                     success = await self._process_otp(r, otp, sms)
                     if success: new_otp += 1
+
+        for r in basha_rows:
+            checked += 1
+            data, err = await basha_api_request("POST", "legacy/get-last-sms", payload={"number": r['phone']})
+            if err:
+                api_error = True
+                continue
+                
+            if data and isinstance(data, dict):
+                sms = str(data.get("message") or "").strip()
+                if sms:
+                    otp_match = re.search(r'\b(\d{4,8})\b', sms)
+                    otp = otp_match.group(1) if otp_match else ""
+                    if otp:
+                        success = await self._process_otp(r, otp, sms)
+                        if success: new_otp += 1
                         
         return checked, new_otp, api_error
 
