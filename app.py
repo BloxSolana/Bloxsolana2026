@@ -28,7 +28,7 @@ from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
 # =====================================================
-# CẤU HÌNH HỆ THỐNG
+# CẤU HÌNH HỆ THỐNG (BRO NHỚ ĐIỀN TOKEN MỚI VÀO ĐÂY)
 # =====================================================
 BOT_TOKEN      = os.getenv("BOT_TOKEN", "").strip()
 WEBAPP_URL     = os.getenv("WEBAPP_URL", "").strip()
@@ -43,7 +43,7 @@ MAIN_CHANNEL_URL = "https://t.me/FastNode_1"
 MK_API_KEY     = os.getenv("MK_API_KEY", "").strip()
 MK_API_BASE    = "https://mknetworkbd.com/api/v3/public"
 
-# Cấu hình API Nguồn 2: Number Panel
+# Cấu hình API Nguồn 2: Number Panel (NP)
 NP_API_KEY     = os.getenv("NP_API_KEY", "").strip()
 NP_API_BASE    = "https://numberpanel.tech/api"
 
@@ -51,7 +51,7 @@ NP_API_BASE    = "https://numberpanel.tech/api"
 BASHA_API_KEY  = os.getenv("BASHA_API_KEY", "").strip()
 BASHA_API_BASE = "https://basha.cc/api"
 
-# Cấu hình Database Turso
+# Cấu hình Database (Turso / SQLite)
 TURSO_DATABASE_URL = os.getenv("TURSO_DATABASE_URL", "").strip()
 TURSO_AUTH_TOKEN   = os.getenv("TURSO_AUTH_TOKEN", "").strip()
 SQLITE_PATH        = os.getenv("SQLITE_PATH", "fast_ivas.db")
@@ -60,12 +60,13 @@ PORT               = int(os.getenv("PORT", "10000"))
 # Các hằng số cài đặt
 ORDER_LIFETIME_MINUTES = 15
 REWARD_MILLI_PER_OTP   = 2
-MIN_WITHDRAW_MILLI     = 1000
+MIN_WITHDRAW_MILLI     = 1000       # Tối thiểu 1$
 MAX_WITHDRAW_MILLI     = 1000000
+WITHDRAW_FEE_MILLI     = 100        # Phí rút toàn bộ 0.1$
 HISTORY_PAGE_SIZE      = 8
 MAX_HISTORY_RECORDS    = 100
 
-# Cấu hình Poller (Quét OTP)
+# Cấu hình Poller (Quét OTP tự động)
 MK_POLL_ENABLED        = True
 MK_POLL_MIN_SEC        = 10
 MK_POLL_MAX_SEC        = 30
@@ -84,7 +85,7 @@ VN_TZ = timezone(timedelta(hours=7))
 started_at = time.time()
 
 # =====================================================
-# MIDDLEWARE BẮT LỖI TOÀN CỤC
+# MIDDLEWARE BẮT LỖI TOÀN CỤC (Chống sập Bot)
 # =====================================================
 class ErrorMiddleware(BaseMiddleware):
     async def __call__(self, handler, event, data):
@@ -101,7 +102,7 @@ dp.message.middleware(ErrorMiddleware())
 dp.callback_query.middleware(ErrorMiddleware())
 
 # =====================================================
-# TỪ ĐIỂN QUỐC GIA VÀ MÃ VÙNG (Dùng để nhận diện số BS)
+# TỪ ĐIỂN QUỐC GIA VÀ MÃ VÙNG (Tự động nhận diện cờ)
 # =====================================================
 COUNTRY_CODES = {
     "84": ("Vietnam", "🇻🇳"), "62": ("Indonesia", "🇮🇩"), "60": ("Malaysia", "🇲🇾"),
@@ -211,7 +212,7 @@ def fmt_date(iso_str):
     except: return str(iso_str)[:24]
 
 # =====================================================
-# DATABASE CORE (HỖ TRỢ TURSO & SQLITE)
+# DATABASE CORE (CHỐNG TREO VỚI THREADPOOLEXECUTOR)
 # =====================================================
 def open_db():
     if TURSO_DATABASE_URL and TURSO_AUTH_TOKEN:
@@ -251,7 +252,6 @@ async def db_exec(query, params=(), fetch=None):
         return None
 
 async def init_db():
-    # Khởi tạo các bảng
     await db_exec("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, username TEXT, first_name TEXT, usd_milli INTEGER NOT NULL DEFAULT 0, wallet_ton TEXT, referrer INTEGER, joined_at TEXT, language TEXT DEFAULT 'vi')")
     await db_exec("CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, request_id TEXT UNIQUE, provider TEXT, platform TEXT, phone TEXT, country TEXT, operator TEXT, range_code TEXT, status TEXT NOT NULL DEFAULT 'PENDING', otp_code TEXT, full_sms TEXT, reward_milli INTEGER DEFAULT 0, created_at TEXT, expires_at TEXT, updated_at TEXT)")
     await db_exec("CREATE TABLE IF NOT EXISTS transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, amount INTEGER NOT NULL, tx_type TEXT, note TEXT, created_at TEXT)")
@@ -289,7 +289,7 @@ async def change_usd(uid, amount_milli, tx_type, note):
     return await asyncio.wait_for(loop.run_in_executor(db_executor, _tx), timeout=DB_TIMEOUT_SECONDS)
 
 # =====================================================
-# API CORE (GỌI API THẬT)
+# API CORE (GỌI API THẬT CỦA MK, NP, BASHA)
 # =====================================================
 async def api_request(method, endpoint, payload=None, params=None, api_type="MK"):
     headers = {"Accept": "application/json"}
@@ -496,7 +496,7 @@ async def mini_withdraw(request):
     amt_milli = int(float(body.get("amount", 0)) * 1000)
     u = await db_exec("SELECT wallet_ton, usd_milli FROM users WHERE user_id=?", (uid,), fetch="one")
     if not u or not u["wallet_ton"]: return web.json_response({"error": "Chưa cài ví TON"}, status=400)
-    if amt_milli < MIN_WITHDRAW_MILLI or amt_milli > u["usd_milli"]: return web.json_response({"error": "Số dư không đủ"}, status=400)
+    if amt_milli < MIN_WITHDRAW_MILLI or amt_milli > u["usd_milli"]: return web.json_response({"error": "Số dư không đủ hoặc dưới $1.00"}, status=400)
     
     ok, res = await change_usd(uid, -amt_milli, "WITHDRAW_HOLD", "TON Withdrawal")
     if not ok: return web.json_response({"error": res}, status=400)
@@ -568,7 +568,7 @@ async def mini_admin_wd_action(request):
         return web.json_response({"ok": True})
 
 # =====================================================
-# HTML/CSS/JS (GIAO DIỆN ĐÃ ĐƯỢC TỐI ƯU)
+# EMBEDDED MINI APP (HTML/CSS/JS) - GIAO DIỆN XỊN XÒ
 # =====================================================
 MINIAPP_HTML = """
 <!DOCTYPE html>
@@ -794,6 +794,7 @@ MINIAPP_HTML = """
             <a href="#" class="menu-item" onclick="navTo('history')"><span class="icon">📜</span> Lịch sử</a>
             <a href="#" class="menu-item" onclick="navTo('wallet')"><span class="icon">💵</span> Ví & Rút Tiền</a>
             
+            <!-- MỤC ADMIN PANEL ẨN HIỆN BẰNG JS -->
             <a href="#" class="menu-item menu-admin" id="menu-admin" onclick="navTo('admin')" style="display: none;">
                 <span class="icon">🛡</span> ADMIN PANEL
             </a>
@@ -867,8 +868,21 @@ MINIAPP_HTML = """
             </div>
             <div class="card">
                 <div class="form-label" style="font-size: 16px; color: var(--text); margin-bottom: 15px;">💰 Rút Tiền</div>
+                
+                <!-- NÚT RÚT NHANH 1,2,5,8$ -->
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px;">
+                    <button class="btn-small copy" onclick="setWithdrawAmount(1)">$1</button>
+                    <button class="btn-small copy" onclick="setWithdrawAmount(2)">$2</button>
+                    <button class="btn-small copy" onclick="setWithdrawAmount(5)">$5</button>
+                    <button class="btn-small copy" onclick="setWithdrawAmount(8)">$8</button>
+                </div>
+                <!-- NÚT RÚT TOÀN BỘ (TRỪ 0.1$ PHÍ) -->
+                <button class="btn-small copy" style="width: 100%; margin-bottom: 15px; background: rgba(59, 130, 246, 0.15); border-color: rgba(59, 130, 246, 0.4); color: #93c5fd;" onclick="setWithdrawAmount('max')">
+                    ⚡ Rút Toàn Bộ (Phí $0.1)
+                </button>
+
                 <div class="form-group">
-                    <input type="number" class="form-control" id="withdraw-amount" placeholder="Nhập số tiền ($)">
+                    <input type="number" class="form-control" id="withdraw-amount" placeholder="Nhập số tiền ($)" step="0.1">
                 </div>
                 <button class="btn btn-success" onclick="requestWithdraw()">Gửi Yêu Cầu</button>
             </div>
@@ -988,7 +1002,12 @@ MINIAPP_HTML = """
             document.getElementById('ton-address').value = data.user.wallet_ton || '';
             document.getElementById('ref-link').innerText = data.referral_link;
             
-            if (data.is_admin) document.getElementById('menu-admin').style.display = 'flex';
+            // CHỈ HIỂN THỊ NÚT ADMIN NẾU ĐÚNG ID
+            if (data.is_admin) {
+                document.getElementById('menu-admin').style.display = 'flex';
+            } else {
+                document.getElementById('menu-admin').style.display = 'none';
+            }
         }
 
         async function loadHome() {
@@ -1136,30 +1155,46 @@ MINIAPP_HTML = """
             `).join('');
         }
 
+        // HÀM FIX LỖI XÁC NHẬN NÚT BẤM MUA SỐ
         async function buyNumber(provider, code, name, service = null) {
-            tg.showPopup({ title: 'Xác nhận', message: `Lấy số ${name}?`, buttons: [{id: 'ok', type: 'default', text: 'Đồng ý'}, {id: 'cancel', type: 'cancel'}] }, async (id) => {
-                if (id === 'ok') {
-                    tg.showLoading();
-                    let body = { provider };
-                    if (provider === 'MK') { body.range = code; body.country_name = name; }
-                    if (provider === 'NP') { body.country = code; body.service = service; }
-                    if (provider === 'BASHA') { body.country = code; }
+            tg.showConfirm(`Bạn có chắc muốn lấy số ${name} không?`, async (confirmed) => {
+                if (!confirmed) return;
+                
+                tg.showLoading();
+                let body = { provider };
+                if (provider === 'MK') { body.range = code; body.country_name = name; }
+                if (provider === 'NP') { body.country = code; body.service = service; }
+                if (provider === 'BASHA') { body.country = code; }
 
-                    const res = await api('/api/mini/orders', 'POST', body);
-                    tg.hideLoading();
-                    
-                    if (res.ok) {
-                        showToast('✅ Đã lấy số thành công!');
-                        navTo('home');
-                    } else {
-                        tg.showAlert('❌ Lỗi: ' + res.error);
-                    }
+                const res = await api('/api/mini/orders', 'POST', body);
+                tg.hideLoading();
+                
+                if (res.ok) {
+                    showToast('✅ Đã lấy số thành công!');
+                    navTo('home');
+                } else {
+                    tg.showAlert('❌ Lỗi: ' + res.error);
                 }
             });
         }
 
         // --- WALLET ---
         function loadWallet() { loadUserData(); }
+
+        // HÀM XỬ LÝ RÚT NHANH VÀ RÚT TOÀN BỘ
+        function setWithdrawAmount(type) {
+            const input = document.getElementById('withdraw-amount');
+            if (type === 'max') {
+                if (!userData || !userData.user) return;
+                const maxAmount = (userData.user.usd_milli / 1000).toFixed(3);
+                let finalAmt = parseFloat(maxAmount) - 0.1;
+                if (finalAmt < 0) finalAmt = 0;
+                input.value = finalAmt.toFixed(3);
+                showToast('Đã trừ phí rút toàn bộ $0.1');
+            } else {
+                input.value = type;
+            }
+        }
 
         async function saveWallet() {
             const address = document.getElementById('ton-address').value;
@@ -1238,7 +1273,7 @@ MINIAPP_HTML = """
                 if (activeView === 'view-home') {
                     loadHome();
                 }
-            }, 5000); // Tự load lại 5 giây một lần
+            }, 5000); 
         }
 
         // --- INIT ---
@@ -1294,7 +1329,7 @@ async def set_bot_commands():
     except Exception as e: logger.error(f"Error: {e}")
 
 # =====================================================
-# OTP POLLER (QUÉT OTP TỰ ĐỘNG)
+# OTP POLLER (QUÉT OTP TỰ ĐỘNG - BẢN REAL)
 # =====================================================
 class MkOtpPoller:
     def __init__(self):
