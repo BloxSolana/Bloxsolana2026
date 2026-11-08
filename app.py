@@ -8,6 +8,7 @@ import random
 import hashlib
 import hmac
 import time
+import base64
 from urllib.parse import parse_qsl
 from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor
@@ -21,7 +22,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton,
     BotCommand, BotCommandScopeChat, BotCommandScopeDefault,
-    ReplyKeyboardRemove, MenuButtonWebApp, WebAppInfo
+    ReplyKeyboardRemove, MenuButtonWebApp, WebAppInfo, BufferedInputFile
 )
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -82,6 +83,9 @@ db_executor = ThreadPoolExecutor(max_workers=DB_WORKERS)
 BOT_USERNAME = ""
 VN_TZ = timezone(timedelta(hours=7))
 started_at = time.time()
+
+# Biến toàn cục lưu trạng thái bảo trì
+BOT_MAINTENANCE = False
 
 class ErrorMiddleware(BaseMiddleware):
     async def __call__(self, handler, event, data):
@@ -241,6 +245,14 @@ async def init_db():
     await db_exec("CREATE TABLE IF NOT EXISTS transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, amount INTEGER NOT NULL, tx_type TEXT, note TEXT, created_at TEXT)")
     await db_exec("CREATE TABLE IF NOT EXISTS withdrawals (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, amount_milli INTEGER NOT NULL, wallet_ton TEXT, status TEXT NOT NULL DEFAULT 'PENDING', reject_reason TEXT, tx_hash TEXT, created_at TEXT, processed_at TEXT)")
     await db_exec("CREATE TABLE IF NOT EXISTS basha_numbers (id INTEGER PRIMARY KEY AUTOINCREMENT, phone TEXT UNIQUE NOT NULL, country TEXT NOT NULL, flag TEXT NOT NULL, added_at TEXT)")
+    await db_exec("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
+
+async def get_setting(key, default=None):
+    res = await db_exec("SELECT value FROM settings WHERE key=?", (key,), fetch="one")
+    return res["value"] if res else default
+
+async def set_setting(key, value):
+    await db_exec("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, str(value)))
 
 async def register_user(tg_user, referrer=None):
     res = await db_exec("SELECT user_id FROM users WHERE user_id=?", (tg_user.id,), fetch="one")
@@ -280,10 +292,18 @@ async def clean_old_orders(uid):
 
 async def api_request(method, endpoint, payload=None, params=None, api_type="MK"):
     headers = {"Accept": "application/json"}
-    if api_type == "MK": headers["mknetwork-key"] = MK_API_KEY; base = MK_API_BASE
-    elif api_type == "NP": headers["Authorization"] = f"Bearer {NP_API_KEY}"; base = NP_API_BASE
-    elif api_type == "BASHA": headers["Authorization"] = f"Bearer {BASHA_API_KEY}"; base = BASHA_API_BASE
-    elif api_type == "SLVN": headers["x-api-key"] = SLVN_API_KEY; base = SLVN_API_BASE
+    if api_type == "MK": 
+        if not MK_API_KEY: return None, "Missing MK_API_KEY on server."
+        headers["mknetwork-key"] = MK_API_KEY; base = MK_API_BASE
+    elif api_type == "NP": 
+        if not NP_API_KEY: return None, "Missing NP_API_KEY on server."
+        headers["Authorization"] = f"Bearer {NP_API_KEY}"; base = NP_API_BASE
+    elif api_type == "BASHA": 
+        if not BASHA_API_KEY: return None, "Missing BASHA_API_KEY on server."
+        headers["Authorization"] = f"Bearer {BASHA_API_KEY}"; base = BASHA_API_BASE
+    elif api_type == "SLVN": 
+        if not SLVN_API_KEY: return None, "Missing SLVN_API_KEY on server."
+        headers["x-api-key"] = SLVN_API_KEY; base = SLVN_API_BASE
     
     if payload is not None: headers["Content-Type"] = "application/json"
     url = f"{base}/{endpoint.lstrip('/')}"
@@ -294,7 +314,9 @@ async def api_request(method, endpoint, payload=None, params=None, api_type="MK"
                 raw = await r.text()
                 try: data = json.loads(raw)
                 except json.JSONDecodeError: data = {"response": raw[:1000]}
-                if r.status >= 400: return None, f"API Error {r.status}: {raw[:100]}"
+                if r.status >= 400: 
+                    err_msg = data.get("message", raw) if isinstance(data, dict) else raw
+                    return None, f"API Error {r.status}: {err_msg}"
                 return data, None
     except asyncio.TimeoutError: return None, "Connection timeout."
     except Exception as e: return None, str(e)
@@ -306,6 +328,9 @@ async def cmd_start(message: Message):
     args = message.text.split(maxsplit=1)
     ref = int(args[1]) if len(args) > 1 and args[1].isdigit() else None
     await register_user(message.from_user, ref)
+    
+    if await get_setting("maintenance", "off") == "on" and not is_admin(message.from_user.id):
+        return await message.answer("🛠 <b>HỆ THỐNG ĐANG BẢO TRÌ</b>\n\nVui lòng quay lại sau.")
     
     if WEBAPP_URL.startswith("https://"):
         kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚡ MỞ ỨNG DỤNG FAST IVAS", web_app=WebAppInfo(url=WEBAPP_URL))]])
@@ -334,6 +359,10 @@ async def cmd_broadcast(message: Message):
 @dp.message(F.text)
 async def handle_text(message: Message):
     if message.text.startswith('/'): return
+    
+    if await get_setting("maintenance", "off") == "on" and not is_admin(message.from_user.id):
+        return await message.answer("🛠 <b>HỆ THỐNG ĐANG BẢO TRÌ</b>\n\nVui lòng quay lại sau.")
+        
     await message.answer("Vui lòng mở Mini App để sử dụng các tính năng.")
 
 def validate_telegram_init_data(init_data: str) -> dict | None:
@@ -381,7 +410,8 @@ async def mini_me(request):
         "today_otps": today["c"] if today else 0,
         "total_otps": total_otps["c"] if total_otps else 0,
         "is_admin": is_admin(uid), 
-        "referral_link": f"https://t.me/{BOT_USERNAME}?start={uid}"
+        "referral_link": f"https://t.me/{BOT_USERNAME}?start={uid}",
+        "maintenance": await get_setting("maintenance", "off")
     })
 
 async def mini_language_update(request):
@@ -398,18 +428,9 @@ async def mini_stats(request):
         countries = await db_exec("SELECT country, COUNT(id) FROM orders WHERE status='COMPLETED' AND created_at >= ? GROUP BY country ORDER BY COUNT(id) DESC", (today_str,), fetch='all')
         platforms = await db_exec("SELECT COALESCE(NULLIF(platform, ''), 'Other') as p, COUNT(id) FROM orders WHERE status='COMPLETED' AND created_at >= ? GROUP BY p ORDER BY COUNT(id) DESC", (today_str,), fetch='all')
 
-        mk_nets = {}
-        data, err = await api_request("GET", "access_list", params={"limit": 100}, api_type="MK")
-        if not err and isinstance(data, dict):
-            for item in data.get("data", {}).get("items", []):
-                c = item.get("country")
-                if c not in mk_nets: mk_nets[c] = set()
-                nets = item.get("networks") or []
-                for n in nets: mk_nets[c].add(n)
-
         return web.json_response({
             "total_otps": total_otps[0] if total_otps else 0,
-            "countries": [{"country": r[0], "count": r[1], "flag": get_country_flag(r[0]), "networks": list(mk_nets.get(r[0], []))} for r in (countries or [])],
+            "countries": [{"country": r[0], "count": r[1], "flag": get_country_flag(r[0])} for r in (countries or [])],
             "platforms": [{"platform": r[0], "count": r[1], "icon": get_network_icon(r[0])} for r in (platforms or [])]
         })
     except Exception as e:
@@ -421,7 +442,6 @@ async def mini_leaderboard(request):
         (SELECT COUNT(*) FROM orders WHERE user_id = u.user_id AND status = 'COMPLETED') as total_otps 
         FROM users u ORDER BY u.usd_milli DESC LIMIT 10
     """, fetch="all")
-    
     return web.json_response({
         "leaderboard": [{"name": u["first_name"], "balance": u["usd_milli"], "total_otps": u["total_otps"]} for u in top_users] if top_users else []
     })
@@ -443,17 +463,13 @@ async def mini_history_orders(request):
     uid = mini_uid(request)
     try: page = int(request.query.get("page", "1"))
     except: page = 1
-    
     if page < 1: page = 1
     offset = (page - 1) * HISTORY_PAGE_SIZE
-    
     total_res = await db_exec("SELECT COUNT(*) as c FROM orders WHERE user_id=?", (uid,), fetch="one")
     total = total_res["c"] if total_res else 0
     total_pages = max(1, (total + HISTORY_PAGE_SIZE - 1) // HISTORY_PAGE_SIZE)
-    
     if page > total_pages: page = total_pages
     offset = (page - 1) * HISTORY_PAGE_SIZE
-    
     rows = await db_exec("SELECT id, provider, phone, country, status, created_at, otp_code, platform FROM orders WHERE user_id=? ORDER BY id DESC LIMIT ? OFFSET ?", (uid, HISTORY_PAGE_SIZE, offset), fetch="all")
     orders = []
     if rows:
@@ -463,20 +479,18 @@ async def mini_history_orders(request):
                 "status": r["status"], "created_at": r["created_at"], "otp": r["otp_code"], "platform": r["platform"] or "",
                 "flag": get_country_flag(r["country"])
             })
-    return web.json_response({
-        "orders": orders,
-        "current_page": page,
-        "total_pages": total_pages,
-        "total_records": total
-    })
+    return web.json_response({"orders": orders, "current_page": page, "total_pages": total_pages, "total_records": total})
 
 async def mini_create_order(request):
+    if await get_setting("maintenance", "off") == "on":
+        return web.json_response({"error": "Hệ thống đang bảo trì, không thể mua số."}, status=403)
+        
     uid = mini_uid(request); body = await request.json()
     provider = body.get("provider")
     
     if provider == "MK":
         data, err = await api_request("POST", "getnum/number", {"range": body.get("range")})
-        if err or not data: return web.json_response({"error": err or "Lỗi API MK"}, status=400)
+        if err: return web.json_response({"error": err}, status=400)
         def find_id(obj):
             if isinstance(obj, dict):
                 for k, v in obj.items():
@@ -490,7 +504,8 @@ async def mini_create_order(request):
                     if res: return res
             return None
         rid = find_id(data)
-        phone = data.get("number") or data.get("phone") or "N/A"
+        if not rid: return web.json_response({"error": "API không trả về ID."}, status=400)
+        phone = data.get("data", {}).get("number") or data.get("number") or "N/A"
         country = body.get("country_name") or "Unknown"
         await db_exec("INSERT INTO orders (user_id, request_id, provider, phone, country, range_code, status, created_at, expires_at) VALUES (?, ?, 'MK', ?, ?, ?, 'PENDING', ?, ?)", 
                       (uid, rid, str(phone), country, body.get("range"), now_text(), (now() + timedelta(minutes=15)).isoformat()))
@@ -499,8 +514,9 @@ async def mini_create_order(request):
 
     elif provider == "NP":
         data, err = await api_request("POST", "request_number", {"service": body.get("service"), "country": body.get("country")}, api_type="NP")
-        if err or not data: return web.json_response({"error": err or "Lỗi API NP"}, status=400)
+        if err: return web.json_response({"error": err}, status=400)
         phone = data.get("number"); rid = data.get("id") or phone
+        if not phone: return web.json_response({"error": "API không trả về số."}, status=400)
         await db_exec("INSERT INTO orders (user_id, request_id, provider, phone, country, operator, range_code, status, created_at, expires_at) VALUES (?, ?, 'NP', ?, ?, ?, ?, 'PENDING', ?, ?)", 
                       (uid, str(rid), str(phone), body.get("country"), body.get("service"), body.get("service"), now_text(), (now() + timedelta(minutes=15)).isoformat()))
         await clean_old_orders(uid)
@@ -515,25 +531,13 @@ async def mini_create_order(request):
         return web.json_response({"ok": True})
 
     elif provider == "SLVN":
-        if not SLVN_API_KEY: return web.json_response({"error": "Chưa cấu hình SLVN_API_KEY trên server"}, status=400)
-        
-        payload = {
-            "service": "ANY",
-            "countryCode": body.get("country_code"),
-            "tag": body.get("tag")
-        }
+        payload = {"service": "ANY", "countryCode": body.get("country_code"), "tag": body.get("tag")}
         data, err = await api_request("POST", "rent", payload, api_type="SLVN")
-        
-        if err: return web.json_response({"error": f"Lỗi kết nối API: {err}"}, status=400)
-        if not data or data.get("status") != "success":
-            error_msg = data.get("message") if data else "Không có phản hồi"
-            return web.json_response({"error": f"API báo lỗi: {error_msg}"}, status=400)
-        
+        if err: return web.json_response({"error": err}, status=400)
         order_data = data.get("data", {})
         rental_id = order_data.get("rentalId")
         phone = order_data.get("phoneNumber")
         country = order_data.get("country")
-        
         await db_exec("INSERT INTO orders (user_id, request_id, provider, phone, country, range_code, status, created_at, expires_at) VALUES (?, ?, 'SLVN', ?, ?, ?, 'PENDING', ?, ?)", 
                       (uid, rental_id, phone, country, body.get("tag"), now_text(), (now() + timedelta(minutes=15)).isoformat()))
         await clean_old_orders(uid)
@@ -545,12 +549,8 @@ async def mini_cancel_order(request):
     oid = int(request.match_info["oid"])
     order = await db_exec("SELECT provider, request_id, phone FROM orders WHERE id=? AND user_id=?", (oid, mini_uid(request)), fetch="one")
     if not order: return web.json_response({"error": "Not found"}, status=404)
-    
-    if order["provider"] == "SLVN":
-        await api_request("POST", f"cancel/{order['request_id']}", api_type="SLVN")
-    elif order["provider"] == "NP":
-        await api_request("POST", "release_number", {"number": order["phone"]}, api_type="NP")
-        
+    if order["provider"] == "SLVN": await api_request("POST", f"cancel/{order['request_id']}", api_type="SLVN")
+    elif order["provider"] == "NP": await api_request("POST", "release_number", {"number": order["phone"]}, api_type="NP")
     await db_exec("UPDATE orders SET status='CANCELLED' WHERE id=?", (oid,))
     return web.json_response({"ok": True})
 
@@ -563,15 +563,15 @@ async def mini_save_wallet(request):
     return web.json_response({"ok": True})
 
 async def mini_withdraw(request):
+    if await get_setting("maintenance", "off") == "on":
+        return web.json_response({"error": "Hệ thống đang bảo trì."}, status=403)
     uid = mini_uid(request); body = await request.json()
     amt_milli = int(float(body.get("amount", 0)) * 1000)
     u = await db_exec("SELECT wallet_ton, usd_milli FROM users WHERE user_id=?", (uid,), fetch="one")
     if not u or not u["wallet_ton"]: return web.json_response({"error": "Chưa cài ví TON"}, status=400)
     if amt_milli < MIN_WITHDRAW_MILLI or amt_milli > u["usd_milli"]: return web.json_response({"error": "Số dư không đủ hoặc dưới $1.00"}, status=400)
-    
     ok, res = await change_usd(uid, -amt_milli, "WITHDRAW_HOLD", "TON Withdrawal")
     if not ok: return web.json_response({"error": res}, status=400)
-    
     wid = await db_exec("INSERT INTO withdrawals (user_id, amount_milli, wallet_ton, status, created_at) VALUES (?, ?, ?, 'PENDING', ?)", (uid, amt_milli, u["wallet_ton"], now_text()))
     return web.json_response({"ok": True, "withdrawal_id": wid})
 
@@ -605,14 +605,9 @@ async def mini_bs_countries(request):
     return web.json_response({"countries": [{"name": r["country"], "flag": r["flag"], "count": r["c"]} for r in rows] if rows else []})
 
 async def mini_slvn_countries(request):
-    if not SLVN_API_KEY: return web.json_response({"countries": []})
     data, err = await api_request("GET", "available-countries", params={"service": "any"}, api_type="SLVN")
     if err or not data: return web.json_response({"countries": []})
-    
-    countries = []
-    for c in data.get("data", []):
-        countries.append({"name": c.get("country"), "code": c.get("countryCode"), "flag": c.get("flag"), "tag": c.get("tag"), "rate": c.get("rateUsd")})
-    return web.json_response({"countries": countries})
+    return web.json_response({"countries": [{"name": c.get("country"), "code": c.get("countryCode"), "flag": c.get("flag"), "tag": c.get("tag"), "rate": c.get("rateUsd")} for c in data.get("data", [])]})
 
 async def mini_admin_data(request):
     if not mini_admin_guard(request): return web.json_response({"error": "Forbidden"}, status=403)
@@ -620,12 +615,11 @@ async def mini_admin_data(request):
     orders = await db_exec("SELECT COUNT(*) as c FROM orders", fetch="one")
     pending_wd = await db_exec("SELECT COUNT(*) as c FROM withdrawals WHERE status='PENDING'", fetch="one")
     bs_count = await db_exec("SELECT COUNT(*) as c FROM basha_numbers", fetch="one")
-    
     wd_list = await db_exec("SELECT w.id, w.user_id, w.amount_milli, w.wallet_ton, u.first_name FROM withdrawals w JOIN users u ON u.user_id=w.user_id WHERE w.status='PENDING' ORDER BY w.id DESC LIMIT 20", fetch="all")
-    
     return web.json_response({
         "stats": {"users": users["c"], "orders": orders["c"], "pending_wd": pending_wd["c"], "bs_count": bs_count["c"]},
-        "withdrawals": [{"id": r["id"], "user_id": r["user_id"], "amount": r["amount_milli"], "wallet": r["wallet_ton"], "name": r["first_name"]} for r in wd_list] if wd_list else []
+        "withdrawals": [{"id": r["id"], "user_id": r["user_id"], "amount": r["amount_milli"], "wallet": r["wallet_ton"], "name": r["first_name"]} for r in wd_list] if wd_list else [],
+        "maintenance": await get_setting("maintenance", "off")
     })
 
 async def mini_admin_users(request):
@@ -637,29 +631,22 @@ async def mini_admin_user_detail(request):
     if not mini_admin_guard(request): return web.json_response({"error": "Forbidden"}, status=403)
     uid = int(request.match_info["uid"])
     page = int(request.query.get("page", "1"))
-    
     u = await db_exec("SELECT user_id, first_name, username, usd_milli, joined_at FROM users WHERE user_id=?", (uid,), fetch="one")
     if not u: return web.json_response({"error": "User not found"}, status=404)
-    
     total_res = await db_exec("SELECT COUNT(*) as c FROM orders WHERE user_id=?", (uid,), fetch="one")
     total = total_res["c"] if total_res else 0
     total_pages = max(1, (total + HISTORY_PAGE_SIZE - 1) // HISTORY_PAGE_SIZE)
     if page > total_pages: page = total_pages
     offset = (page - 1) * HISTORY_PAGE_SIZE
-    
     orders = await db_exec("SELECT id, provider, phone, status, created_at FROM orders WHERE user_id=? ORDER BY id DESC LIMIT ? OFFSET ?", (uid, HISTORY_PAGE_SIZE, offset), fetch="all")
-    
-    # Thống kê provider
     stats = await db_exec("SELECT provider, COUNT(*) as c FROM orders WHERE user_id=? GROUP BY provider", (uid,), fetch="all")
     s_map = {"MK": 0, "NP": 0, "BASHA": 0, "SLVN": 0}
     for s in (stats or []): s_map[s["provider"]] = s["c"]
-    
     return web.json_response({
         "user": {"id": u["user_id"], "name": u["first_name"], "username": u["username"], "balance": u["usd_milli"], "joined": u["joined_at"]},
         "stats": s_map,
         "orders": [{"id": r["id"], "provider": r["provider"], "phone": r["phone"], "status": r["status"], "date": r["created_at"]} for r in (orders or [])],
-        "current_page": page,
-        "total_pages": total_pages
+        "current_page": page, "total_pages": total_pages
     })
 
 async def mini_admin_cmd(request):
@@ -671,23 +658,61 @@ async def mini_admin_cmd(request):
         if cmd == "pollnow":
             if not _mk_poller: return web.json_response({"error": "Poller not running"})
             c, n, err = await _mk_poller._poll_once()
-            return web.json_response({"ok": True, "msg": f"Checked {c}, New OTPs: {n}, Err: {err}"})
+            if err: return web.json_response({"error": "Lỗi khi Poll OTP. Kiểm tra lại API Key."})
+            return web.json_response({"ok": True, "msg": f"Checked: {c} đơn.\nNew OTPs: {n}\nTrạng thái: OK"})
         elif cmd == "health":
             pending = await db_exec("SELECT COUNT(*) FROM orders WHERE status='PENDING'", fetch='one')
             poller = "OFF" if not _mk_poller else f"ON ({_mk_poller.interval}s, err={_mk_poller._consecutive_errors})"
-            return web.json_response({"ok": True, "msg": f"DB: Turso Cloud\nMK Key: {'OK' if MK_API_KEY else 'MISSING'}\nNP Key: {'OK' if NP_API_KEY else 'MISSING'}\nPending: {pending[0] if pending else 0}\nPoller: {poller}"})
+            mk_status = "OK" if MK_API_KEY else "MISSING"
+            np_status = "OK" if NP_API_KEY else "MISSING"
+            return web.json_response({"ok": True, "msg": f"DB: Turso\nMK Key: {mk_status}\nNP Key: {np_status}\nPending Orders: {pending[0] if pending else 0}\nPoller: {poller}"})
         elif cmd == "whoami":
             data, err = await api_request("GET", "whoami")
-            return web.json_response({"ok": True, "msg": fmt_api(data) if not err else err})
+            return web.json_response({"ok": True, "msg": err if err else json.dumps(data, indent=2, ensure_ascii=False)})
         elif cmd == "testnp":
             data, err = await api_request("GET", "services", api_type="NP")
-            return web.json_response({"ok": True, "msg": json.dumps(data, indent=2)[:1000] if not err else err})
+            return web.json_response({"ok": True, "msg": err if err else json.dumps(data, indent=2, ensure_ascii=False)[:1000]})
         elif cmd == "radar":
             data, err = await api_request("GET", "radar", params={"limit": 10}, api_type="MK")
-            return web.json_response({"ok": True, "msg": json.dumps(data, indent=2)[:2000] if not err else err})
+            return web.json_response({"ok": True, "msg": err if err else json.dumps(data, indent=2, ensure_ascii=False)[:2000]})
         return web.json_response({"error": "Unknown command"})
     except Exception as e:
-        return web.json_response({"error": str(e)}, status=500)
+        return web.json_response({"error": f"Lỗi thực thi: {str(e)}"}, status=500)
+
+async def mini_admin_maintenance(request):
+    if not mini_admin_guard(request): return web.json_response({"error": "Forbidden"}, status=403)
+    body = await request.json()
+    action = body.get("action")
+    
+    if action == "on":
+        await set_setting("maintenance", "off")
+        return web.json_response({"ok": True, "msg": "Đã TẮT bảo trì. Bot hoạt động bình thường."})
+    elif action == "off":
+        message = body.get("message", "")
+        image_b64 = body.get("image_b64", "")
+        await set_setting("maintenance", "on")
+        
+        users = await db_exec("SELECT user_id FROM users", fetch="all")
+        sent = 0
+        photo_bytes = None
+        if image_b64:
+            try:
+                header, encoded = image_b64.split(",", 1)
+                photo_bytes = base64.b64decode(encoded)
+            except: pass
+            
+        for row in users or []:
+            try:
+                if photo_bytes:
+                    photo = BufferedInputFile(photo_bytes, filename="maintenance.jpg")
+                    await bot.send_photo(row["user_id"], photo=photo, caption=f"🛠 <b>THÔNG BÁO BẢO TRÌ</b>\n\n{message}")
+                else:
+                    await bot.send_message(row["user_id"], f"🛠 <b>THÔNG BÁO BẢO TRÌ</b>\n\n{message}")
+                sent += 1
+            except: pass
+            await asyncio.sleep(0.05)
+            
+        return web.json_response({"ok": True, "msg": f"Đã BẬT bảo trì. Đã gửi thông báo đến {sent} user."})
 
 async def mini_admin_bs_add(request):
     if not mini_admin_guard(request): return web.json_response({"error": "Forbidden"}, status=403)
@@ -728,13 +753,6 @@ async def mini_admin_wd_action(request):
         await change_usd(uid, amt, "WITHDRAW_REFUND", f"Refund #{wid}")
         return web.json_response({"ok": True})
 
-def fmt_api(d):
-    if not d: return "No data"
-    return json.dumps(d, indent=2, ensure_ascii=False, default=str)[:3500]
-
-# =====================================================
-# EMBEDDED MINI APP FRONTEND
-# =====================================================
 MINIAPP_HTML = """
 <!DOCTYPE html>
 <html lang="vi">
@@ -747,87 +765,40 @@ MINIAPP_HTML = """
         @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
 
         :root {
-            --bg: #0B1120;
-            --surface: rgba(30, 41, 59, 0.7);
-            --surface-hover: rgba(51, 65, 85, 0.8);
-            --primary: #3b82f6;
-            --primary-gradient: linear-gradient(135deg, #3b82f6, #8b5cf6);
-            --success: #10b981;
-            --danger: #ef4444;
-            --warning: #f59e0b;
-            --text: #f8fafc;
-            --text-muted: #94a3b8;
-            --border: rgba(255, 255, 255, 0.1);
-            --radius: 16px;
-            --shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-            --glass-blur: blur(12px);
+            --bg: #0B1120; --surface: rgba(30, 41, 59, 0.7); --surface-hover: rgba(51, 65, 85, 0.8);
+            --primary: #3b82f6; --primary-gradient: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            --success: #10b981; --danger: #ef4444; --warning: #f59e0b;
+            --text: #f8fafc; --text-muted: #94a3b8; --border: rgba(255, 255, 255, 0.1);
+            --radius: 16px; --shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37); --glass-blur: blur(12px);
         }
-
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Outfit', sans-serif; -webkit-tap-highlight-color: transparent; }
-        body { 
-            background-color: var(--bg); 
-            background-image: radial-gradient(circle at 10% 20%, rgba(59, 130, 246, 0.15) 0%, transparent 20%), radial-gradient(circle at 90% 80%, rgba(139, 92, 246, 0.15) 0%, transparent 20%);
-            color: var(--text); padding-bottom: 80px; overflow-x: hidden; min-height: 100vh;
-        }
+        body { background-color: var(--bg); background-image: radial-gradient(circle at 10% 20%, rgba(59, 130, 246, 0.15) 0%, transparent 20%), radial-gradient(circle at 90% 80%, rgba(139, 92, 246, 0.15) 0%, transparent 20%); color: var(--text); padding-bottom: 80px; overflow-x: hidden; min-height: 100vh; }
         button { cursor: pointer; font-family: inherit; border: none; outline: none; }
 
-        #custom-modal {
-            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-            background: rgba(0,0,0,0.7); backdrop-filter: blur(5px); z-index: 9999;
-            display: none; justify-content: center; align-items: center; padding: 20px;
-        }
+        #custom-modal { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); backdrop-filter: blur(5px); z-index: 9999; display: none; justify-content: center; align-items: center; padding: 20px; }
         #custom-modal.open { display: flex; }
-        .modal-content {
-            background: var(--bg); border: 1px solid var(--border); border-radius: 20px;
-            padding: 24px; width: 100%; max-width: 340px; text-align: center;
-            box-shadow: var(--shadow); animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-        }
+        .modal-content { background: var(--bg); border: 1px solid var(--border); border-radius: 20px; padding: 24px; width: 100%; max-width: 340px; text-align: center; box-shadow: var(--shadow); animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
         @keyframes popIn { from { transform: scale(0.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
         .modal-title { font-size: 20px; font-weight: 700; margin-bottom: 10px; color: var(--text); }
         .modal-msg { font-size: 15px; color: var(--text-muted); margin-bottom: 24px; line-height: 1.5; white-space: pre-wrap;}
         .modal-actions { display: flex; gap: 12px; }
         .modal-actions button { flex: 1; padding: 14px; border-radius: 12px; font-weight: 600; font-size: 15px; }
 
-        .sidebar {
-            position: fixed; top: 0; left: -300px; width: 300px; height: 100vh;
-            background: rgba(15, 23, 42, 0.95); backdrop-filter: var(--glass-blur);
-            z-index: 1000; transition: 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-            box-shadow: 4px 0 24px rgba(0,0,0,0.5); display: flex; flex-direction: column;
-            border-right: 1px solid var(--border);
-        }
+        .sidebar { position: fixed; top: 0; left: -300px; width: 300px; height: 100vh; background: rgba(15, 23, 42, 0.95); backdrop-filter: var(--glass-blur); z-index: 1000; transition: 0.4s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 4px 0 24px rgba(0,0,0,0.5); display: flex; flex-direction: column; border-right: 1px solid var(--border); }
         .sidebar.open { left: 0; }
-        .overlay {
-            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-            background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); z-index: 999; display: none;
-            opacity: 0; transition: opacity 0.3s;
-        }
+        .overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); z-index: 999; display: none; opacity: 0; transition: opacity 0.3s; }
         .overlay.open { display: block; opacity: 1; }
-        
         .sidebar-header { padding: 30px 20px; border-bottom: 1px solid var(--border); text-align: center; }
         .sidebar-header h2 { background: var(--primary-gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-size: 24px; font-weight: 700; }
         .sidebar-user { font-size: 13px; color: var(--text-muted); margin-top: 5px; }
-        
         .sidebar-menu { flex: 1; padding: 20px 10px; overflow-y: auto; }
-        .menu-item {
-            display: flex; align-items: center; padding: 15px 20px;
-            color: var(--text-muted); text-decoration: none; transition: 0.2s;
-            font-weight: 500; font-size: 16px; border-radius: 12px; margin-bottom: 5px;
-        }
+        .menu-item { display: flex; align-items: center; padding: 15px 20px; color: var(--text-muted); text-decoration: none; transition: 0.2s; font-weight: 500; font-size: 16px; border-radius: 12px; margin-bottom: 5px; }
         .menu-item:hover, .menu-item.active { background: var(--surface-hover); color: var(--text); }
         .menu-item .icon { margin-right: 15px; font-size: 22px; }
         .menu-admin { border-top: 1px solid var(--border); margin-top: 10px; padding-top: 10px; color: var(--danger); }
 
-        .top-bar {
-            display: flex; align-items: center; padding: 15px 20px;
-            background: rgba(15, 23, 42, 0.8); backdrop-filter: var(--glass-blur);
-            position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border);
-        }
-        .menu-btn { 
-            background: var(--surface); border: 1px solid var(--border); font-size: 20px; 
-            color: var(--text); margin-right: 15px; width: 40px; height: 40px; 
-            border-radius: 10px; display: flex; align-items: center; justify-content: center;
-            transition: 0.2s;
-        }
+        .top-bar { display: flex; align-items: center; padding: 15px 20px; background: rgba(15, 23, 42, 0.8); backdrop-filter: var(--glass-blur); position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); }
+        .menu-btn { background: var(--surface); border: 1px solid var(--border); font-size: 20px; color: var(--text); margin-right: 15px; width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; transition: 0.2s; }
         .menu-btn:active { transform: scale(0.9); }
         .page-title { font-size: 20px; font-weight: 700; color: var(--text); flex: 1; text-align: center; padding-right: 55px;}
 
@@ -836,19 +807,9 @@ MINIAPP_HTML = """
         .view.active { display: block; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
 
-        .card {
-            background: var(--surface); backdrop-filter: var(--glass-blur);
-            border-radius: var(--radius); padding: 20px; margin-bottom: 20px;
-            box-shadow: var(--shadow); border: 1px solid var(--border);
-        }
-        
-        .balance-card {
-            background: var(--primary-gradient); border: none; position: relative; overflow: hidden;
-        }
-        .balance-card::before {
-            content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
-            background: radial-gradient(circle, rgba(255,255,255,0.2) 0%, transparent 60%); opacity: 0.5;
-        }
+        .card { background: var(--surface); backdrop-filter: var(--glass-blur); border-radius: var(--radius); padding: 20px; margin-bottom: 20px; box-shadow: var(--shadow); border: 1px solid var(--border); }
+        .balance-card { background: var(--primary-gradient); border: none; position: relative; overflow: hidden; }
+        .balance-card::before { content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: radial-gradient(circle, rgba(255,255,255,0.2) 0%, transparent 60%); opacity: 0.5; }
         .balance-title { font-size: 15px; color: rgba(255,255,255,0.8); font-weight: 500; }
         .balance-amount { font-size: 36px; font-weight: 700; color: #fff; margin-top: 5px; text-shadow: 0 2px 10px rgba(0,0,0,0.2); }
         
@@ -859,65 +820,35 @@ MINIAPP_HTML = """
 
         .form-group { margin-bottom: 15px; }
         .form-label { display: block; font-size: 14px; color: var(--text-muted); margin-bottom: 8px; font-weight: 500; }
-        .form-control {
-            width: 100%; padding: 14px 16px; border-radius: 12px;
-            background: rgba(15, 23, 42, 0.6); color: var(--text); border: 1px solid var(--border);
-            font-size: 16px; transition: 0.2s; outline: none;
-        }
+        .form-control { width: 100%; padding: 14px 16px; border-radius: 12px; background: rgba(15, 23, 42, 0.6); color: var(--text); border: 1px solid var(--border); font-size: 16px; transition: 0.2s; outline: none; }
         .form-control:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2); }
         
-        .btn {
-            width: 100%; padding: 15px; border-radius: 12px; font-size: 16px;
-            font-weight: 600; display: flex; justify-content: center; align-items: center;
-            gap: 8px; transition: 0.2s; margin-top: 10px; color: #fff;
-        }
+        .btn { width: 100%; padding: 15px; border-radius: 12px; font-size: 16px; font-weight: 600; display: flex; justify-content: center; align-items: center; gap: 8px; transition: 0.2s; margin-top: 10px; color: #fff; }
         .btn:active { transform: scale(0.97); }
         .btn-primary { background: var(--primary-gradient); box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3); }
         .btn-success { background: var(--success); box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3); }
         .btn-danger { background: var(--danger); box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3); }
         .btn-outline { background: transparent; border: 1px solid var(--border); }
         
-        .order-card {
-            background: var(--surface); border-radius: var(--radius); padding: 16px;
-            margin-bottom: 15px; border: 1px solid var(--border);
-            position: relative; overflow: hidden; transition: 0.3s;
-        }
+        .order-card { background: var(--surface); border-radius: var(--radius); padding: 16px; margin-bottom: 15px; border: 1px solid var(--border); position: relative; overflow: hidden; transition: 0.3s; }
         .order-card.pending { border-left: 4px solid var(--warning); }
         .order-card.completed { border-left: 4px solid var(--success); background: rgba(16, 185, 129, 0.05); }
         .order-card.expired { border-left: 4px solid var(--danger); opacity: 0.6; }
-        
         .order-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
         .order-phone { font-size: 18px; font-weight: 700; color: var(--text); letter-spacing: 0.5px; }
-        .order-badge { 
-            font-size: 12px; padding: 4px 10px; border-radius: 20px; font-weight: 600; 
-            background: rgba(255,255,255,0.1); display: flex; align-items: center; gap: 5px;
-        }
-        
+        .order-badge { font-size: 12px; padding: 4px 10px; border-radius: 20px; font-weight: 600; background: rgba(255,255,255,0.1); display: flex; align-items: center; gap: 5px; }
         .order-info { display: flex; gap: 15px; font-size: 13px; color: var(--text-muted); margin-bottom: 15px; flex-wrap: wrap;}
         .order-info span { display: flex; align-items: center; gap: 5px; }
-        
-        .otp-box {
-            background: rgba(15, 23, 42, 0.8); padding: 12px; border-radius: 10px;
-            display: flex; justify-content: space-between; align-items: center;
-            margin-bottom: 12px; border: 1px dashed rgba(16, 185, 129, 0.5);
-        }
+        .otp-box { background: rgba(15, 23, 42, 0.8); padding: 12px; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border: 1px dashed rgba(16, 185, 129, 0.5); }
         .otp-code { font-size: 22px; font-weight: 700; color: var(--success); letter-spacing: 3px; font-family: monospace;}
         
         .action-row { display: flex; gap: 10px; margin-top: 10px; }
-        .btn-small {
-            flex: 1; padding: 10px; border-radius: 8px; font-size: 14px; font-weight: 600;
-            display: flex; justify-content: center; align-items: center; gap: 5px; color: #fff;
-        }
+        .btn-small { flex: 1; padding: 10px; border-radius: 8px; font-size: 14px; font-weight: 600; display: flex; justify-content: center; align-items: center; gap: 5px; color: #fff; }
         .btn-small.copy { background: rgba(255,255,255,0.1); }
         .btn-small.cancel { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
         
         .list-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-        .list-btn {
-            background: var(--surface); border: 1px solid var(--border);
-            padding: 14px; border-radius: 12px; text-align: left;
-            color: var(--text); font-size: 14px; display: flex; flex-direction: column; gap: 6px;
-            transition: 0.2s;
-        }
+        .list-btn { background: var(--surface); border: 1px solid var(--border); padding: 14px; border-radius: 12px; text-align: left; color: var(--text); font-size: 14px; display: flex; flex-direction: column; gap: 6px; transition: 0.2s; }
         .list-btn:hover { background: var(--surface-hover); border-color: var(--primary); }
         .list-btn .name { font-weight: 600; display: flex; align-items: center; gap: 8px; font-size: 15px;}
         .list-btn .count { font-size: 12px; color: var(--text-muted); text-align: right; }
@@ -927,17 +858,8 @@ MINIAPP_HTML = """
         .pagination button:disabled { opacity: 0.3; cursor: not-allowed; }
         .pagination span { flex: 1; text-align: center; font-size: 14px; color: var(--text-muted); font-weight: 500; }
 
-        .bottom-nav {
-            position: fixed; bottom: 0; left: 0; width: 100%; height: 70px;
-            background: rgba(15, 23, 42, 0.9); backdrop-filter: var(--glass-blur);
-            display: flex; justify-content: space-around; align-items: center; 
-            border-top: 1px solid var(--border); z-index: 100;
-        }
-        .nav-item {
-            display: flex; flex-direction: column; align-items: center;
-            color: var(--text-muted); font-size: 11px; gap: 4px; background: none;
-            transition: 0.2s; width: 25%; font-weight: 500;
-        }
+        .bottom-nav { position: fixed; bottom: 0; left: 0; width: 100%; height: 70px; background: rgba(15, 23, 42, 0.9); backdrop-filter: var(--glass-blur); display: flex; justify-content: space-around; align-items: center; border-top: 1px solid var(--border); z-index: 100; }
+        .nav-item { display: flex; flex-direction: column; align-items: center; color: var(--text-muted); font-size: 11px; gap: 4px; background: none; transition: 0.2s; width: 25%; font-weight: 500; }
         .nav-item .icon { font-size: 24px; transition: 0.2s; }
         .nav-item.active { color: var(--primary); }
         .nav-item.active .icon { transform: translateY(-3px); }
@@ -946,18 +868,18 @@ MINIAPP_HTML = """
         .spinner { border: 3px solid rgba(255,255,255,0.1); border-top-color: var(--primary); border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 0 auto 15px; }
         @keyframes spin { to { transform: rotate(360deg); } }
         
-        #toast {
-            position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%) translateY(20px);
-            background: var(--surface); backdrop-filter: var(--glass-blur);
-            color: white; padding: 12px 24px; border-radius: 30px; font-weight: 500;
-            border: 1px solid var(--border); box-shadow: var(--shadow);
-            opacity: 0; transition: 0.3s; z-index: 2000; pointer-events: none;
-        }
+        #toast { position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--surface); backdrop-filter: var(--glass-blur); color: white; padding: 12px 24px; border-radius: 30px; font-weight: 500; border: 1px solid var(--border); box-shadow: var(--shadow); opacity: 0; transition: 0.3s; z-index: 2000; pointer-events: none; }
         #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
         .admin-tabs { display: flex; overflow-x: auto; gap: 8px; margin-bottom: 15px; padding-bottom: 5px; }
         .admin-tab { padding: 8px 16px; border-radius: 20px; background: var(--surface); color: var(--text-muted); white-space: nowrap; font-size: 14px; }
         .admin-tab.active { background: var(--primary); color: white; }
+        
+        /* MAINTENANCE STYLES */
+        .maint-toggle { display: flex; gap: 10px; margin-bottom: 20px; }
+        .maint-btn { flex: 1; padding: 15px; border-radius: 12px; font-weight: 700; font-size: 16px; background: var(--surface); color: var(--text-muted); border: 2px solid transparent; }
+        .maint-btn.on { background: rgba(16, 185, 129, 0.2); border-color: var(--success); color: var(--success); }
+        .maint-btn.off { background: rgba(239, 68, 68, 0.2); border-color: var(--danger); color: var(--danger); }
     </style>
 </head>
 <body>
@@ -1088,7 +1010,7 @@ MINIAPP_HTML = """
         <!-- STATS -->
         <div id="view-stats" class="view">
             <div class="card">
-                <div class="form-label" style="font-size: 16px; color: var(--text); margin-bottom: 15px;">📊 THỐNG KÊ HÔM NAY</div>
+                <div class="form-label" style="font-size: 16px; color: var(--text); margin-bottom: 15px;">📊 THỐNG KÊ HÔM NAY <span style="font-size: 12px; color: var(--success);" id="stats-realtime-indicator">● Real-time</span></div>
                 <div class="stats-grid">
                     <div class="stat-box">
                         <div class="label">Tổng OTP</div>
@@ -1146,6 +1068,7 @@ MINIAPP_HTML = """
                 <button class="admin-tab" onclick="switchAdminTab('withdraw')">Rút tiền</button>
                 <button class="admin-tab" onclick="switchAdminTab('bs')">Số BS</button>
                 <button class="admin-tab" onclick="switchAdminTab('cmds')">Commands</button>
+                <button class="admin-tab" onclick="switchAdminTab('maint')">Bảo trì</button>
             </div>
 
             <div id="admin-tab-overview" class="admin-tab-content">
@@ -1217,6 +1140,27 @@ MINIAPP_HTML = """
                     <div id="cmd-output" style="margin-top: 15px; background: #000; padding: 10px; border-radius: 8px; font-family: monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all; min-height: 50px;"></div>
                 </div>
             </div>
+
+            <div id="admin-tab-maint" class="admin-tab-content" style="display: none;">
+                <div class="card">
+                    <div class="form-label">🛠 Trạng thái hệ thống</div>
+                    <div class="maint-toggle">
+                        <button id="btn-maint-on" class="maint-btn" onclick="toggleMaintenance('on')">🟢 ON (Hoạt động)</button>
+                        <button id="btn-maint-off" class="maint-btn" onclick="toggleMaintenance('off')">🔴 OFF (Bảo trì)</button>
+                    </div>
+                </div>
+                <div class="card" id="maint-form-container" style="display: none;">
+                    <div class="form-label">📝 Nội dung thông báo</div>
+                    <div style="display:flex; gap:5px; margin-bottom:10px;">
+                        <button class="btn-small copy" onclick="setMaintTemplate(1)">Mẫu 1</button>
+                        <button class="btn-small copy" onclick="setMaintTemplate(2)">Mẫu 2</button>
+                    </div>
+                    <textarea class="form-control" id="maint-msg" rows="4" placeholder="Nhập thông báo bảo trì..."></textarea>
+                    <div class="form-label" style="margin-top:10px;">🖼 Ảnh đính kèm (Tùy chọn)</div>
+                    <input type="file" id="maint-image" class="form-control" accept="image/*">
+                    <button class="btn btn-danger" style="margin-top:15px;" onclick="submitMaintenance()">Xác nhận BẢO TRÌ & Gửi thông báo</button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -1235,23 +1179,18 @@ MINIAPP_HTML = """
 
         let userData = null;
         let autoRefreshInterval = null;
+        let statsRefreshInterval = null;
         let currentHistoryPage = 1;
         let totalHistoryPages = 1;
         let currentLang = 'vi';
         let currentAdminUid = null;
         let currentUserDetailPage = 1;
         let totalUserDetailPages = 1;
+        let currentMaintState = "off";
 
         const translations = {
             vi: { home: "Trang chủ", buy: "Mua Số OTP", history: "Lịch sử", wallet: "Ví & Rút Tiền", leaderboard: "Bảng Xếp Hạng", stats: "Thống Kê", profile: "Hồ Sơ", admin: "ADMIN PANEL", balance: "Số dư khả dụng", today_otp: "OTP Hôm Nay", total_orders: "Tổng Đơn", active_orders: "⏳ Đơn Đang Chờ", select_source: "Chọn Nguồn Số", ton_wallet: "💵 Ví TON", save_address: "Lưu Địa Chỉ", withdraw: "💰 Rút Tiền", withdraw_all: "⚡ Rút Toàn Bộ (Phí $0.1)", send_request: "Gửi Yêu Cầu", invite_friends: "💌 Mời Bạn Bè", copy_link: "📋 Sao Chép Link", top_10: "🏆 TOP 10 CAO THỦ", your_profile: "👤 HỒ SƠ CỦA BẠN", language: "🌐 Ngôn Ngữ (Language)", users: "Người dùng", orders: "Đơn hàng", approve_wd: "💸 Duyệt Rút Tiền", add_bs: "➕ Thêm Số BS", add_number: "Thêm Số", buy_short: "Mua số", wallet_short: "Ví", prev_page: "← Trang trước", next_page: "Trang sau →", total_otp: "Tổng OTP đã nhận", joined: "Ngày tham gia", name: "Tên", balance_label: "Số dư" },
-            en: { home: "Home", buy: "Buy OTP Number", history: "History", wallet: "Wallet & Withdraw", leaderboard: "Leaderboard", stats: "Statistics", profile: "Profile", admin: "ADMIN PANEL", balance: "Available Balance", today_otp: "Today's OTP", total_orders: "Total Orders", active_orders: "⏳ Active Orders", select_source: "Select Source", ton_wallet: "💵 TON Wallet", save_address: "Save Address", withdraw: "💰 Withdraw", withdraw_all: "⚡ Withdraw All (Fee $0.1)", send_request: "Send Request", invite_friends: "💌 Invite Friends", copy_link: "📋 Copy Link", top_10: "🏆 TOP 10 PLAYERS", your_profile: "👤 YOUR PROFILE", language: "🌐 Language", users: "Users", orders: "Orders", approve_wd: "💸 Approve Withdrawals", add_bs: "➕ Add BS Numbers", add_number: "Add Number", buy_short: "Buy", wallet_short: "Wallet", prev_page: "← Prev", next_page: "Next →", total_otp: "Total OTPs Received", joined: "Joined", name: "Name", balance_label: "Balance" },
-            es: { home: "Inicio", buy: "Comprar Número OTP", history: "Historial", wallet: "Cartera y Retiro", leaderboard: "Clasificación", stats: "Estadísticas", profile: "Perfil", admin: "PANEL DE ADMIN", balance: "Saldo Disponible", today_otp: "OTP de Hoy", total_orders: "Pedidos Totales", active_orders: "⏳ Pedidos Activos", select_source: "Seleccionar Fuente", ton_wallet: "💵 Cartera TON", save_address: "Guardar Dirección", withdraw: "💰 Retirar", withdraw_all: "⚡ Retirar Todo (Tarifa $0.1)", send_request: "Enviar Solicitud", invite_friends: "💌 Invitar Amigos", copy_link: "📋 Copiar Enlace", top_10: "🏆 TOP 10 JUGADORES", your_profile: "👤 TU PERFIL", language: "🌐 Idioma", users: "Usuarios", orders: "Pedidos", approve_wd: "💸 Aprobar Retiros", add_bs: "➕ Agregar Números BS", add_number: "Agregar Número", buy_short: "Comprar", wallet_short: "Cartera", prev_page: "← Anterior", next_page: "Siguiente →", total_otp: "Total de OTP recibidos", joined: "Unido", name: "Nombre", balance_label: "Saldo" },
-            ja: { home: "ホーム", buy: "OTP番号を購入", history: "履歴", wallet: "ウォレットと引き出し", leaderboard: "ランキング", stats: "統計", profile: "プロフィール", admin: "管理者パネル", balance: "利用可能残高", today_otp: "今日のOTP", total_orders: "総注文数", active_orders: "⏳ アクティブな注文", select_source: "ソースを選択", ton_wallet: "💵 TONウォレット", save_address: "アドレスを保存", withdraw: "💰 引き出し", withdraw_all: "⚡ 全て引き出す (手数料 $0.1)", send_request: "リクエストを送信", invite_friends: "💌 友達を招待", copy_link: "📋 リンクをコピー", top_10: "🏆 トップ10プレイヤー", your_profile: "👤 あなたのプロフィール", language: "🌐 言語", users: "ユーザー", orders: "注文", approve_wd: "💸 引き出しを承認", add_bs: "➕ BS番号を追加", add_number: "番号を追加", buy_short: "購入", wallet_short: "ウォレット", prev_page: "← 前へ", next_page: "次へ →", total_otp: "受け取ったOTPの合計", joined: "参加日", name: "名前", balance_label: "残高" },
-            it: { home: "Home", buy: "Acquista Numero OTP", history: "Cronologia", wallet: "Portafoglio e Prelievo", leaderboard: "Classifica", stats: "Statistiche", profile: "Profilo", admin: "PANNELLO ADMIN", balance: "Saldo Disponibile", today_otp: "OTP di Oggi", total_orders: "Ordini Totali", active_orders: "⏳ Ordini Attivi", select_source: "Seleziona Fonte", ton_wallet: "💵 Portafoglio TON", save_address: "Salva Indirizzo", withdraw: "💰 Prelievo", withdraw_all: "⚡ Preleva Tutto (Costo $0.1)", send_request: "Invia Richiesta", invite_friends: "💌 Invita Amici", copy_link: "📋 Copia Link", top_10: "🏆 TOP 10 GIOCATORI", your_profile: "👤 IL TUO PROFILO", language: "🌐 Lingua", users: "Utenti", orders: "Ordini", approve_wd: "💸 Approva Prelievi", add_bs: "➕ Aggiungi Numeri BS", add_number: "Aggiungi Numero", buy_short: "Acquista", wallet_short: "Portafoglio", prev_page: "← Precedente", next_page: "Successivo →", total_otp: "Totale OTP ricevuti", joined: "Iscritto", name: "Nome", balance_label: "Saldo" },
-            uk: { home: "Головна", buy: "Купити номер OTP", history: "Історія", wallet: "Гаманець і виведення", leaderboard: "Рейтинг", stats: "Статистика", profile: "Профіль", admin: "АДМІН ПАНЕЛЬ", balance: "Доступний баланс", today_otp: "OTP сьогодні", total_orders: "Всього замовлень", active_orders: "⏳ Активні замовлення", select_source: "Вибрати джерело", ton_wallet: "💵 Гаманець TON", save_address: "Зберегти адресу", withdraw: "💰 Вивести", withdraw_all: "⚡ Вивести все (Комісія $0.1)", send_request: "Надіслати запит", invite_friends: "💌 Запросити друзів", copy_link: "📋 Копіювати посилання", top_10: "🏆 ТОП 10 ГРАВЦІВ", your_profile: "👤 ВАШ ПРОФІЛЬ", language: "🌐 Мова", users: "Користувачі", orders: "Замовлення", approve_wd: "💸 Схвалити виведення", add_bs: "➕ Додати номери BS", add_number: "Додати номер", buy_short: "Купити", wallet_short: "Гаманець", prev_page: "← Попередня", next_page: "Наступна →", total_otp: "Всього отримано OTP", joined: "Приєднався", name: "Ім'я", balance_label: "Баланс" },
-            km: { home: "ទំព័រដើម", buy: "ទិញលេខ OTP", history: "ប្រវត្តិ", wallet: "កាបូប និងដកប្រាក់", leaderboard: "តារាងចំណាត់ថ្នាក់", stats: "ស្ថិតិ", profile: "ប្រវត្តិរូប", admin: "ផ្ទាំងអ្នកគ្រប់គ្រង", balance: "សមតុល្យដែលមាន", today_otp: "OTP ថ្ងៃនេះ", total_orders: "ការបញ្ជាទិញសរុប", active_orders: "⏳ ការបញ្ជាទិញសកម្ម", select_source: "ជ្រើសរើសប្រភព", ton_wallet: "💵 កាបូប TON", save_address: "រក្សាទុកអាសយដ្ឋាន", withdraw: "💰 ដកប្រាក់", withdraw_all: "⚡ ដកទាំងអស់ (ថ្លៃសេវា $0.1)", send_request: "ផ្ញើសំណើ", invite_friends: "💌 អញ្ជើញមិត្តភក្តិ", copy_link: "📋 ចម្លងតំណ", top_10: "🏆 កំពូល 10 អ្នកលេង", your_profile: "👤 ប្រវត្តិរូបរបស់អ្នក", language: "🌐 ភាសា", users: "អ្នកប្រើប្រាស់", orders: "ការបញ្ជាទិញ", approve_wd: "💸 អនុម័តការដកប្រាក់", add_bs: "➕ បន្ថែមលេខ BS", add_number: "បន្ថែមលេខ", buy_short: "ទិញ", wallet_short: "កាបូប", prev_page: "← មុន", next_page: "បន្ទាប់ →", total_otp: "OTP សរុបដែលទទួលបាន", joined: "បានចូលរួម", name: "ឈ្មោះ", balance_label: "សមតុល្យ" },
-            hi: { home: "होम", buy: "OTP नंबर खरीदें", history: "इतिहास", wallet: "वॉलेट और निकासी", leaderboard: "लीडरबोर्ड", stats: "आंकड़े", profile: "प्रोफाइल", admin: "एडमिन पैनल", balance: "उपलब्ध बैलेंस", today_otp: "आज का OTP", total_orders: "कुल ऑर्डर", active_orders: "⏳ सक्रिय ऑर्डर", select_source: "स्रोत चुनें", ton_wallet: "💵 TON वॉलेट", save_address: "पता सहेजें", withdraw: "💰 निकासी", withdraw_all: "⚡ सब निकालें (शुल्क $0.1)", send_request: "अनुरोध भेजें", invite_friends: "💌 दोस्तों को आमंत्रित करें", copy_link: "📋 लिंक कॉपी करें", top_10: "🏆 टॉप 10 खिलाड़ी", your_profile: "👤 आपका प्रोफाइल", language: "🌐 भाषा", users: "उपयोगकर्ता", orders: "ऑर्डर", approve_wd: "💸 निकासी स्वीकृत करें", add_bs: "➕ BS नंबर जोड़ें", add_number: "नंबर जोड़ें", buy_short: "खरीदें", wallet_short: "वॉलेट", prev_page: "← पिछला", next_page: "अगला →", total_otp: "कुल प्राप्त OTP", joined: "शामिल हुए", name: "नाम", balance_label: "बैलेंस" },
-            id: { home: "Beranda", buy: "Beli Nomor OTP", history: "Riwayat", wallet: "Dompet & Tarik", leaderboard: "Papan Peringkat", stats: "Statistik", profile: "Profil", admin: "PANEL ADMIN", balance: "Saldo Tersedia", today_otp: "OTP Hari Ini", total_orders: "Total Pesanan", active_orders: "⏳ Pesanan Aktif", select_source: "Pilih Sumber", ton_wallet: "💵 Dompet TON", save_address: "Simpan Alamat", withdraw: "💰 Tarik", withdraw_all: "⚡ Tarik Semua (Biaya $0.1)", send_request: "Kirim Permintaan", invite_friends: "💌 Undang Teman", copy_link: "📋 Salin Tautan", top_10: "🏆 TOP 10 PEMAIN", your_profile: "👤 PROFIL ANDA", language: "🌐 Bahasa", users: "Pengguna", orders: "Pesanan", approve_wd: "💸 Setujui Penarikan", add_bs: "➕ Tambah Nomor BS", add_number: "Tambah Nomor", buy_short: "Beli", wallet_short: "Dompet", prev_page: "← Sebelumnya", next_page: "Berikutnya →", total_otp: "Total OTP Diterima", joined: "Bergabung", name: "Nama", balance_label: "Saldo" }
+            en: { home: "Home", buy: "Buy OTP Number", history: "History", wallet: "Wallet & Withdraw", leaderboard: "Leaderboard", stats: "Statistics", profile: "Profile", admin: "ADMIN PANEL", balance: "Available Balance", today_otp: "Today's OTP", total_orders: "Total Orders", active_orders: "⏳ Active Orders", select_source: "Select Source", ton_wallet: "💵 TON Wallet", save_address: "Save Address", withdraw: "💰 Withdraw", withdraw_all: "⚡ Withdraw All (Fee $0.1)", send_request: "Send Request", invite_friends: "💌 Invite Friends", copy_link: "📋 Copy Link", top_10: "🏆 TOP 10 PLAYERS", your_profile: "👤 YOUR PROFILE", language: "🌐 Language", users: "Users", orders: "Orders", approve_wd: "💸 Approve Withdrawals", add_bs: "➕ Add BS Numbers", add_number: "Add Number", buy_short: "Buy", wallet_short: "Wallet", prev_page: "← Prev", next_page: "Next →", total_otp: "Total OTPs Received", joined: "Joined", name: "Name", balance_label: "Balance" }
         };
 
         function applyLanguage(lang) {
@@ -1264,7 +1203,7 @@ MINIAPP_HTML = """
             document.getElementById('lang-select').value = lang;
             const activeViewId = document.querySelector('.view.active').id.replace('view-', '');
             document.getElementById('top-title').innerText = translations[lang][activeViewId] || activeViewId;
-            navTo(activeViewId); // Re-render view with new lang
+            navTo(activeViewId);
         }
 
         async function changeLanguage(lang) {
@@ -1314,7 +1253,7 @@ MINIAPP_HTML = """
                 const res = await fetch(path, opts);
                 const text = await res.text();
                 try { return JSON.parse(text); } 
-                catch(e) { return { error: 'Lỗi Server (HTML): ' + text.substring(0, 50) }; }
+                catch(e) { return { error: 'Lỗi Server: ' + text.substring(0, 50) }; }
             } catch (e) { return { error: 'Lỗi kết nối máy chủ!' }; }
         }
 
@@ -1342,7 +1281,7 @@ MINIAPP_HTML = """
             if (viewId === 'buy') renderBuyOptions();
             if (viewId === 'history') loadHistory(1);
             if (viewId === 'wallet') loadWallet();
-            if (viewId === 'stats') loadStats();
+            if (viewId === 'stats') { loadStats(); startStatsRefresh(); } else { stopStatsRefresh(); }
             if (viewId === 'leaderboard') loadLeaderboard();
             if (viewId === 'profile') loadProfile();
             if (viewId === 'admin') loadAdmin();
@@ -1361,6 +1300,7 @@ MINIAPP_HTML = """
             document.getElementById('side-user-info').innerText = 'ID: ' + data.user.id + ' | ' + data.user.first_name;
             document.getElementById('ton-address').value = data.user.wallet_ton || '';
             document.getElementById('ref-link').innerText = data.referral_link;
+            currentMaintState = data.maintenance || "off";
             
             if (data.is_admin) document.getElementById('menu-admin').style.display = 'flex';
             else document.getElementById('menu-admin').style.display = 'none';
@@ -1382,26 +1322,23 @@ MINIAPP_HTML = """
         async function loadStats() {
             const listC = document.getElementById('stats-countries-list');
             const listP = document.getElementById('stats-platforms-list');
-            listC.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
-            listP.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
             
             const data = await api('/api/mini/stats');
             if(data.error) {
                 listC.innerHTML = `<div style="color:var(--danger)">${data.error}</div>`;
                 listP.innerHTML = `<div style="color:var(--danger)">${data.error}</div>`;
-                return showToast(data.error);
+                return;
             }
 
             document.getElementById('stats-total-otps').innerText = data.total_otps;
 
             if(data.countries.length === 0) listC.innerHTML = '<div style="color:var(--text-muted);font-size:14px;">Chưa có dữ liệu hôm nay.</div>';
-            else listC.innerHTML = data.countries.map(c => {
-                let nets = c.networks.length > 0 ? `<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Nets: ${c.networks.join(', ')}</div>` : '';
-                return `<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);">
-                    <span>${c.flag} ${c.country}${nets}</span>
+            else listC.innerHTML = data.countries.map(c => `
+                <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);">
+                    <span>${c.flag} ${c.country}</span>
                     <b style="color:var(--primary);">${c.count}</b>
-                </div>`;
-            }).join('');
+                </div>
+            `).join('');
 
             if(data.platforms.length === 0) listP.innerHTML = '<div style="color:var(--text-muted);font-size:14px;">Chưa có dữ liệu hôm nay.</div>';
             else listP.innerHTML = data.platforms.map(p => `
@@ -1410,6 +1347,14 @@ MINIAPP_HTML = """
                     <b style="color:var(--success);">${p.count}</b>
                 </div>
             `).join('');
+        }
+
+        function startStatsRefresh() {
+            stopStatsRefresh();
+            statsRefreshInterval = setInterval(loadStats, 5000);
+        }
+        function stopStatsRefresh() {
+            if (statsRefreshInterval) clearInterval(statsRefreshInterval);
         }
 
         async function loadLeaderboard() {
@@ -1671,6 +1616,9 @@ MINIAPP_HTML = """
                     </div>
                 `).join('');
             }
+
+            currentMaintState = data.maintenance;
+            updateMaintUI();
         }
 
         function switchAdminTab(tab) {
@@ -1681,6 +1629,64 @@ MINIAPP_HTML = """
 
             if (tab === 'users') loadAdminUsers();
             if (tab === 'bs') loadAdminBs();
+            if (tab === 'maint') updateMaintUI();
+        }
+
+        function updateMaintUI() {
+            const btnOn = document.getElementById('btn-maint-on');
+            const btnOff = document.getElementById('btn-maint-off');
+            const form = document.getElementById('maint-form-container');
+            
+            if (currentMaintState === 'on') {
+                btnOn.classList.add('on');
+                btnOff.classList.remove('off');
+                form.style.display = 'none';
+            } else {
+                btnOff.classList.add('off');
+                btnOn.classList.remove('on');
+                form.style.display = 'block';
+            }
+        }
+
+        function toggleMaintenance(action) {
+            currentMaintState = (action === 'on') ? 'off' : 'on';
+            updateMaintUI();
+        }
+
+        function setMaintTemplate(id) {
+            const ta = document.getElementById('maint-msg');
+            if (id === 1) ta.value = "Hệ thống đang được bảo trì để nâng cấp. Vui lòng quay lại sau ít phút. Xin lỗi vì sự bất tiện này!";
+            if (id === 2) ta.value = "Server đang gặp sự cố kỹ thuật. Admin đang khắc phục. Vui lòng quay lại sau!";
+        }
+
+        async function submitMaintenance() {
+            const msg = document.getElementById('maint-msg').value;
+            if(!msg) return tg.showAlert("Vui lòng nhập thông báo!");
+            
+            const fileInput = document.getElementById('maint-image');
+            let b64 = "";
+            if(fileInput.files.length > 0) {
+                b64 = await new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => resolve(e.target.result);
+                    reader.readAsDataURL(fileInput.files[0]);
+                });
+            }
+            
+            const confirmed = await showCustomModal('Xác Nhận Bảo Trì', 'Hệ thống sẽ BẬT chế độ bảo trì và gửi thông báo đến toàn bộ user. Tiếp tục?');
+            if(!confirmed) return;
+
+            tg.showLoading();
+            const res = await api('/api/mini/admin/maintenance', 'POST', { action: 'off', message: msg, image_b64: b64 });
+            tg.hideLoading();
+            
+            if(res.ok) {
+                tg.showAlert(res.msg);
+                document.getElementById('maint-msg').value = '';
+                document.getElementById('maint-image').value = '';
+            } else {
+                tg.showAlert("Lỗi: " + res.error);
+            }
         }
 
         async function loadAdminUsers() {
@@ -1868,6 +1874,7 @@ async def web_server():
     app.router.add_get('/api/mini/admin/users', mini_admin_users)
     app.router.add_get('/api/mini/admin/users/{uid}', mini_admin_user_detail)
     app.router.add_post('/api/mini/admin/cmd', mini_admin_cmd)
+    app.router.add_post('/api/mini/admin/maintenance', mini_admin_maintenance)
     app.router.add_post('/api/mini/admin/withdraw/action', mini_admin_wd_action)
     app.router.add_post('/api/mini/admin/bs/add', mini_admin_bs_add)
     app.router.add_post('/api/mini/admin/bs/delete', mini_admin_bs_delete)
