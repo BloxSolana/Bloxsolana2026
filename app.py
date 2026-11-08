@@ -39,8 +39,8 @@ OTP_GROUP_ID   = int(os.getenv("OTP_GROUP_ID", "-1004341368656"))
 OTP_GROUP_URL  = "https://t.me/LIVEOTPIVAS"
 MAIN_CHANNEL_URL = "https://t.me/FastNode_1"
 
-# Cấu hình API Nguồn 1: MK Network
-MK_API_KEY     = os.getenv("MK_API_KEY", "").strip()
+# Cấu hình API Nguồn 1: MK Network (Đã tích hợp sẵn key của bro)
+MK_API_KEY     = os.getenv("MK_API_KEY", "badacaa33d287233567a49db").strip()
 MK_API_BASE    = "https://mknetworkbd.com/api/v3/public"
 
 # Cấu hình API Nguồn 2: Number Panel (NP)
@@ -83,9 +83,6 @@ db_executor = ThreadPoolExecutor(max_workers=DB_WORKERS)
 BOT_USERNAME = ""
 VN_TZ = timezone(timedelta(hours=7))
 started_at = time.time()
-
-# Biến toàn cục lưu trạng thái bảo trì
-BOT_MAINTENANCE = False
 
 class ErrorMiddleware(BaseMiddleware):
     async def __call__(self, handler, event, data):
@@ -491,24 +488,17 @@ async def mini_create_order(request):
     if provider == "MK":
         data, err = await api_request("POST", "getnum/number", {"range": body.get("range")})
         if err: return web.json_response({"error": err}, status=400)
-        def find_id(obj):
-            if isinstance(obj, dict):
-                for k, v in obj.items():
-                    if ("id" in str(k).lower() or "request" in str(k).lower()) and str(v).isdigit(): return str(v)
-                for v in obj.values():
-                    res = find_id(v)
-                    if res: return res
-            elif isinstance(obj, list):
-                for i in obj:
-                    res = find_id(i)
-                    if res: return res
-            return None
-        rid = find_id(data)
+        
+        # Parse dữ liệu chuẩn theo tài liệu API MK Network
+        inner_data = data.get("data", {})
+        rid = inner_data.get("request_id")
+        phone = inner_data.get("number") or inner_data.get("full_number") or "N/A"
+        country = inner_data.get("country") or body.get("country_name") or "Unknown"
+        
         if not rid: return web.json_response({"error": "API không trả về ID."}, status=400)
-        phone = data.get("data", {}).get("number") or data.get("number") or "N/A"
-        country = body.get("country_name") or "Unknown"
+        
         await db_exec("INSERT INTO orders (user_id, request_id, provider, phone, country, range_code, status, created_at, expires_at) VALUES (?, ?, 'MK', ?, ?, ?, 'PENDING', ?, ?)", 
-                      (uid, rid, str(phone), country, body.get("range"), now_text(), (now() + timedelta(minutes=15)).isoformat()))
+                      (uid, str(rid), str(phone), country, body.get("range"), now_text(), (now() + timedelta(minutes=15)).isoformat()))
         await clean_old_orders(uid)
         return web.json_response({"ok": True})
 
@@ -658,7 +648,7 @@ async def mini_admin_cmd(request):
         if cmd == "pollnow":
             if not _mk_poller: return web.json_response({"error": "Poller not running"})
             c, n, err = await _mk_poller._poll_once()
-            if err: return web.json_response({"error": "Lỗi khi Poll OTP. Kiểm tra lại API Key."})
+            if err: return web.json_response({"ok": True, "msg": f"Lỗi khi Poll OTP: {err}"})
             return web.json_response({"ok": True, "msg": f"Checked: {c} đơn.\nNew OTPs: {n}\nTrạng thái: OK"})
         elif cmd == "health":
             pending = await db_exec("SELECT COUNT(*) FROM orders WHERE status='PENDING'", fetch='one')
@@ -668,13 +658,16 @@ async def mini_admin_cmd(request):
             return web.json_response({"ok": True, "msg": f"DB: Turso\nMK Key: {mk_status}\nNP Key: {np_status}\nPending Orders: {pending[0] if pending else 0}\nPoller: {poller}"})
         elif cmd == "whoami":
             data, err = await api_request("GET", "whoami")
-            return web.json_response({"ok": True, "msg": err if err else json.dumps(data, indent=2, ensure_ascii=False)})
+            if err: return web.json_response({"ok": True, "msg": f"API Error: {err}"})
+            return web.json_response({"ok": True, "msg": json.dumps(data, indent=2, ensure_ascii=False)})
         elif cmd == "testnp":
             data, err = await api_request("GET", "services", api_type="NP")
-            return web.json_response({"ok": True, "msg": err if err else json.dumps(data, indent=2, ensure_ascii=False)[:1000]})
+            if err: return web.json_response({"ok": True, "msg": f"API Error: {err}"})
+            return web.json_response({"ok": True, "msg": json.dumps(data, indent=2, ensure_ascii=False)[:1000]})
         elif cmd == "radar":
             data, err = await api_request("GET", "radar", params={"limit": 10}, api_type="MK")
-            return web.json_response({"ok": True, "msg": err if err else json.dumps(data, indent=2, ensure_ascii=False)[:2000]})
+            if err: return web.json_response({"ok": True, "msg": f"API Error: {err}"})
+            return web.json_response({"ok": True, "msg": json.dumps(data, indent=2, ensure_ascii=False)[:2000]})
         return web.json_response({"error": "Unknown command"})
     except Exception as e:
         return web.json_response({"error": f"Lỗi thực thi: {str(e)}"}, status=500)
@@ -875,7 +868,6 @@ MINIAPP_HTML = """
         .admin-tab { padding: 8px 16px; border-radius: 20px; background: var(--surface); color: var(--text-muted); white-space: nowrap; font-size: 14px; }
         .admin-tab.active { background: var(--primary); color: white; }
         
-        /* MAINTENANCE STYLES */
         .maint-toggle { display: flex; gap: 10px; margin-bottom: 20px; }
         .maint-btn { flex: 1; padding: 15px; border-radius: 12px; font-weight: 700; font-size: 16px; background: var(--surface); color: var(--text-muted); border: 2px solid transparent; }
         .maint-btn.on { background: rgba(16, 185, 129, 0.2); border-color: var(--success); color: var(--success); }
@@ -1930,14 +1922,16 @@ class MkOtpPoller:
 
     async def _poll_once(self):
         rows = await db_exec("SELECT * FROM orders WHERE status='PENDING' LIMIT 100", fetch="all")
-        if not rows: return 0, 0, False
+        if not rows: return 0, 0, None
         checked = new_otp = 0
+        error_msg = None
         
         for r in rows:
             if r["provider"] == "MK":
                 checked += 1
                 data, err = await api_request("POST", "check/status", {"request_ids": [int(r["request_id"])]})
-                if not err and data:
+                if err: error_msg = err
+                elif data:
                     inner = data.get("data", {})
                     res = inner.get("results", [])
                     if res and res[0].get("status") == "success":
@@ -1945,26 +1939,30 @@ class MkOtpPoller:
             elif r["provider"] == "NP":
                 checked += 1
                 data, err = await api_request("GET", "latest_otp", params={"number": r["phone"]}, api_type="NP")
-                if not err and data and data.get("has_otp"):
+                if err: error_msg = err
+                elif data and data.get("has_otp"):
                     if await self._process_otp(r, data["otp_code"], f"OTP: {data['otp_code']}"): new_otp += 1
             elif r["provider"] == "BASHA":
                 checked += 1
                 data, err = await api_request("POST", "legacy/get-last-sms", {"number": r["phone"]}, api_type="BASHA")
-                if not err and data and data.get("message"):
+                if err: error_msg = err
+                elif data and data.get("message"):
                     otp_match = re.search(r'\b(\d{4,8})\b', data["message"])
                     if otp_match and await self._process_otp(r, otp_match.group(1), data["message"]): new_otp += 1
             elif r["provider"] == "SLVN":
                 checked += 1
                 data, err = await api_request("GET", f"check-otp/{r['request_id']}", api_type="SLVN")
-                if not err and data and data.get("status") == "success":
+                if err: error_msg = err
+                elif data and data.get("status") == "success":
                     inner = data.get("data", {})
                     if inner.get("status") == "RECEIVED":
                         if await self._process_otp(r, inner.get("otpCode"), inner.get("fullSms", "")): new_otp += 1
-        return checked, new_otp, False
+        return checked, new_otp, error_msg
 
     async def run_forever(self):
         while True:
-            try: await self._poll_once()
+            try: 
+                await self._poll_once()
             except Exception as e: logger.error(f"Poller error: {e}")
             await asyncio.sleep(10)
 
