@@ -392,25 +392,28 @@ async def mini_language_update(request):
     return web.json_response({"ok": True})
 
 async def mini_stats(request):
-    today_str = now().strftime("%Y-%m-%d")
-    total_otps = await db_exec("SELECT COUNT(*) FROM orders WHERE status='COMPLETED' AND created_at >= ?", (today_str,), fetch='one')
-    countries = await db_exec("SELECT country, COUNT(id) FROM orders WHERE status='COMPLETED' AND created_at >= ? GROUP BY country ORDER BY COUNT(id) DESC", (today_str,), fetch='all')
-    platforms = await db_exec("SELECT COALESCE(NULLIF(platform, ''), 'Other') as p, COUNT(id) FROM orders WHERE status='COMPLETED' AND created_at >= ? GROUP BY p ORDER BY COUNT(id) DESC", (today_str,), fetch='all')
+    try:
+        today_str = now().strftime("%Y-%m-%d")
+        total_otps = await db_exec("SELECT COUNT(*) FROM orders WHERE status='COMPLETED' AND created_at >= ?", (today_str,), fetch='one')
+        countries = await db_exec("SELECT country, COUNT(id) FROM orders WHERE status='COMPLETED' AND created_at >= ? GROUP BY country ORDER BY COUNT(id) DESC", (today_str,), fetch='all')
+        platforms = await db_exec("SELECT COALESCE(NULLIF(platform, ''), 'Other') as p, COUNT(id) FROM orders WHERE status='COMPLETED' AND created_at >= ? GROUP BY p ORDER BY COUNT(id) DESC", (today_str,), fetch='all')
 
-    mk_nets = {}
-    data, err = await api_request("GET", "access_list", params={"limit": 100}, api_type="MK")
-    if not err and isinstance(data, dict):
-        for item in data.get("data", {}).get("items", []):
-            c = item.get("country")
-            if c not in mk_nets: mk_nets[c] = set()
-            nets = item.get("networks") or []
-            for n in nets: mk_nets[c].add(n)
+        mk_nets = {}
+        data, err = await api_request("GET", "access_list", params={"limit": 100}, api_type="MK")
+        if not err and isinstance(data, dict):
+            for item in data.get("data", {}).get("items", []):
+                c = item.get("country")
+                if c not in mk_nets: mk_nets[c] = set()
+                nets = item.get("networks") or []
+                for n in nets: mk_nets[c].add(n)
 
-    return web.json_response({
-        "total_otps": total_otps[0] if total_otps else 0,
-        "countries": [{"country": r[0], "count": r[1], "flag": get_country_flag(r[0]), "networks": list(mk_nets.get(r[0], []))} for r in (countries or [])],
-        "platforms": [{"platform": r[0], "count": r[1], "icon": get_network_icon(r[0])} for r in (platforms or [])]
-    })
+        return web.json_response({
+            "total_otps": total_otps[0] if total_otps else 0,
+            "countries": [{"country": r[0], "count": r[1], "flag": get_country_flag(r[0]), "networks": list(mk_nets.get(r[0], []))} for r in (countries or [])],
+            "platforms": [{"platform": r[0], "count": r[1], "icon": get_network_icon(r[0])} for r in (platforms or [])]
+        })
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
 
 async def mini_leaderboard(request):
     top_users = await db_exec("""
@@ -630,26 +633,61 @@ async def mini_admin_users(request):
     users = await db_exec("SELECT user_id, first_name, username, usd_milli, joined_at FROM users ORDER BY joined_at DESC LIMIT 50", fetch="all")
     return web.json_response({"users": [{"id": r["user_id"], "name": r["first_name"], "username": r["username"], "balance": r["usd_milli"], "joined": r["joined_at"]} for r in users]})
 
+async def mini_admin_user_detail(request):
+    if not mini_admin_guard(request): return web.json_response({"error": "Forbidden"}, status=403)
+    uid = int(request.match_info["uid"])
+    page = int(request.query.get("page", "1"))
+    
+    u = await db_exec("SELECT user_id, first_name, username, usd_milli, joined_at FROM users WHERE user_id=?", (uid,), fetch="one")
+    if not u: return web.json_response({"error": "User not found"}, status=404)
+    
+    total_res = await db_exec("SELECT COUNT(*) as c FROM orders WHERE user_id=?", (uid,), fetch="one")
+    total = total_res["c"] if total_res else 0
+    total_pages = max(1, (total + HISTORY_PAGE_SIZE - 1) // HISTORY_PAGE_SIZE)
+    if page > total_pages: page = total_pages
+    offset = (page - 1) * HISTORY_PAGE_SIZE
+    
+    orders = await db_exec("SELECT id, provider, phone, status, created_at FROM orders WHERE user_id=? ORDER BY id DESC LIMIT ? OFFSET ?", (uid, HISTORY_PAGE_SIZE, offset), fetch="all")
+    
+    # Thống kê provider
+    stats = await db_exec("SELECT provider, COUNT(*) as c FROM orders WHERE user_id=? GROUP BY provider", (uid,), fetch="all")
+    s_map = {"MK": 0, "NP": 0, "BASHA": 0, "SLVN": 0}
+    for s in (stats or []): s_map[s["provider"]] = s["c"]
+    
+    return web.json_response({
+        "user": {"id": u["user_id"], "name": u["first_name"], "username": u["username"], "balance": u["usd_milli"], "joined": u["joined_at"]},
+        "stats": s_map,
+        "orders": [{"id": r["id"], "provider": r["provider"], "phone": r["phone"], "status": r["status"], "date": r["created_at"]} for r in (orders or [])],
+        "current_page": page,
+        "total_pages": total_pages
+    })
+
 async def mini_admin_cmd(request):
     if not mini_admin_guard(request): return web.json_response({"error": "Forbidden"}, status=403)
     body = await request.json()
     cmd = body.get("cmd")
     
-    if cmd == "pollnow":
-        if not _mk_poller: return web.json_response({"error": "Poller not running"})
-        c, n, err = await _mk_poller._poll_once()
-        return web.json_response({"ok": True, "msg": f"Checked {c}, New OTPs: {n}, Err: {err}"})
-    elif cmd == "health":
-        pending = await db_exec("SELECT COUNT(*) FROM orders WHERE status='PENDING'", fetch='one')
-        poller = "OFF" if not _mk_poller else f"ON ({_mk_poller.interval}s, err={_mk_poller._consecutive_errors})"
-        return web.json_response({"ok": True, "msg": f"DB: Turso Cloud\nMK Key: {'OK' if MK_API_KEY else 'MISSING'}\nNP Key: {'OK' if NP_API_KEY else 'MISSING'}\nPending: {pending[0] if pending else 0}\nPoller: {poller}"})
-    elif cmd == "whoami":
-        data, err = await api_request("GET", "whoami")
-        return web.json_response({"ok": True, "msg": fmt_api(data) if not err else err})
-    elif cmd == "testnp":
-        data, err = await api_request("GET", "services", api_type="NP")
-        return web.json_response({"ok": True, "msg": json.dumps(data, indent=2)[:1000] if not err else err})
-    return web.json_response({"error": "Unknown command"})
+    try:
+        if cmd == "pollnow":
+            if not _mk_poller: return web.json_response({"error": "Poller not running"})
+            c, n, err = await _mk_poller._poll_once()
+            return web.json_response({"ok": True, "msg": f"Checked {c}, New OTPs: {n}, Err: {err}"})
+        elif cmd == "health":
+            pending = await db_exec("SELECT COUNT(*) FROM orders WHERE status='PENDING'", fetch='one')
+            poller = "OFF" if not _mk_poller else f"ON ({_mk_poller.interval}s, err={_mk_poller._consecutive_errors})"
+            return web.json_response({"ok": True, "msg": f"DB: Turso Cloud\nMK Key: {'OK' if MK_API_KEY else 'MISSING'}\nNP Key: {'OK' if NP_API_KEY else 'MISSING'}\nPending: {pending[0] if pending else 0}\nPoller: {poller}"})
+        elif cmd == "whoami":
+            data, err = await api_request("GET", "whoami")
+            return web.json_response({"ok": True, "msg": fmt_api(data) if not err else err})
+        elif cmd == "testnp":
+            data, err = await api_request("GET", "services", api_type="NP")
+            return web.json_response({"ok": True, "msg": json.dumps(data, indent=2)[:1000] if not err else err})
+        elif cmd == "radar":
+            data, err = await api_request("GET", "radar", params={"limit": 10}, api_type="MK")
+            return web.json_response({"ok": True, "msg": json.dumps(data, indent=2)[:2000] if not err else err})
+        return web.json_response({"error": "Unknown command"})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
 
 async def mini_admin_bs_add(request):
     if not mini_admin_guard(request): return web.json_response({"error": "Forbidden"}, status=403)
@@ -690,6 +728,13 @@ async def mini_admin_wd_action(request):
         await change_usd(uid, amt, "WITHDRAW_REFUND", f"Refund #{wid}")
         return web.json_response({"ok": True})
 
+def fmt_api(d):
+    if not d: return "No data"
+    return json.dumps(d, indent=2, ensure_ascii=False, default=str)[:3500]
+
+# =====================================================
+# EMBEDDED MINI APP FRONTEND
+# =====================================================
 MINIAPP_HTML = """
 <!DOCTYPE html>
 <html lang="vi">
@@ -910,7 +955,6 @@ MINIAPP_HTML = """
         }
         #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
-        /* ADMIN TABS */
         .admin-tabs { display: flex; overflow-x: auto; gap: 8px; margin-bottom: 15px; padding-bottom: 5px; }
         .admin-tab { padding: 8px 16px; border-radius: 20px; background: var(--surface); color: var(--text-muted); white-space: nowrap; font-size: 14px; }
         .admin-tab.active { background: var(--primary); color: white; }
@@ -1120,6 +1164,26 @@ MINIAPP_HTML = """
                     <div id="admin-user-list" class="loading">Đang tải...</div>
                 </div>
             </div>
+            
+            <div id="admin-tab-user-detail" class="admin-tab-content" style="display: none;">
+                <button class="btn btn-outline" style="margin-bottom:15px;" onclick="switchAdminTab('users')">⬅️ Quay lại danh sách</button>
+                <div class="card">
+                    <div id="admin-user-detail-info"></div>
+                </div>
+                <div class="card">
+                    <div class="form-label">Thống kê số đã lấy</div>
+                    <div id="admin-user-detail-stats" style="display:flex; justify-content:space-around; text-align:center;"></div>
+                </div>
+                <div class="card">
+                    <div class="form-label">Danh sách số đã lấy</div>
+                    <div id="admin-user-detail-orders"></div>
+                    <div class="pagination" id="user-detail-pagination" style="display: none;">
+                        <button id="btn-user-prev" onclick="changeUserDetailPage(-1)">← Trang trước</button>
+                        <span id="user-page-info">Trang 1 / 1</span>
+                        <button id="btn-user-next" onclick="changeUserDetailPage(1)">Trang sau →</button>
+                    </div>
+                </div>
+            </div>
 
             <div id="admin-tab-withdraw" class="admin-tab-content" style="display: none;">
                 <div class="card">
@@ -1143,13 +1207,14 @@ MINIAPP_HTML = """
             <div id="admin-tab-cmds" class="admin-tab-content" style="display: none;">
                 <div class="card">
                     <div class="form-label">🛠 Admin Commands</div>
-                    <div class="grid-2">
+                    <div class="grid-2" style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
                         <button class="btn btn-outline" onclick="runAdminCmd('health')">Health Check</button>
                         <button class="btn btn-outline" onclick="runAdminCmd('pollnow')">Force Poll OTP</button>
                         <button class="btn btn-outline" onclick="runAdminCmd('whoami')">MK Account</button>
                         <button class="btn btn-outline" onclick="runAdminCmd('testnp')">Test NP API</button>
+                        <button class="btn btn-outline" onclick="runAdminCmd('radar')">MK Radar</button>
                     </div>
-                    <div id="cmd-output" style="margin-top: 15px; background: #000; padding: 10px; border-radius: 8px; font-family: monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all;"></div>
+                    <div id="cmd-output" style="margin-top: 15px; background: #000; padding: 10px; border-radius: 8px; font-family: monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all; min-height: 50px;"></div>
                 </div>
             </div>
         </div>
@@ -1173,6 +1238,9 @@ MINIAPP_HTML = """
         let currentHistoryPage = 1;
         let totalHistoryPages = 1;
         let currentLang = 'vi';
+        let currentAdminUid = null;
+        let currentUserDetailPage = 1;
+        let totalUserDetailPages = 1;
 
         const translations = {
             vi: { home: "Trang chủ", buy: "Mua Số OTP", history: "Lịch sử", wallet: "Ví & Rút Tiền", leaderboard: "Bảng Xếp Hạng", stats: "Thống Kê", profile: "Hồ Sơ", admin: "ADMIN PANEL", balance: "Số dư khả dụng", today_otp: "OTP Hôm Nay", total_orders: "Tổng Đơn", active_orders: "⏳ Đơn Đang Chờ", select_source: "Chọn Nguồn Số", ton_wallet: "💵 Ví TON", save_address: "Lưu Địa Chỉ", withdraw: "💰 Rút Tiền", withdraw_all: "⚡ Rút Toàn Bộ (Phí $0.1)", send_request: "Gửi Yêu Cầu", invite_friends: "💌 Mời Bạn Bè", copy_link: "📋 Sao Chép Link", top_10: "🏆 TOP 10 CAO THỦ", your_profile: "👤 HỒ SƠ CỦA BẠN", language: "🌐 Ngôn Ngữ (Language)", users: "Người dùng", orders: "Đơn hàng", approve_wd: "💸 Duyệt Rút Tiền", add_bs: "➕ Thêm Số BS", add_number: "Thêm Số", buy_short: "Mua số", wallet_short: "Ví", prev_page: "← Trang trước", next_page: "Trang sau →", total_otp: "Tổng OTP đã nhận", joined: "Ngày tham gia", name: "Tên", balance_label: "Số dư" },
@@ -1194,6 +1262,9 @@ MINIAPP_HTML = """
                 if (translations[lang][key]) el.innerText = translations[lang][key];
             });
             document.getElementById('lang-select').value = lang;
+            const activeViewId = document.querySelector('.view.active').id.replace('view-', '');
+            document.getElementById('top-title').innerText = translations[lang][activeViewId] || activeViewId;
+            navTo(activeViewId); // Re-render view with new lang
         }
 
         async function changeLanguage(lang) {
@@ -1202,7 +1273,6 @@ MINIAPP_HTML = """
             tg.hideLoading();
             applyLanguage(lang);
             showToast("Language changed!");
-            loadHome();
         }
 
         function showCustomModal(title, msg) {
@@ -1242,7 +1312,9 @@ MINIAPP_HTML = """
             if (body) opts.body = JSON.stringify(body);
             try {
                 const res = await fetch(path, opts);
-                return await res.json();
+                const text = await res.text();
+                try { return JSON.parse(text); } 
+                catch(e) { return { error: 'Lỗi Server (HTML): ' + text.substring(0, 50) }; }
             } catch (e) { return { error: 'Lỗi kết nối máy chủ!' }; }
         }
 
@@ -1314,7 +1386,11 @@ MINIAPP_HTML = """
             listP.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
             
             const data = await api('/api/mini/stats');
-            if(data.error) return showToast(data.error);
+            if(data.error) {
+                listC.innerHTML = `<div style="color:var(--danger)">${data.error}</div>`;
+                listP.innerHTML = `<div style="color:var(--danger)">${data.error}</div>`;
+                return showToast(data.error);
+            }
 
             document.getElementById('stats-total-otps').innerText = data.total_otps;
 
@@ -1347,8 +1423,11 @@ MINIAPP_HTML = """
                 let medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '🔹';
                 return `
                     <div style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border); cursor: pointer;" onclick="showUserDetails('${u.name}', ${u.total_otps}, ${u.balance})">
-                        <span>${medal} ${u.name}</span>
-                        <strong style="color: var(--success);">$${(u.balance/1000).toFixed(3)}</strong>
+                        <div>
+                            <div>${medal} ${u.name}</div>
+                            <div style="font-size: 12px; color: var(--text-muted);">OTPs: ${u.total_otps}</div>
+                        </div>
+                        <strong style="color: var(--success); align-self:center;">$${(u.balance/1000).toFixed(3)}</strong>
                     </div>
                 `;
             }).join('');
@@ -1610,11 +1689,84 @@ MINIAPP_HTML = """
             const data = await api('/api/mini/admin/users');
             if(data.error) return div.innerText = data.error;
             div.innerHTML = data.users.map(u => `
-                <div style="padding:10px 0;border-bottom:1px solid var(--border);">
+                <div style="padding:10px 0;border-bottom:1px solid var(--border);cursor:pointer;" onclick="loadAdminUserDetail(${u.id})">
                     <b>${u.name}</b> (@${u.username || '—'}) - ID: ${u.id}<br>
                     <span style="color:var(--success);">$${(u.balance/1000).toFixed(3)}</span> | Joined: ${new Date(u.joined).toLocaleDateString()}
                 </div>
             `).join('');
+        }
+
+        async function loadAdminUserDetail(uid) {
+            currentAdminUid = uid;
+            currentUserDetailPage = 1;
+            document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.admin-tab-content').forEach(c => c.style.display = 'none');
+            document.getElementById('admin-tab-user-detail').style.display = 'block';
+            document.getElementById('admin-user-detail-info').innerHTML = '<div class="spinner"></div>';
+            document.getElementById('admin-user-detail-orders').innerHTML = '<div class="spinner"></div>';
+            
+            const data = await api('/api/mini/admin/users/' + uid + '?page=1');
+            if(data.error) return document.getElementById('admin-user-detail-info').innerText = data.error;
+
+            const u = data.user;
+            document.getElementById('admin-user-detail-info').innerHTML = `
+                <div><b>Tên:</b> ${u.name}</div>
+                <div><b>Username:</b> @${u.username || '—'}</div>
+                <div><b>Telegram ID:</b> ${u.id}</div>
+                <div><b>Số dư:</b> <span style="color:var(--success);">$${(u.balance/1000).toFixed(3)}</span></div>
+                <div><b>Ngày tham gia:</b> ${new Date(u.joined).toLocaleDateString()}</div>
+            `;
+
+            const s = data.stats;
+            document.getElementById('admin-user-detail-stats').innerHTML = `
+                <div><div style="font-size:20px;color:var(--primary);font-weight:bold;">${s.MK || 0}</div>MK</div>
+                <div><div style="font-size:20px;color:var(--warning);font-weight:bold;">${s.NP || 0}</div>NP</div>
+                <div><div style="font-size:20px;color:var(--success);font-weight:bold;">${s.BASHA || 0}</div>BS</div>
+                <div><div style="font-size:20px;color:var(--danger);font-weight:bold;">${s.SLVN || 0}</div>SLVN</div>
+            `;
+            renderAdminUserOrders(data);
+        }
+
+        function renderAdminUserOrders(data) {
+            const div = document.getElementById('admin-user-detail-orders');
+            const pag = document.getElementById('user-detail-pagination');
+            
+            if(!data.orders || data.orders.length === 0) {
+                div.innerHTML = '<div style="color:var(--text-muted);font-size:14px;">Chưa có số nào.</div>';
+                pag.style.display = 'none';
+                return;
+            }
+            
+            div.innerHTML = data.orders.map(o => `
+                <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);font-size:14px;">
+                    <div>
+                        <b>${o.phone}</b><br>
+                        <span style="font-size:12px;color:var(--text-muted);">${o.provider} | ${new Date(o.date).toLocaleString('vi-VN')}</span>
+                    </div>
+                    <div style="align-self:center;color:${o.status==='COMPLETED'?'var(--success)':'var(--text-muted)'};">
+                        ${o.status}
+                    </div>
+                </div>
+            `).join('');
+
+            totalUserDetailPages = data.total_pages || 1;
+            if (totalUserDetailPages > 1) {
+                pag.style.display = 'flex';
+                document.getElementById('user-page-info').innerText = `Trang ${data.current_page} / ${totalUserDetailPages}`;
+                document.getElementById('btn-user-prev').disabled = data.current_page <= 1;
+                document.getElementById('btn-user-next').disabled = data.current_page >= totalUserDetailPages;
+            } else {
+                pag.style.display = 'none';
+            }
+        }
+
+        async function changeUserDetailPage(delta) {
+            const newPage = currentUserDetailPage + delta;
+            if (newPage >= 1 && newPage <= totalUserDetailPages) {
+                currentUserDetailPage = newPage;
+                const data = await api(`/api/mini/admin/users/${currentAdminUid}?page=${newPage}`);
+                if(!data.error) renderAdminUserOrders(data);
+            }
         }
 
         async function loadAdminBs() {
@@ -1714,6 +1866,7 @@ async def web_server():
     
     app.router.add_get('/api/mini/admin/data', mini_admin_data)
     app.router.add_get('/api/mini/admin/users', mini_admin_users)
+    app.router.add_get('/api/mini/admin/users/{uid}', mini_admin_user_detail)
     app.router.add_post('/api/mini/admin/cmd', mini_admin_cmd)
     app.router.add_post('/api/mini/admin/withdraw/action', mini_admin_wd_action)
     app.router.add_post('/api/mini/admin/bs/add', mini_admin_bs_add)
