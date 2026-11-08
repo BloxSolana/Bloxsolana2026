@@ -39,12 +39,12 @@ OTP_GROUP_ID   = int(os.getenv("OTP_GROUP_ID", "-1004341368656"))
 OTP_GROUP_URL  = "https://t.me/LIVEOTPIVAS"
 MAIN_CHANNEL_URL = "https://t.me/FastNode_1"
 
-# Cấu hình API Nguồn 1: MK Network (Đã tích hợp sẵn key của bro)
+# Cấu hình API Nguồn 1: MK Network (Đã tích hợp sẵn key)
 MK_API_KEY     = os.getenv("MK_API_KEY", "badacaa33d287233567a49db").strip()
 MK_API_BASE    = "https://mknetworkbd.com/api/v3/public"
 
-# Cấu hình API Nguồn 2: Number Panel (NP)
-NP_API_KEY     = os.getenv("NP_API_KEY", "").strip()
+# Cấu hình API Nguồn 2: Number Panel (Đã tích hợp sẵn key của bro)
+NP_API_KEY     = os.getenv("NP_API_KEY", "np_live_lrRtdKcOeg-syi8UCpmaA_idYmBZY0zbpwl5P--gF-g").strip()
 NP_API_BASE    = "https://numberpanel.tech/api"
 
 # Cấu hình API Nguồn 3: Basha
@@ -408,7 +408,9 @@ async def mini_me(request):
         "total_otps": total_otps["c"] if total_otps else 0,
         "is_admin": is_admin(uid), 
         "referral_link": f"https://t.me/{BOT_USERNAME}?start={uid}",
-        "maintenance": await get_setting("maintenance", "off")
+        "maintenance": await get_setting("maintenance", "off"),
+        "maint_message": await get_setting("maint_message", ""),
+        "maint_image": await get_setting("maint_image", "")
     })
 
 async def mini_language_update(request):
@@ -488,15 +490,11 @@ async def mini_create_order(request):
     if provider == "MK":
         data, err = await api_request("POST", "getnum/number", {"range": body.get("range")})
         if err: return web.json_response({"error": err}, status=400)
-        
-        # Parse dữ liệu chuẩn theo tài liệu API MK Network
         inner_data = data.get("data", {})
         rid = inner_data.get("request_id")
         phone = inner_data.get("number") or inner_data.get("full_number") or "N/A"
         country = inner_data.get("country") or body.get("country_name") or "Unknown"
-        
         if not rid: return web.json_response({"error": "API không trả về ID."}, status=400)
-        
         await db_exec("INSERT INTO orders (user_id, request_id, provider, phone, country, range_code, status, created_at, expires_at) VALUES (?, ?, 'MK', ?, ?, ?, 'PENDING', ?, ?)", 
                       (uid, str(rid), str(phone), country, body.get("range"), now_text(), (now() + timedelta(minutes=15)).isoformat()))
         await clean_old_orders(uid)
@@ -684,6 +682,8 @@ async def mini_admin_maintenance(request):
         message = body.get("message", "")
         image_b64 = body.get("image_b64", "")
         await set_setting("maintenance", "on")
+        await set_setting("maint_message", message)
+        await set_setting("maint_image", image_b64)
         
         users = await db_exec("SELECT user_id FROM users", fetch="all")
         sent = 0
@@ -872,9 +872,27 @@ MINIAPP_HTML = """
         .maint-btn { flex: 1; padding: 15px; border-radius: 12px; font-weight: 700; font-size: 16px; background: var(--surface); color: var(--text-muted); border: 2px solid transparent; }
         .maint-btn.on { background: rgba(16, 185, 129, 0.2); border-color: var(--success); color: var(--success); }
         .maint-btn.off { background: rgba(239, 68, 68, 0.2); border-color: var(--danger); color: var(--danger); }
+
+        /* MAINTENANCE SCREEN */
+        #maintenance-screen {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: var(--bg); z-index: 99999; display: none;
+            flex-direction: column; align-items: center; justify-content: center;
+            padding: 30px; text-align: center;
+        }
+        #maintenance-screen img { max-width: 100%; max-height: 40vh; border-radius: 16px; margin-bottom: 20px; box-shadow: var(--shadow); }
+        #maintenance-screen h1 { color: var(--danger); margin-bottom: 15px; font-size: 28px; }
+        #maintenance-screen p { color: var(--text); font-size: 18px; line-height: 1.6; white-space: pre-wrap; margin-bottom: 20px; }
     </style>
 </head>
 <body>
+    <!-- MAINTENANCE SCREEN -->
+    <div id="maintenance-screen">
+        <img id="maint-img" src="" style="display: none;">
+        <h1>🛠 BẢO TRÌ HỆ THỐNG</h1>
+        <p id="maint-text">Hệ thống đang được bảo trì. Vui lòng quay lại sau!</p>
+    </div>
+
     <div id="toast">Copied!</div>
 
     <div id="custom-modal">
@@ -910,12 +928,12 @@ MINIAPP_HTML = """
         </div>
     </div>
 
-    <div class="top-bar">
+    <div class="top-bar" id="main-top-bar">
         <button class="menu-btn" onclick="toggleSidebar()">☰</button>
         <div class="page-title" id="top-title">Trang chủ</div>
     </div>
 
-    <div class="container">
+    <div class="container" id="main-container">
         <!-- HOME -->
         <div id="view-home" class="view active">
             <div class="card balance-card">
@@ -1041,13 +1059,6 @@ MINIAPP_HTML = """
                 <select class="form-control" id="lang-select" onchange="changeLanguage(this.value)">
                     <option value="vi">🇻🇳 Tiếng Việt</option>
                     <option value="en">🇬🇧 English</option>
-                    <option value="es">🇪🇸 España</option>
-                    <option value="ja">🇯🇵 日本語</option>
-                    <option value="it">🇮🇹 Italiano</option>
-                    <option value="uk">🇺🇦 Українська</option>
-                    <option value="km">🇰🇭 ខ្មែរ</option>
-                    <option value="hi">🇮🇳 हिन्दी</option>
-                    <option value="id">🇮🇩 Indonesia</option>
                 </select>
             </div>
         </div>
@@ -1067,6 +1078,9 @@ MINIAPP_HTML = """
                 <div class="stats-grid">
                     <div class="stat-box"><div class="label">Users</div><div class="value" id="admin-total-users">0</div></div>
                     <div class="stat-box"><div class="label">Orders</div><div class="value" id="admin-total-orders">0</div></div>
+                </div>
+                <div class="card" style="text-align: center; font-size: 18px; font-weight: bold;">
+                    Trạng thái Bot: <span id="admin-bot-status" style="color: var(--success);">🟢 Đang hoạt động</span>
                 </div>
                 <div class="card">
                     <div class="form-label">Chi tiết kho số</div>
@@ -1156,7 +1170,7 @@ MINIAPP_HTML = """
         </div>
     </div>
 
-    <div class="bottom-nav">
+    <div class="bottom-nav" id="main-bottom-nav">
         <button class="nav-item active" id="nav-home" onclick="navTo('home')"><span class="icon">🏠</span>Trang chủ</button>
         <button class="nav-item" id="nav-buy" onclick="navTo('buy')"><span class="icon">🛒</span>Mua số</button>
         <button class="nav-item" id="nav-history" onclick="navTo('history')"><span class="icon">📜</span>Lịch sử</button>
@@ -1286,13 +1300,35 @@ MINIAPP_HTML = """
             userData = data;
             if (data.user.language && data.user.language !== currentLang) applyLanguage(data.user.language);
 
+            // Xử lý bảo trì
+            currentMaintState = data.maintenance || "off";
+            if (currentMaintState === 'on' && !data.is_admin) {
+                document.getElementById('maintenance-screen').style.display = 'flex';
+                document.getElementById('maint-text').innerText = data.maint_message || "Hệ thống đang bảo trì. Vui lòng quay lại sau!";
+                const img = document.getElementById('maint-img');
+                if (data.maint_image) {
+                    img.src = data.maint_image;
+                    img.style.display = 'block';
+                } else {
+                    img.style.display = 'none';
+                }
+                document.getElementById('main-top-bar').style.display = 'none';
+                document.getElementById('main-container').style.display = 'none';
+                document.getElementById('main-bottom-nav').style.display = 'none';
+                return;
+            } else {
+                document.getElementById('maintenance-screen').style.display = 'none';
+                document.getElementById('main-top-bar').style.display = 'flex';
+                document.getElementById('main-container').style.display = 'block';
+                document.getElementById('main-bottom-nav').style.display = 'flex';
+            }
+
             document.getElementById('home-balance').innerText = '$' + (data.user.usd_milli / 1000).toFixed(3);
             document.getElementById('home-today-otps').innerText = data.today_otps;
             document.getElementById('home-total-orders').innerText = data.total_orders;
             document.getElementById('side-user-info').innerText = 'ID: ' + data.user.id + ' | ' + data.user.first_name;
             document.getElementById('ton-address').value = data.user.wallet_ton || '';
             document.getElementById('ref-link').innerText = data.referral_link;
-            currentMaintState = data.maintenance || "off";
             
             if (data.is_admin) document.getElementById('menu-admin').style.display = 'flex';
             else document.getElementById('menu-admin').style.display = 'none';
@@ -1589,6 +1625,15 @@ MINIAPP_HTML = """
             document.getElementById('admin-total-users').innerText = data.stats.users;
             document.getElementById('admin-total-orders').innerText = data.stats.orders;
             
+            const statusEl = document.getElementById('admin-bot-status');
+            if (data.maintenance === 'on') {
+                statusEl.innerText = '🔴 Đang bảo trì';
+                statusEl.style.color = 'var(--danger)';
+            } else {
+                statusEl.innerText = '🟢 Đang hoạt động';
+                statusEl.style.color = 'var(--success)';
+            }
+
             document.getElementById('admin-stock-info').innerHTML = `
                 <div class="row"><span>Pending Withdrawals:</span> <b>${data.stats.pending_wd}</b></div>
                 <div class="row"><span>BS Stock:</span> <b>${data.stats.bs_count}</b></div>
@@ -1676,6 +1721,7 @@ MINIAPP_HTML = """
                 tg.showAlert(res.msg);
                 document.getElementById('maint-msg').value = '';
                 document.getElementById('maint-image').value = '';
+                loadAdmin(); // Refresh status
             } else {
                 tg.showAlert("Lỗi: " + res.error);
             }
