@@ -43,7 +43,7 @@ MAIN_CHANNEL_URL = "https://t.me/FastNode_1"
 MK_API_KEY     = os.getenv("MK_API_KEY", "badacaa33d287233567a49db").strip()
 MK_API_BASE    = "https://mknetworkbd.com/api/v3/public"
 
-# Cấu hình API Nguồn 2: Number Panel (Đã tích hợp sẵn key của bro)
+# Cấu hình API Nguồn 2: Number Panel (Đã tích hợp sẵn key)
 NP_API_KEY     = os.getenv("NP_API_KEY", "np_live_lrRtdKcOeg-syi8UCpmaA_idYmBZY0zbpwl5P--gF-g").strip()
 NP_API_BASE    = "https://numberpanel.tech/api"
 
@@ -489,12 +489,16 @@ async def mini_create_order(request):
     
     if provider == "MK":
         data, err = await api_request("POST", "getnum/number", {"range": body.get("range")})
-        if err: return web.json_response({"error": err}, status=400)
+        if err: return web.json_response({"error": f"Lỗi MK: {err}"}, status=400)
+        
+        # Parse dữ liệu chuẩn theo tài liệu API MK Network
         inner_data = data.get("data", {})
         rid = inner_data.get("request_id")
         phone = inner_data.get("number") or inner_data.get("full_number") or "N/A"
         country = inner_data.get("country") or body.get("country_name") or "Unknown"
-        if not rid: return web.json_response({"error": "API không trả về ID."}, status=400)
+        
+        if not rid: return web.json_response({"error": f"Lỗi MK: API không trả về ID. Data: {str(data)[:100]}"}, status=400)
+        
         await db_exec("INSERT INTO orders (user_id, request_id, provider, phone, country, range_code, status, created_at, expires_at) VALUES (?, ?, 'MK', ?, ?, ?, 'PENDING', ?, ?)", 
                       (uid, str(rid), str(phone), country, body.get("range"), now_text(), (now() + timedelta(minutes=15)).isoformat()))
         await clean_old_orders(uid)
@@ -502,9 +506,9 @@ async def mini_create_order(request):
 
     elif provider == "NP":
         data, err = await api_request("POST", "request_number", {"service": body.get("service"), "country": body.get("country")}, api_type="NP")
-        if err: return web.json_response({"error": err}, status=400)
+        if err: return web.json_response({"error": f"Lỗi NP: {err}"}, status=400)
         phone = data.get("number"); rid = data.get("id") or phone
-        if not phone: return web.json_response({"error": "API không trả về số."}, status=400)
+        if not phone: return web.json_response({"error": f"Lỗi NP: API không trả về số. Data: {str(data)[:100]}"}, status=400)
         await db_exec("INSERT INTO orders (user_id, request_id, provider, phone, country, operator, range_code, status, created_at, expires_at) VALUES (?, ?, 'NP', ?, ?, ?, ?, 'PENDING', ?, ?)", 
                       (uid, str(rid), str(phone), body.get("country"), body.get("service"), body.get("service"), now_text(), (now() + timedelta(minutes=15)).isoformat()))
         await clean_old_orders(uid)
@@ -521,7 +525,7 @@ async def mini_create_order(request):
     elif provider == "SLVN":
         payload = {"service": "ANY", "countryCode": body.get("country_code"), "tag": body.get("tag")}
         data, err = await api_request("POST", "rent", payload, api_type="SLVN")
-        if err: return web.json_response({"error": err}, status=400)
+        if err: return web.json_response({"error": f"Lỗi SLVN: {err}"}, status=400)
         order_data = data.get("data", {})
         rental_id = order_data.get("rentalId")
         phone = order_data.get("phoneNumber")
@@ -675,10 +679,10 @@ async def mini_admin_maintenance(request):
     body = await request.json()
     action = body.get("action")
     
-    if action == "on":
+    if action == "enable": # Bật hoạt động
         await set_setting("maintenance", "off")
         return web.json_response({"ok": True, "msg": "Đã TẮT bảo trì. Bot hoạt động bình thường."})
-    elif action == "off":
+    elif action == "disable": # Bật bảo trì
         message = body.get("message", "")
         image_b64 = body.get("image_b64", "")
         await set_setting("maintenance", "on")
@@ -1151,8 +1155,8 @@ MINIAPP_HTML = """
                 <div class="card">
                     <div class="form-label">🛠 Trạng thái hệ thống</div>
                     <div class="maint-toggle">
-                        <button id="btn-maint-on" class="maint-btn" onclick="toggleMaintenance('on')">🟢 ON (Hoạt động)</button>
-                        <button id="btn-maint-off" class="maint-btn" onclick="toggleMaintenance('off')">🔴 OFF (Bảo trì)</button>
+                        <button id="btn-maint-on" class="maint-btn" onclick="toggleMaintenance(true)">🟢 ON (Hoạt động)</button>
+                        <button id="btn-maint-off" class="maint-btn" onclick="toggleMaintenance(false)">🔴 OFF (Bảo trì)</button>
                     </div>
                 </div>
                 <div class="card" id="maint-form-container" style="display: none;">
@@ -1192,7 +1196,7 @@ MINIAPP_HTML = """
         let currentAdminUid = null;
         let currentUserDetailPage = 1;
         let totalUserDetailPages = 1;
-        let currentMaintState = "off";
+        let isMaintenanceOn = false;
 
         const translations = {
             vi: { home: "Trang chủ", buy: "Mua Số OTP", history: "Lịch sử", wallet: "Ví & Rút Tiền", leaderboard: "Bảng Xếp Hạng", stats: "Thống Kê", profile: "Hồ Sơ", admin: "ADMIN PANEL", balance: "Số dư khả dụng", today_otp: "OTP Hôm Nay", total_orders: "Tổng Đơn", active_orders: "⏳ Đơn Đang Chờ", select_source: "Chọn Nguồn Số", ton_wallet: "💵 Ví TON", save_address: "Lưu Địa Chỉ", withdraw: "💰 Rút Tiền", withdraw_all: "⚡ Rút Toàn Bộ (Phí $0.1)", send_request: "Gửi Yêu Cầu", invite_friends: "💌 Mời Bạn Bè", copy_link: "📋 Sao Chép Link", top_10: "🏆 TOP 10 CAO THỦ", your_profile: "👤 HỒ SƠ CỦA BẠN", language: "🌐 Ngôn Ngữ (Language)", users: "Người dùng", orders: "Đơn hàng", approve_wd: "💸 Duyệt Rút Tiền", add_bs: "➕ Thêm Số BS", add_number: "Thêm Số", buy_short: "Mua số", wallet_short: "Ví", prev_page: "← Trang trước", next_page: "Trang sau →", total_otp: "Tổng OTP đã nhận", joined: "Ngày tham gia", name: "Tên", balance_label: "Số dư" },
@@ -1301,8 +1305,8 @@ MINIAPP_HTML = """
             if (data.user.language && data.user.language !== currentLang) applyLanguage(data.user.language);
 
             // Xử lý bảo trì
-            currentMaintState = data.maintenance || "off";
-            if (currentMaintState === 'on' && !data.is_admin) {
+            isMaintenanceOn = (data.maintenance === 'on');
+            if (isMaintenanceOn && !data.is_admin) {
                 document.getElementById('maintenance-screen').style.display = 'flex';
                 document.getElementById('maint-text').innerText = data.maint_message || "Hệ thống đang bảo trì. Vui lòng quay lại sau!";
                 const img = document.getElementById('maint-img');
@@ -1629,9 +1633,11 @@ MINIAPP_HTML = """
             if (data.maintenance === 'on') {
                 statusEl.innerText = '🔴 Đang bảo trì';
                 statusEl.style.color = 'var(--danger)';
+                isMaintenanceOn = true;
             } else {
                 statusEl.innerText = '🟢 Đang hoạt động';
                 statusEl.style.color = 'var(--success)';
+                isMaintenanceOn = false;
             }
 
             document.getElementById('admin-stock-info').innerHTML = `
@@ -1654,7 +1660,6 @@ MINIAPP_HTML = """
                 `).join('');
             }
 
-            currentMaintState = data.maintenance;
             updateMaintUI();
         }
 
@@ -1674,20 +1679,36 @@ MINIAPP_HTML = """
             const btnOff = document.getElementById('btn-maint-off');
             const form = document.getElementById('maint-form-container');
             
-            if (currentMaintState === 'on') {
+            if (isMaintenanceOn) {
+                btnOn.classList.remove('on');
+                btnOff.classList.add('off');
+                form.style.display = 'block'; // Show form when maintenance is ON
+            } else {
                 btnOn.classList.add('on');
                 btnOff.classList.remove('off');
                 form.style.display = 'none';
-            } else {
-                btnOff.classList.add('off');
-                btnOn.classList.remove('on');
-                form.style.display = 'block';
             }
         }
 
-        function toggleMaintenance(action) {
-            currentMaintState = (action === 'on') ? 'off' : 'on';
-            updateMaintUI();
+        async function toggleMaintenance(enable) {
+            if (enable) {
+                // User clicked ON (Active)
+                tg.showLoading();
+                const res = await api('/api/mini/admin/maintenance', 'POST', { action: 'enable' });
+                tg.hideLoading();
+                if (res.ok) {
+                    showToast(res.msg);
+                    isMaintenanceOn = false;
+                    updateMaintUI();
+                    loadAdmin();
+                } else {
+                    tg.showAlert(res.error);
+                }
+            } else {
+                // User clicked OFF (Maintenance)
+                isMaintenanceOn = true;
+                updateMaintUI();
+            }
         }
 
         function setMaintTemplate(id) {
@@ -1714,13 +1735,15 @@ MINIAPP_HTML = """
             if(!confirmed) return;
 
             tg.showLoading();
-            const res = await api('/api/mini/admin/maintenance', 'POST', { action: 'off', message: msg, image_b64: b64 });
+            const res = await api('/api/mini/admin/maintenance', 'POST', { action: 'disable', message: msg, image_b64: b64 });
             tg.hideLoading();
             
             if(res.ok) {
                 tg.showAlert(res.msg);
                 document.getElementById('maint-msg').value = '';
                 document.getElementById('maint-image').value = '';
+                isMaintenanceOn = true;
+                updateMaintUI();
                 loadAdmin(); // Refresh status
             } else {
                 tg.showAlert("Lỗi: " + res.error);
