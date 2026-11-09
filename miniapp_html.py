@@ -385,24 +385,36 @@ MINIAPP_HTML = """
                 </div>
             </div>
 
-            <!-- ADMIN BROADCAST TAB VỚI ĐẦY ĐỦ NHIỀU NỀN TẢNG MẠNG XÃ HỘI & DỊCH VỤ -->
+            <!-- ADMIN BROADCAST TAB VỚI ĐẦY ĐỦ THÊM TWITTER/X, THREADS, IMO, 1XBET VÀ CÁC MẠNG XÃ HỘI QUỐC TẾ -->
             <div id="admin-tab-broadcast" class="admin-tab-content" style="display: none;">
                 <div class="card">
                     <div class="form-label" style="font-size:16px; font-weight:bold; margin-bottom:10px;">📡 Gửi Thông Báo Radar Nền Tảng</div>
-                    <div style="font-size:13px; color:var(--text-muted); margin-bottom:12px;">Chọn nhanh nền tảng đang có tỷ lệ nhận OTP cao hoặc tự soạn nội dung:</div>
+                    <div style="font-size:13px; color:var(--text-muted); margin-bottom:12px;">Chọn nhanh nền tảng quốc tế / mạng xã hội đang có tỷ lệ nhận OTP cao:</div>
                     
                     <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 15px;">
                         <button class="btn-small copy" onclick="selectRadarPlatform('Instagram')">📸 Instagram</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('Facebook')">📘 Facebook</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('TikTok')">🎬 TikTok</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Threads')">🧵 Threads</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Twitter / X')">🐦 Twitter / X</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('imo')">📱 imo</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('1xbet')">⚽ 1xbet</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('Telegram')">✈️ Telegram</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('WhatsApp')">💬 WhatsApp</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('Zalo')">🇻🇳 Zalo</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('Google')">🇬 Google</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('YouTube')">▶️ YouTube</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Discord')">🎮 Discord</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Steam')">🎮 Steam</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Netflix')">🍿 Netflix</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Spotify')">🎧 Spotify</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('Shopee')">🛍️ Shopee</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Lazada')">🟠 Lazada</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Amazon')">📦 Amazon</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('Binance/Crypto')">🪙 Binance/Crypto</button>
-                        <button class="btn-small copy" style="grid-column: span 2;" onclick="selectRadarPlatform('Tất cả mạng xã hội & Dịch vụ')">🌐 Tất cả mạng xã hội khác</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('PayPal')">🅿️ PayPal</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Tinder / Dating')">❤️ Tinder / Dating</button>
+                        <button class="btn-small copy" style="grid-column: span 2;" onclick="selectRadarPlatform('Tất cả mạng xã hội & Dịch vụ quốc tế khác')">🌐 Tất cả mạng xã hội quốc tế khác</button>
                     </div>
 
                     <div class="form-group">
