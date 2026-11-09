@@ -11,7 +11,6 @@ import libsql_experimental as libsql
 
 logger = logging.getLogger("FAST_IVAS")
 
-# CẤU HÌNH DATABASE (Turso / SQLite)
 TURSO_DATABASE_URL = os.getenv("TURSO_DATABASE_URL", "").strip()
 TURSO_AUTH_TOKEN   = os.getenv("TURSO_AUTH_TOKEN", "").strip()
 SQLITE_PATH        = os.getenv("SQLITE_PATH", "fast_ivas.db")
@@ -22,7 +21,6 @@ DB_WORKERS         = 4
 db_executor        = ThreadPoolExecutor(max_workers=DB_WORKERS)
 VN_TZ              = timezone(timedelta(hours=7))
 
-# ==================== CÁC HÀM TIỆN ÍCH DÙNG CHUNG ====================
 def now(): return datetime.now(VN_TZ)
 def now_text(): return now().isoformat(timespec="seconds")
 def unix_now(): return int(time.time())
@@ -38,7 +36,6 @@ def mask_phone(phone):
     if not phone or len(phone) < 7: return phone
     return phone[:3] + "*" * (len(phone) - 6) + phone[-3:]
 
-# ==================== CÁC HẰNG SỐ QUỐC GIA ====================
 COUNTRY_CODES = {
     "84": ("Vietnam", "🇻🇳"), "62": ("Indonesia", "🇮🇩"), "60": ("Malaysia", "🇲🇾"),
     "65": ("Singapore", "🇸🇬"), "66": ("Thailand", "🇹🇭"), "63": ("Philippines", "🇵🇭"),
@@ -125,7 +122,6 @@ def get_network_icon(net):
     net = str(net).upper()
     return "📘" if "FACEBOOK" in net else "📸" if "INSTAGRAM" in net else "💬" if "WHATSAPP" in net else "✈️" if "TELEGRAM" in net else "📱" if "TIKTOK" in net else "🧵" if "THREADS" in net else "🇬" if "GOOGLE" in net else "🐦" if "TWITTER" in net or "X" in net else "🌐"
 
-# ==================== CÁC HÀM TƯƠNG TÁC DATABASE ====================
 def open_db():
     if TURSO_DATABASE_URL and TURSO_AUTH_TOKEN:
         try: return libsql.connect(SQLITE_PATH, sync_url=TURSO_DATABASE_URL, auth_token=TURSO_AUTH_TOKEN)
@@ -182,12 +178,13 @@ async def set_setting(key, value):
     await db_exec("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, str(value)))
 
 async def register_user(tg_user, referrer=None):
+    fname = tg_user.first_name or tg_user.username or "User"
     res = await db_exec("SELECT user_id FROM users WHERE user_id=?", (tg_user.id,), fetch="one")
     if res:
-        await db_exec("UPDATE users SET username=?, first_name=? WHERE user_id=?", (tg_user.username, tg_user.first_name or "User", tg_user.id))
+        await db_exec("UPDATE users SET username=?, first_name=? WHERE user_id=?", (tg_user.username, fname, tg_user.id))
         return False
     if referrer == tg_user.id: referrer = None
-    await db_exec("INSERT INTO users (user_id, username, first_name, referrer, joined_at, language) VALUES (?, ?, ?, ?, ?, 'vi')", (tg_user.id, tg_user.username, tg_user.first_name or "User", referrer, now_text()))
+    await db_exec("INSERT INTO users (user_id, username, first_name, referrer, joined_at, language) VALUES (?, ?, ?, ?, ?, 'vi')", (tg_user.id, tg_user.username, fname, referrer, now_text()))
     return True
 
 async def get_user(uid): 
@@ -214,6 +211,6 @@ async def change_usd(uid, amount_milli, tx_type, note):
 
 async def clean_old_orders(uid):
     res = await db_exec("SELECT COUNT(*) as c FROM orders WHERE user_id=?", (uid,), fetch="one")
-    if res and res["c"] > 1000: # MAX_HISTORY_RECORDS
+    if res and res["c"] > 1000:
         to_delete = res["c"] - 1000
         await db_exec("DELETE FROM orders WHERE id IN (SELECT id FROM orders WHERE user_id=? ORDER BY id ASC LIMIT ?)", (uid, to_delete))
