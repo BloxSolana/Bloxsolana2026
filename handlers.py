@@ -2,8 +2,8 @@ import asyncio
 import logging
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo, ReplyKeyboardRemove
-from database import register_user, get_setting, is_admin, db_exec, safe
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo, ReplyKeyboardRemove, CallbackQuery
+from database import register_user, get_setting, is_admin, db_exec, safe, change_usd
 
 logger = logging.getLogger("FAST_IVAS")
 
@@ -43,6 +43,22 @@ def setup_handlers(dp: Dispatcher, bot: Bot, webapp_url: str, admin_id: int):
             try: await bot.send_message(row["user_id"], f"📢 <b>ANNOUNCEMENT</b>\n\n{content}"); sent += 1; await asyncio.sleep(0.05)
             except: pass
         await message.answer(f"Đã gửi {sent} tin nhắn.")
+
+    @dp.callback_query(F.data.startswith("admin_bonus_"))
+    async def process_bonus_callback(callback: CallbackQuery):
+        data_parts = callback.data.split("_")
+        action = data_parts[2] # accept or reject
+        amount_milli = int(data_parts[3])
+        
+        if action == "accept":
+            ok, res = await change_usd(callback.from_user.id, amount_milli, "ADMIN_BONUS", "Bonus from Admin")
+            if ok:
+                await callback.message.edit_text(f"✅ <b>Đã nhận số dư!</b>\nBạn đã chấp nhận nhận ${amount_milli/1000:.3f} từ Admin.")
+            else:
+                await callback.answer(f"Lỗi: {res}", show_alert=True)
+        else:
+            await callback.message.edit_text("❌ <b>Đã từ chối!</b>\nBạn đã từ chối nhận số dư từ Admin.")
+        await callback.answer()
 
     @dp.message(F.text)
     async def handle_text(message: Message):
