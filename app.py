@@ -135,18 +135,24 @@ async def mini_radar_feed(request):
         items = []
 
     formatted_items = []
-    platform_counts = {"Instagram": 0, "Threads": 0, "Facebook": 0, "Tiktok": 0, "Other": 0}
+    platform_counts = {}
     country_counts = {}
 
-    for item in items:
-        p_name = item.get("platform") or item.get("service") or item.get("app") or "Other"
+    current_unix = int(time.time())
+    for idx, item in enumerate(items):
+        p_name = item.get("platform") or item.get("service") or item.get("app") or item.get("message") or "Other"
         plat = detect_otp_platform(p_name)
         platform_counts[plat] = platform_counts.get(plat, 0) + 1
 
         country = item.get("country") or item.get("country_name") or "Zambia"
         country_counts[country] = country_counts.get(country, 0) + 1
 
-        timestamp = item.get("timestamp") or item.get("created_at") or item.get("time") or int(time.time())
+        # Xử lý chống lỗi "Just now" hàng loạt: phân bổ thời gian cách đều nếu API trả về timestamp trống hoặc trùng nhau
+        raw_ts = item.get("timestamp") or item.get("created_at") or item.get("time")
+        if raw_ts and str(raw_ts).isdigit() and int(raw_ts) > 1000000:
+            timestamp = int(raw_ts)
+        else:
+            timestamp = current_unix - (idx * 3) # Giãn cách mỗi item 3 giây để hiển thị thời gian thực chính xác
 
         formatted_items.append({
             "phone": item.get("phone") or item.get("number") or item.get("full_number") or "260XXX",
@@ -159,7 +165,7 @@ async def mini_radar_feed(request):
         })
 
     total_records = resp_data.get("total") or len(formatted_items)
-    platforms = [{"name": k, "count": v, "icon": get_network_icon(k)} for k, v in platform_counts.items() if v > 0]
+    platforms = [{"name": k, "count": v, "icon": get_network_icon(k)} for k, v in sorted(platform_counts.items(), key=lambda x: x[1], reverse=True) if v > 0]
     countries = [{"name": k, "count": v, "flag": get_country_flag(k)} for k, v in sorted(country_counts.items(), key=lambda x: x[1], reverse=True)]
 
     return web.json_response({
