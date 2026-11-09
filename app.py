@@ -147,12 +147,11 @@ async def mini_radar_feed(request):
         country = item.get("country") or item.get("country_name") or "Zambia"
         country_counts[country] = country_counts.get(country, 0) + 1
 
-        # Xử lý chống lỗi "Just now" hàng loạt: phân bổ thời gian cách đều nếu API trả về timestamp trống hoặc trùng nhau
         raw_ts = item.get("timestamp") or item.get("created_at") or item.get("time")
         if raw_ts and str(raw_ts).isdigit() and int(raw_ts) > 1000000:
             timestamp = int(raw_ts)
         else:
-            timestamp = current_unix - (idx * 3) # Giãn cách mỗi item 3 giây để hiển thị thời gian thực chính xác
+            timestamp = current_unix - (idx * 3)
 
         formatted_items.append({
             "phone": item.get("phone") or item.get("number") or item.get("full_number") or "260XXX",
@@ -185,7 +184,8 @@ async def mini_leaderboard(request):
 
 async def mini_active_orders(request):
     uid = mini_uid(request)
-    rows = await db_exec("SELECT id, provider, phone, country, status, created_at, otp_code, platform, full_sms FROM orders WHERE user_id=? AND status IN ('PENDING', 'COMPLETED') ORDER BY id DESC", (uid,), fetch="all")
+    # CHỈ LẤY CÁC ĐƠN ĐANG CHỜ (PENDING), không lấy đơn cũ đã COMPLETED để tránh hiển thị rác
+    rows = await db_exec("SELECT id, provider, phone, country, status, created_at, otp_code, platform, full_sms FROM orders WHERE user_id=? AND status='PENDING' ORDER BY id DESC", (uid,), fetch="all")
     orders = []
     for r in (rows or []):
         plat = r["platform"] or detect_otp_platform(r["full_sms"])
