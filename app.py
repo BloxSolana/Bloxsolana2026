@@ -19,7 +19,7 @@ from aiogram.types import BotCommand, BotCommandScopeChat, BotCommandScopeDefaul
 from database import (
     init_db, db_exec, get_setting, set_setting, get_user, register_user, now, now_text, 
     is_admin, unix_now, clean_old_orders, open_db, change_usd, safe,
-    COUNTRY_CODES, SORTED_PREFIXES, ISO_MAP, FALLBACK_COUNTRIES, get_country_flag, get_network_icon
+    COUNTRY_CODES, SORTED_PREFIXES, ISO_MAP, FALLBACK_COUNTRIES, get_country_flag, get_network_icon, detect_otp_platform
 )
 from api_services import api_request, MkOtpPoller, MK_API_KEY, NP_API_KEY
 from handlers import setup_handlers
@@ -125,40 +125,49 @@ async def mini_stats(request):
     except Exception as e: return web.json_response({"error": str(e)}, status=500)
 
 async def mini_radar_feed(request):
-    data, err = await api_request("GET", "radar", params={"limit": 20}, api_type="MK")
+    data, err = await api_request("GET", "radar", params={"limit": 160}, api_type="MK")
     if err or not data:
-        return web.json_response({"items": [], "platforms": [], "countries": []})
+        return web.json_response({"items": [], "platforms": [], "countries": [], "total_records": 0})
     
-    items = data.get("data", {}).get("items") or data.get("items") or []
+    resp_data = data.get("data", data)
+    items = resp_data.get("items") or (data.get("items") if isinstance(data, dict) else []) or []
+    if not isinstance(items, list):
+        items = []
+
     formatted_items = []
     platform_counts = {"Instagram": 0, "Threads": 0, "Facebook": 0, "Tiktok": 0, "Other": 0}
     country_counts = {}
 
     for item in items:
-        p_name = item.get("platform") or item.get("service") or "Other"
-        if "instagram" in p_name.lower(): plat = "Instagram"
-        elif "threads" in p_name.lower(): plat = "Threads"
-        elif "facebook" in p_name.lower(): plat = "Facebook"
-        elif "tiktok" in p_name.lower(): plat = "Tiktok"
-        else: plat = "Other"
+        p_name = item.get("platform") or item.get("service") or item.get("app") or "Other"
+        plat = detect_otp_platform(p_name)
         platform_counts[plat] = platform_counts.get(plat, 0) + 1
 
-        country = item.get("country") or "Zambia"
+        country = item.get("country") or item.get("country_name") or "Zambia"
         country_counts[country] = country_counts.get(country, 0) + 1
 
+        timestamp = item.get("timestamp") or item.get("created_at") or item.get("time") or int(time.time())
+
         formatted_items.append({
-            "phone": item.get("phone") or item.get("number") or "260XXX",
+            "phone": item.get("phone") or item.get("number") or item.get("full_number") or "260XXX",
             "country": country,
             "flag": get_country_flag(country),
             "operator": item.get("operator") or item.get("network") or "Zamtel",
-            "message": item.get("message") or item.get("sms") or "OTP Code received",
-            "time_ago": item.get("time_ago") or "Just now"
+            "message": item.get("message") or item.get("sms") or item.get("text") or "OTP Code received",
+            "timestamp": timestamp,
+            "platform": plat
         })
 
+    total_records = resp_data.get("total") or len(formatted_items)
     platforms = [{"name": k, "count": v, "icon": get_network_icon(k)} for k, v in platform_counts.items() if v > 0]
-    countries = [{"name": k, "count": v, "flag": get_country_flag(k)} for k, v in country_counts.items()]
+    countries = [{"name": k, "count": v, "flag": get_country_flag(k)} for k, v in sorted(country_counts.items(), key=lambda x: x[1], reverse=True)]
 
-    return web.json_response({"items": formatted_items, "platforms": platforms, "countries": countries})
+    return web.json_response({
+        "items": formatted_items,
+        "platforms": platforms,
+        "countries": countries,
+        "total_records": total_records
+    })
 
 async def mini_leaderboard(request):
     top_users = await db_exec("""
@@ -170,8 +179,15 @@ async def mini_leaderboard(request):
 
 async def mini_active_orders(request):
     uid = mini_uid(request)
-    rows = await db_exec("SELECT id, provider, phone, country, status, created_at, otp_code, platform FROM orders WHERE user_id=? AND status='PENDING' ORDER BY id DESC", (uid,), fetch="all")
-    orders = [{"id": r["id"], "provider": r["provider"], "phone": r["phone"], "country": r["country"], "status": r["status"], "created_at": r["created_at"], "otp": r["otp_code"], "platform": r["platform"] or "", "flag": get_country_flag(r["country"])} for r in (rows or [])]
+    rows = await db_exec("SELECT id, provider, phone, country, status, created_at, otp_code, platform, full_sms FROM orders WHERE user_id=? AND status IN ('PENDING', 'COMPLETED') ORDER BY id DESC", (uid,), fetch="all")
+    orders = []
+    for r in (rows or []):
+        plat = r["platform"] or detect_otp_platform(r["full_sms"])
+        orders.append({
+            "id": r["id"], "provider": r["provider"], "phone": r["phone"], "country": r["country"], 
+            "status": r["status"], "created_at": r["created_at"], "otp": r["otp_code"], 
+            "platform": plat, "icon": get_network_icon(plat), "flag": get_country_flag(r["country"])
+        })
     return web.json_response({"orders": orders})
 
 async def mini_history_orders(request):
@@ -186,8 +202,15 @@ async def mini_history_orders(request):
     total_pages = max(1, (total + HISTORY_PAGE_SIZE - 1) // HISTORY_PAGE_SIZE)
     if page > total_pages: page = total_pages
     
-    rows = await db_exec("SELECT id, provider, phone, country, status, created_at, otp_code, platform FROM orders WHERE user_id=? ORDER BY id DESC LIMIT ? OFFSET ?", (uid, HISTORY_PAGE_SIZE, offset), fetch="all")
-    orders = [{"id": r["id"], "provider": r["provider"], "phone": r["phone"], "country": r["country"], "status": r["status"], "created_at": r["created_at"], "otp": r["otp_code"], "platform": r["platform"] or "", "flag": get_country_flag(r["country"])} for r in (rows or [])]
+    rows = await db_exec("SELECT id, provider, phone, country, status, created_at, otp_code, platform, full_sms FROM orders WHERE user_id=? ORDER BY id DESC LIMIT ? OFFSET ?", (uid, HISTORY_PAGE_SIZE, offset), fetch="all")
+    orders = []
+    for r in (rows or []):
+        plat = r["platform"] or detect_otp_platform(r["full_sms"])
+        orders.append({
+            "id": r["id"], "provider": r["provider"], "phone": r["phone"], "country": r["country"], 
+            "status": r["status"], "created_at": r["created_at"], "otp": r["otp_code"], 
+            "platform": plat, "icon": get_network_icon(plat), "flag": get_country_flag(r["country"])
+        })
     return web.json_response({"orders": orders, "current_page": page, "total_pages": total_pages, "total_records": total})
 
 async def mini_create_order(request):
@@ -233,7 +256,6 @@ async def mini_create_order(request):
         
         req_id = f"BS_{phone}_{int(time.time())}"
         await db_exec("INSERT INTO orders (user_id, request_id, provider, phone, country, range_code, status, created_at, expires_at) VALUES (?, ?, 'BASHA', ?, ?, ?, 'PENDING', ?, ?)", (uid, req_id, str(phone), country_val, country_val, now_text(), (now() + timedelta(minutes=15)).isoformat()))
-        await db_exec("DELETE FROM basha_numbers WHERE phone=?", (phone,))
         await clean_old_orders(uid)
         return web.json_response({"ok": True})
 
