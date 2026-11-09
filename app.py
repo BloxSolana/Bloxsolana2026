@@ -13,7 +13,7 @@ from aiohttp import web
 from aiogram import Bot, Dispatcher, BaseMiddleware
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.types import BotCommand, BotCommandScopeChat, BotCommandScopeDefault, MenuButtonWebApp, WebAppInfo, Message
+from aiogram.types import BotCommand, BotCommandScopeChat, BotCommandScopeDefault, MenuButtonWebApp, WebAppInfo, Message, InlineKeyboardMarkup, InlineKeyboardButton
 
 from database import (
     init_db, db_exec, get_setting, set_setting, get_user, register_user, now, now_text, 
@@ -259,6 +259,48 @@ async def mini_admin_user_detail(request):
     for s in (stats or []): s_map[s["provider"]] = s["c"]
     return web.json_response({"user": {"id": u["user_id"], "name": u["first_name"], "username": u["username"], "balance": u["usd_milli"], "joined": u["joined_at"]}, "stats": s_map, "orders": [{"id": r["id"], "provider": r["provider"], "phone": r["phone"], "status": r["status"], "date": r["created_at"]} for r in (orders or [])], "current_page": page, "total_pages": total_pages})
 
+async def mini_admin_user_action(request):
+    if not mini_admin_guard(request): return web.json_response({"error": "Forbidden"}, status=403)
+    uid = int(request.match_info["uid"])
+    body = await request.json()
+    action = body.get("action")
+    
+    if action == "bonus":
+        amt = int(float(body.get("amount", 0)) * 1000)
+        if amt <= 0: return web.json_response({"error": "Số tiền không hợp lệ"}, status=400)
+        
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="✅ Chấp nhận", callback_data=f"admin_bonus_accept_{amt}"),
+            InlineKeyboardButton(text="❌ Hủy", callback_data=f"admin_bonus_reject_{amt}")
+        ]])
+        try:
+            await bot.send_message(uid, f"🎁 <b>Bạn nhận được tiền từ Admin!</b>\n\nSố tiền: <b>${amt/1000:.3f}</b>\nBấm chấp nhận để cộng vào số dư tài khoản.", reply_markup=kb)
+            return web.json_response({"ok": True, "msg": "Đã gửi thông báo cho user!"})
+        except Exception as e:
+            return web.json_response({"error": f"Không thể gửi tin nhắn cho user: {str(e)}"}, status=400)
+            
+    elif action == "revoke":
+        u = await get_user(uid)
+        if not u or u["usd_milli"] <= 0: return web.json_response({"error": "User không có số dư để thu hồi"}, status=400)
+        current_bal = u["usd_milli"]
+        ok, res = await change_usd(uid, -current_bal, "ADMIN_REVOKE", "Admin revoked balance")
+        if ok:
+            try: await bot.send_message(uid, f"⚠️ Số dư của bạn đã bị Admin thu hồi (${current_bal/1000:.3f}).")
+            except: pass
+            return web.json_response({"ok": True, "msg": "Đã thu hồi toàn bộ số dư!"})
+        return web.json_response({"error": res}, status=400)
+        
+    elif action == "set_min":
+        min_val = int(float(body.get("amount", 0)) * 1000)
+        u = await get_user(uid)
+        if not u: return web.json_response({"error": "User not found"}, status=404)
+        diff = min_val - u["usd_milli"]
+        if diff != 0:
+            await change_usd(uid, diff, "ADMIN_SET", "Admin adjusted balance")
+        return web.json_response({"ok": True, "msg": f"Đã cập nhật số dư thành ${min_val/1000:.3f}!"})
+        
+    return web.json_response({"error": "Action không hợp lệ"}, status=400)
+
 async def mini_admin_cmd(request):
     if not mini_admin_guard(request): return web.json_response({"error": "Forbidden"}, status=403)
     try:
@@ -419,6 +461,7 @@ async def web_server():
     app.router.add_get('/api/mini/admin/data', mini_admin_data)
     app.router.add_get('/api/mini/admin/users', mini_admin_users)
     app.router.add_get('/api/mini/admin/users/{uid}', mini_admin_user_detail)
+    app.router.add_post('/api/mini/admin/users/{uid}/action', mini_admin_user_action)
     app.router.add_post('/api/mini/admin/cmd', mini_admin_cmd)
     app.router.add_post('/api/mini/admin/maintenance', mini_admin_maintenance)
     app.router.add_post('/api/mini/admin/withdraw/action', mini_admin_wd_action)
