@@ -4,8 +4,10 @@ import hashlib
 import hmac
 import logging
 import asyncio
+import re
 from urllib.parse import parse_qsl
 from types import SimpleNamespace
+from datetime import timedelta
 from aiohttp import web
 
 from aiogram import Bot, Dispatcher, BaseMiddleware
@@ -13,7 +15,6 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.types import BotCommand, BotCommandScopeChat, BotCommandScopeDefault, MenuButtonWebApp, WebAppInfo, Message
 
-# IMPORT TỪ CÁC MODULE ĐÃ TÁCH
 from database import (
     init_db, db_exec, get_setting, set_setting, get_user, register_user, now, now_text, 
     is_admin, unix_now, clean_old_orders, open_db, change_usd, safe,
@@ -23,9 +24,6 @@ from api_services import api_request, MkOtpPoller, MK_API_KEY, NP_API_KEY
 from handlers import setup_handlers
 from miniapp_html import MINIAPP_HTML
 
-# =====================================================
-# CẤU HÌNH HỆ THỐNG
-# =====================================================
 BOT_TOKEN        = os.getenv("BOT_TOKEN", "").strip()
 WEBAPP_URL       = os.getenv("WEBAPP_URL", "").strip()
 ADMIN_ID         = int(os.getenv("ADMIN_ID", "0") or 0)
@@ -58,9 +56,6 @@ class ErrorMiddleware(BaseMiddleware):
 dp.message.middleware(ErrorMiddleware())
 dp.callback_query.middleware(ErrorMiddleware())
 
-# =====================================================
-# XÁC THỰC & MIDDLEWARE CHO WEB APP
-# =====================================================
 def validate_telegram_init_data(init_data: str) -> dict | None:
     if not init_data or len(init_data) > 16384: return None
     try:
@@ -90,9 +85,6 @@ async def mini_auth_middleware(request, handler):
 def mini_uid(request): return int(request["tg_user"]["id"])
 def mini_admin_guard(request): return is_admin(mini_uid(request))
 
-# =====================================================
-# CÁC API ROUTES
-# =====================================================
 async def mini_me(request):
     uid = mini_uid(request)
     u = await get_user(uid)
@@ -139,15 +131,6 @@ async def mini_leaderboard(request):
     """, fetch="all")
     return web.json_response({"leaderboard": [{"name": u["first_name"], "balance": u["usd_milli"], "total_otps": u["total_otps"]} for u in top_users] if top_users else []})
 
-async def mini_get_orders(request: web.Request) -> web.Response:
-    try:
-        uid = mini_uid(request)
-        rows = await db_exec("SELECT id, request_id, provider, phone, country, status, otp_code, full_sms, created_at, expires_at FROM orders WHERE user_id = ? ORDER BY id DESC LIMIT 20", (uid,), fetch="all")
-        orders = [{"id": r.get("id"), "phone": r.get("phone"), "status": r.get("status"), "otp": r.get("otp_code")} for r in (rows or [])]
-        return web.json_response({"orders": orders}, status=200)
-    except Exception:
-        return web.json_response({"orders": []}, status=200)
-
 async def mini_active_orders(request):
     uid = mini_uid(request)
     rows = await db_exec("SELECT id, provider, phone, country, status, created_at, otp_code, platform FROM orders WHERE user_id=? AND status='PENDING' ORDER BY id DESC", (uid,), fetch="all")
@@ -176,30 +159,38 @@ async def mini_create_order(request):
     provider = body.get("provider")
     
     if provider == "MK":
-        data, err = await api_request("POST", "getnum/number", {"range": body.get("range")})
+        range_val = body.get("range")
+        if not range_val or range_val == "undefined" or range_val == "null":
+            return web.json_response({"error": "Lỗi MK: Range (mã vùng) không hợp lệ hoặc bị trống."}, status=400)
+        data, err = await api_request("POST", "getnum/number", {"range": str(range_val).strip()})
         if err: return web.json_response({"error": f"Lỗi MK: {err}"}, status=400)
         inner_data = data.get("data", {})
         rid = inner_data.get("request_id")
         phone = inner_data.get("number") or inner_data.get("full_number") or "N/A"
         country = inner_data.get("country") or body.get("country_name") or "Unknown"
         if not rid: return web.json_response({"error": f"Lỗi MK: API không trả về ID."}, status=400)
-        await db_exec("INSERT INTO orders (user_id, request_id, provider, phone, country, range_code, status, created_at, expires_at) VALUES (?, ?, 'MK', ?, ?, ?, 'PENDING', ?, ?)", (uid, str(rid), str(phone), country, body.get("range"), now_text(), (now() + timedelta(minutes=15)).isoformat()))
+        await db_exec("INSERT INTO orders (user_id, request_id, provider, phone, country, range_code, status, created_at, expires_at) VALUES (?, ?, 'MK', ?, ?, ?, 'PENDING', ?, ?)", (uid, str(rid), str(phone), country, str(range_val), now_text(), (now() + timedelta(minutes=15)).isoformat()))
         await clean_old_orders(uid)
         return web.json_response({"ok": True})
+
     elif provider == "NP":
         data, err = await api_request("POST", "request_number", {"service": body.get("service"), "country": body.get("country")}, api_type="NP")
         if err: return web.json_response({"error": f"Lỗi NP: {err}"}, status=400)
-        phone = data.get("number"); rid = data.get("id") or phone
+        phone = data.get("number")
         if not phone: return web.json_response({"error": f"Lỗi NP: API không trả về số."}, status=400)
-        await db_exec("INSERT INTO orders (user_id, request_id, provider, phone, country, operator, range_code, status, created_at, expires_at) VALUES (?, ?, 'NP', ?, ?, ?, ?, 'PENDING', ?, ?)", (uid, str(rid), str(phone), body.get("country"), body.get("service"), body.get("service"), now_text(), (now() + timedelta(minutes=15)).isoformat()))
+        req_id = f"NP_{phone}_{int(time.time())}"
+        await db_exec("INSERT INTO orders (user_id, request_id, provider, phone, country, operator, range_code, status, created_at, expires_at) VALUES (?, ?, 'NP', ?, ?, ?, ?, 'PENDING', ?, ?)", (uid, req_id, str(phone), body.get("country"), body.get("service"), body.get("service"), now_text(), (now() + timedelta(minutes=15)).isoformat()))
         await clean_old_orders(uid)
         return web.json_response({"ok": True})
+
     elif provider == "BASHA":
         row = await db_exec("SELECT phone, country FROM basha_numbers WHERE country=? ORDER BY RANDOM() LIMIT 1", (body.get("country"),), fetch="one")
         if not row: return web.json_response({"error": "Hết số BS"}, status=404)
-        await db_exec("INSERT INTO orders (user_id, request_id, provider, phone, country, range_code, status, created_at, expires_at) VALUES (?, ?, 'BASHA', ?, ?, ?, 'PENDING', ?, ?)", (uid, row["phone"], row["phone"], row["country"], row["country"], now_text(), (now() + timedelta(minutes=15)).isoformat()))
+        req_id = f"BS_{row['phone']}_{int(time.time())}"
+        await db_exec("INSERT INTO orders (user_id, request_id, provider, phone, country, range_code, status, created_at, expires_at) VALUES (?, ?, 'BASHA', ?, ?, ?, 'PENDING', ?, ?)", (uid, req_id, row["phone"], row["country"], row["country"], now_text(), (now() + timedelta(minutes=15)).isoformat()))
         await clean_old_orders(uid)
         return web.json_response({"ok": True})
+
     elif provider == "SLVN":
         payload = {"service": "ANY", "countryCode": body.get("country_code"), "tag": body.get("tag")}
         data, err = await api_request("POST", "rent", payload, api_type="SLVN")
@@ -208,6 +199,7 @@ async def mini_create_order(request):
         await db_exec("INSERT INTO orders (user_id, request_id, provider, phone, country, range_code, status, created_at, expires_at) VALUES (?, ?, 'SLVN', ?, ?, ?, 'PENDING', ?, ?)", (uid, order_data.get("rentalId"), order_data.get("phoneNumber"), order_data.get("country"), body.get("tag"), now_text(), (now() + timedelta(minutes=15)).isoformat()))
         await clean_old_orders(uid)
         return web.json_response({"ok": True})
+
     return web.json_response({"error": "Provider không hợp lệ"}, status=400)
 
 async def mini_cancel_order(request):
@@ -238,7 +230,6 @@ async def mini_withdraw(request):
     wid = await db_exec("INSERT INTO withdrawals (user_id, amount_milli, wallet_ton, status, created_at) VALUES (?, ?, ?, 'PENDING', ?)", (uid, amt_milli, u["wallet_ton"], now_text()))
     return web.json_response({"ok": True, "withdrawal_id": wid})
 
-# Admin APIs (Rút gọn import do đã có ở trên)
 async def mini_admin_data(request):
     if not mini_admin_guard(request): return web.json_response({"error": "Forbidden"}, status=403)
     users = await db_exec("SELECT COUNT(*) as c FROM users", fetch="one")
@@ -270,17 +261,23 @@ async def mini_admin_user_detail(request):
 
 async def mini_admin_cmd(request):
     if not mini_admin_guard(request): return web.json_response({"error": "Forbidden"}, status=403)
-    body = await request.json(); cmd = body.get("cmd")
+    try:
+        body = await request.json()
+        cmd = body.get("cmd")
+    except Exception:
+        return web.json_response({"ok": True, "msg": "Invalid command payload"})
+        
     try:
         if cmd == "pollnow":
-            if not _mk_poller: return web.json_response({"error": "Poller not running"})
+            if not _mk_poller: return web.json_response({"ok": True, "msg": "Poller not running"})
             c, n, err = await _mk_poller._poll_once()
             if err: return web.json_response({"ok": True, "msg": f"Lỗi khi Poll OTP: {err}"})
             return web.json_response({"ok": True, "msg": f"Checked: {c} đơn.\nNew OTPs: {n}\nTrạng thái: OK"})
         elif cmd == "health":
             pending = await db_exec("SELECT COUNT(*) FROM orders WHERE status='PENDING'", fetch='one')
-            poller = "OFF" if not _mk_poller else f"ON ({_mk_poller.interval}s, err={_mk_poller._consecutive_errors})"
-            return web.json_response({"ok": True, "msg": f"DB: Turso\nMK Key: {'OK' if MK_API_KEY else 'MISSING'}\nNP Key: {'OK' if NP_API_KEY else 'MISSING'}\nPending Orders: {pending[0] if pending else 0}\nPoller: {poller}"})
+            pending_count = pending[0] if pending and len(pending) > 0 else 0
+            poller = "OFF" if not _mk_poller else f"ON ({_mk_poller.interval}s)"
+            return web.json_response({"ok": True, "msg": f"DB: Turso\nMK Key: {'OK' if MK_API_KEY else 'MISSING'}\nNP Key: {'OK' if NP_API_KEY else 'MISSING'}\nPending Orders: {pending_count}\nPoller: {poller}"})
         elif cmd == "whoami":
             data, err = await api_request("GET", "whoami")
             return web.json_response({"ok": True, "msg": f"API Error: {err}" if err else json.dumps(data, indent=2, ensure_ascii=False)})
@@ -290,8 +287,9 @@ async def mini_admin_cmd(request):
         elif cmd == "radar":
             data, err = await api_request("GET", "radar", params={"limit": 10}, api_type="MK")
             return web.json_response({"ok": True, "msg": f"API Error: {err}" if err else json.dumps(data, indent=2, ensure_ascii=False)[:2000]})
-        return web.json_response({"error": "Unknown command"})
-    except Exception as e: return web.json_response({"error": f"Lỗi thực thi: {str(e)}"}, status=500)
+        return web.json_response({"ok": True, "msg": "Unknown command"})
+    except Exception as e:
+        return web.json_response({"ok": True, "msg": f"Lỗi thực thi: {str(e)}"})
 
 async def mini_admin_maintenance(request):
     if not mini_admin_guard(request): return web.json_response({"error": "Forbidden"}, status=403)
@@ -355,15 +353,23 @@ async def mini_admin_wd_action(request):
         await change_usd(row["user_id"], row["amount_milli"], "WITHDRAW_REFUND", f"Refund #{wid}")
         return web.json_response({"ok": True})
 
-# API Lấy danh sách nguồn số
 async def mini_mk_ranges(request):
     data, err = await api_request("GET", "access_list", params={"limit": 1000}, api_type="MK")
-    if not err and data and "data" in data and "items" in data["data"]:
-        c_map = {}
-        for item in data["data"]["items"]:
-            c_map.setdefault(item.get("country"), []).append(item.get("range"))
-        return web.json_response({"countries": [{"name": k, "range": v[0], "flag": get_country_flag(k)} for k, v in c_map.items()]})
-    return web.json_response({"countries": [{"name": k, "range": v, "flag": get_country_flag(k)} for k, v in FALLBACK_COUNTRIES.items()]})
+    countries = []
+    if not err and data and isinstance(data, dict):
+        items = data.get("data", {}).get("items") or data.get("items") or []
+        if items:
+            c_map = {}
+            for item in items:
+                c_name = item.get("country") or item.get("country_name")
+                r_val = item.get("range") or item.get("prefix") or item.get("code")
+                if c_name and r_val:
+                    c_map.setdefault(c_name, []).append(str(r_val))
+            for c_name, ranges in c_map.items():
+                countries.append({"name": c_name, "range": ranges[0], "flag": get_country_flag(c_name)})
+    if not countries:
+        countries = [{"name": k, "range": v, "flag": get_country_flag(k)} for k, v in FALLBACK_COUNTRIES.items()]
+    return web.json_response({"countries": countries})
 
 async def mini_np_services(request):
     data, err = await api_request("GET", "services", api_type="NP")
@@ -384,11 +390,8 @@ async def mini_slvn_countries(request):
     if err or not data: return web.json_response({"countries": []})
     return web.json_response({"countries": [{"name": c.get("country"), "code": c.get("countryCode"), "flag": c.get("flag"), "tag": c.get("tag"), "rate": c.get("rateUsd")} for c in data.get("data", [])]})
 
-# =====================================================
-# KHỞI TẠO WEB SERVER & MAIN
-# =====================================================
 async def web_server():
-    app = web.Application(middlewares=[mini_auth_middleware], client_max_size=1024 * 1024)
+    app = web.Application(middlewares=[mini_auth_middleware], client_max_size=10 * 1024 * 1024)
     
     async def serve_html(request): return web.Response(text=MINIAPP_HTML, content_type='text/html')
     async def health(request): return web.json_response({"ok": True})
@@ -397,7 +400,6 @@ async def web_server():
     app.router.add_get('/miniapp', serve_html)
     app.router.add_get('/health', health)
     
-    # API routes
     app.router.add_get('/api/mini/me', mini_me)
     app.router.add_post('/api/mini/language', mini_language_update)
     app.router.add_get('/api/mini/stats', mini_stats)
@@ -414,7 +416,6 @@ async def web_server():
     app.router.add_post('/api/mini/wallet/address', mini_save_wallet)
     app.router.add_post('/api/mini/wallet/withdraw', mini_withdraw)
     
-    # Admin routes
     app.router.add_get('/api/mini/admin/data', mini_admin_data)
     app.router.add_get('/api/mini/admin/users', mini_admin_users)
     app.router.add_get('/api/mini/admin/users/{uid}', mini_admin_user_detail)
@@ -444,11 +445,8 @@ async def main():
     except Exception as e: logger.error(f"Error setting menu: {e}")
     
     await init_db()
-    
-    # Đăng ký handlers
     setup_handlers(dp, bot, WEBAPP_URL, ADMIN_ID)
     
-    # Chạy Web Server và Poller
     asyncio.create_task(web_server())
     _mk_poller = MkOtpPoller(bot, OTP_GROUP_ID)
     asyncio.create_task(_mk_poller.run_forever())
