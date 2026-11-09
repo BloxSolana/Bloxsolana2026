@@ -23,43 +23,36 @@ SLVN_API_BASE  = "https://slvirtualnumber.com/api/v1/developer"
 
 REWARD_MILLI_PER_OTP = 2
 
-async def api_request(method: str, endpoint: str, payload: dict = None, params: dict = None, api_type: str = "MK") -> tuple:
-    base_urls = {"MK": MK_API_BASE, "NP": NP_API_BASE, "BASHA": BASHA_API_BASE, "SLVN": SLVN_API_BASE}
-    keys = {"MK": MK_API_KEY, "NP": NP_API_KEY, "BASHA": BASHA_API_KEY, "SLVN": SLVN_API_KEY}
+async def api_request(method, endpoint, payload=None, params=None, api_type="MK"):
+    headers = {"Accept": "application/json"}
+    if api_type == "MK": 
+        if not MK_API_KEY: return None, "Missing MK_API_KEY on server."
+        headers["mknetwork-key"] = MK_API_KEY; base = MK_API_BASE
+    elif api_type == "NP": 
+        if not NP_API_KEY: return None, "Missing NP_API_KEY on server."
+        headers["Authorization"] = f"Bearer {NP_API_KEY}"; base = NP_API_BASE
+    elif api_type == "BASHA": 
+        if not BASHA_API_KEY: return None, "Missing BASHA_API_KEY on server."
+        headers["Authorization"] = f"Bearer {BASHA_API_KEY}"; base = BASHA_API_BASE
+    elif api_type == "SLVN": 
+        if not SLVN_API_KEY: return None, "Missing SLVN_API_KEY on server."
+        headers["x-api-key"] = SLVN_API_KEY; base = SLVN_API_BASE
     
-    url = base_urls.get(api_type, "")
-    key = keys.get(api_type, "")
-    if not url or not key:
-        return None, f"API key cho {api_type} chưa được cấu hình."
-    
-    headers = {"Content-Type": "application/json", "Accept": "application/json"}
-    if str(api_type).upper() == "MK":
-        headers["mknetwork-key"] = key
-    else:
-        headers["Authorization"] = f"Bearer {key}"
-        
+    if payload is not None: headers["Content-Type"] = "application/json"
+    url = f"{base}/{endpoint.lstrip('/')}"
+    timeout = aiohttp.ClientTimeout(total=25)
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.request(
-                method, url + "/" + endpoint.lstrip("/"),
-                json=payload, params=params, headers=headers,
-                timeout=aiohttp.ClientTimeout(total=25)
-            ) as resp:
-                text = await resp.text()
-                if resp.status in (401, 403):
-                    return None, f"Lỗi xác thực API ({resp.status})."
-                try:
-                    data = json.loads(text)
-                except json.JSONDecodeError:
-                    return None, f"Phản hồi không phải JSON (HTTP {resp.status})."
-                meta = data.get("meta", {})
-                if meta.get("code") and meta.get("code") != 200:
-                    return None, data.get("message") or meta.get("status") or "Lỗi API."
+        async with aiohttp.ClientSession(timeout=timeout) as s:
+            async with s.request(method, url, headers=headers, json=payload, params=params) as r:
+                raw = await r.text()
+                try: data = json.loads(raw)
+                except json.JSONDecodeError: data = {"response": raw[:1000]}
+                if r.status >= 400: 
+                    err_msg = data.get("message", raw) if isinstance(data, dict) else raw
+                    return None, f"API Error {r.status}: {err_msg}"
                 return data, None
-    except asyncio.TimeoutError:
-        return None, "Timeout – API không phản hồi sau 25s."
-    except Exception as e:
-        return None, f"Lỗi mạng: {str(e)}"
+    except asyncio.TimeoutError: return None, "Connection timeout."
+    except Exception as e: return None, str(e)
 
 class MkOtpPoller:
     def __init__(self, bot, otp_group_id):
