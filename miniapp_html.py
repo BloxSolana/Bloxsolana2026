@@ -127,7 +127,6 @@ MINIAPP_HTML = """
         .maint-btn.on { background: rgba(16, 185, 129, 0.2); border-color: var(--success); color: var(--success); }
         .maint-btn.off { background: rgba(239, 68, 68, 0.2); border-color: var(--danger); color: var(--danger); }
 
-        /* MAINTENANCE SCREEN */
         #maintenance-screen {
             position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
             background: var(--bg); z-index: 99999; display: none;
@@ -140,7 +139,6 @@ MINIAPP_HTML = """
     </style>
 </head>
 <body>
-    <!-- MAINTENANCE SCREEN -->
     <div id="maintenance-screen">
         <img id="maint-img" src="" style="display: none;">
         <h1 data-i18n="maint_title">🛠 BẢO TRÌ HỆ THỐNG</h1>
@@ -771,6 +769,14 @@ MINIAPP_HTML = """
             const text = statusTexts[o.status] || o.status;
             let dateStr = o.created_at ? new Date(o.created_at).toLocaleString('vi-VN') : '';
             
+            let countdownHtml = '';
+            if (o.status === 'PENDING' && o.created_at) {
+                const createdTime = new Date(o.created_at).getTime();
+                const expireTime = createdTime + (15 * 60 * 1000); // 15 phút hết hạn chuẩn MK & NP
+                const remaining = Math.max(0, Math.floor((expireTime - Date.now()) / 1000));
+                countdownHtml = `<span class="order-countdown" data-expire="${expireTime}" style="color: var(--warning); font-weight: bold;">⏳ Còn ${Math.floor(remaining / 60)}m ${remaining % 60}s</span>`;
+            }
+
             let otpHtml = '';
             if (o.status === 'COMPLETED' && o.otp) {
                 otpHtml = `
@@ -792,8 +798,7 @@ MINIAPP_HTML = """
                     <div class="order-info">
                         <span>${o.flag} ${o.country}</span>
                         <span>🔧 ${o.provider}</span>
-                        ${o.platform ? `<span>🌐 ${o.platform}</span>` : ''}
-                        <span>🕒 ${dateStr}</span>
+                        ${countdownHtml}
                     </div>
                     ${otpHtml}
                     <div class="action-row">
@@ -803,6 +808,22 @@ MINIAPP_HTML = """
                 </div>
             `;
         }
+
+        // Vòng lặp Real-time đếm ngược 15 phút cho đơn hàng đang chờ
+        setInterval(() => {
+            document.querySelectorAll('.order-countdown').forEach(el => {
+                const expireTime = parseInt(el.getAttribute('data-expire'));
+                const remaining = Math.max(0, Math.floor((expireTime - Date.now()) / 1000));
+                if (remaining <= 0) {
+                    el.innerText = "⏳ Đã hết hạn (15p)";
+                    el.style.color = "var(--danger)";
+                } else {
+                    const m = Math.floor(remaining / 60);
+                    const s = remaining % 60;
+                    el.innerText = `⏳ Còn ${m}m ${s < 10 ? '0' : ''}${s}s`;
+                }
+            });
+        }, 1000);
 
         function copyText(text) {
             navigator.clipboard.writeText(text).then(() => showToast('Đã sao chép: ' + text));
@@ -1144,18 +1165,34 @@ MINIAPP_HTML = """
             
             const infoEl = document.getElementById('admin-user-detail-info');
             const ordEl = document.getElementById('admin-user-detail-orders');
-            if (infoEl) infoEl.innerHTML = '<div class="spinner"></div>';
+            if (infoEl) {
+                infoEl.innerHTML = `
+                    <div id="u-detail-text"><div class="spinner"></div></div>
+                    <div style="margin-top: 15px; display: flex; flex-direction: column; gap: 10px;">
+                        <div style="display: flex; gap: 8px;">
+                            <input type="number" id="admin-bonus-amt" class="form-control" placeholder="Số tiền ($)" step="0.1" style="flex:1;">
+                            <button class="btn btn-success" style="margin-top:0; width:120px;" onclick="adminUserAction(${uid}, 'bonus')">➕ Cộng tiền</button>
+                        </div>
+                        <div style="display: flex; gap: 8px;">
+                            <input type="number" id="admin-min-amt" class="form-control" placeholder="Số dư tối thiểu ($)" step="0.1" style="flex:1;">
+                            <button class="btn btn-primary" style="margin-top:0; width:120px;" onclick="adminUserAction(${uid}, 'set_min')">⚙️ Set Min</button>
+                        </div>
+                        <button class="btn btn-danger" style="margin-top:0;" onclick="adminUserAction(${uid}, 'revoke')">🗑️ Thu hồi toàn bộ số dư</button>
+                    </div>
+                `;
+            }
             if (ordEl) ordEl.innerHTML = '<div class="spinner"></div>';
             
             const data = await api('/api/mini/admin/users/' + uid + '?page=1');
+            const textEl = document.getElementById('u-detail-text');
             if(data.error) {
-                if (infoEl) infoEl.innerText = data.error;
+                if (textEl) textEl.innerText = data.error;
                 return;
             }
 
             const u = data.user;
-            if (infoEl) {
-                infoEl.innerHTML = `
+            if (textEl) {
+                textEl.innerHTML = `
                     <div><b>Tên:</b> ${u.name}</div>
                     <div><b>Username:</b> @${u.username || '—'}</div>
                     <div><b>Telegram ID:</b> ${u.id}</div>
@@ -1175,6 +1212,26 @@ MINIAPP_HTML = """
                 `;
             }
             renderAdminUserOrders(data);
+        }
+
+        async function adminUserAction(uid, action) {
+            let val = 0;
+            if (action === 'bonus') val = document.getElementById('admin-bonus-amt').value;
+            if (action === 'set_min') val = document.getElementById('admin-min-amt').value;
+            
+            if ((action === 'bonus' || action === 'set_min') && (!val || val <= 0)) {
+                return alert('Vui lòng nhập số tiền hợp lệ!');
+            }
+            
+            if (action === 'revoke' && !confirm('Bạn chắc chắn muốn thu hồi toàn bộ số dư của user này?')) return;
+
+            const res = await api(`/api/mini/admin/users/${uid}/action`, 'POST', { action, amount: val });
+            if (res.ok) {
+                showToast(res.msg);
+                loadAdminUserDetail(uid);
+            } else {
+                alert(res.error);
+            }
         }
 
         function renderAdminUserOrders(data) {
@@ -1284,7 +1341,7 @@ MINIAPP_HTML = """
             if (autoRefreshInterval) clearInterval(autoRefreshInterval);
             autoRefreshInterval = setInterval(() => {
                 const activeView = document.querySelector('.view.active')?.id;
-                if (activeView === 'view-home') loadHome(true); // silent refresh ko load lai user data de do giật
+                if (activeView === 'view-home') loadHome(true);
             }, 5000); 
         }
 
@@ -1293,7 +1350,6 @@ MINIAPP_HTML = """
             if (tg.expand) tg.expand();
         } catch(e) {}
 
-        // Khởi động nhanh và kiểm tra bảo trì tức thì
         loadUserData();
         loadHome();
         startAutoRefresh();
