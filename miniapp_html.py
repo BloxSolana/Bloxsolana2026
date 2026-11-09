@@ -143,7 +143,7 @@ MINIAPP_HTML = """
     <!-- MAINTENANCE SCREEN -->
     <div id="maintenance-screen">
         <img id="maint-img" src="" style="display: none;">
-        <h1>🛠 BẢO TRÌ HỆ THỐNG</h1>
+        <h1 data-i18n="maint_title">🛠 BẢO TRÌ HỆ THỐNG</h1>
         <p id="maint-text">Hệ thống đang được bảo trì. Vui lòng quay lại sau!</p>
     </div>
 
@@ -167,45 +167,45 @@ MINIAPP_HTML = """
             <div class="sidebar-user" id="side-user-info">Loading...</div>
         </div>
         <div class="sidebar-menu">
-            <a href="#" class="menu-item active" onclick="navTo('home')"><span class="icon">🏠</span> Trang chủ</a>
-            <a href="#" class="menu-item" onclick="navTo('buy')"><span class="icon">🛒</span> Mua Số OTP</a>
-            <a href="#" class="menu-item" onclick="navTo('history')"><span class="icon">📜</span> Lịch sử</a>
-            <a href="#" class="menu-item" onclick="navTo('wallet')"><span class="icon">💵</span> Ví & Rút Tiền</a>
-            <a href="#" class="menu-item" onclick="navTo('stats')"><span class="icon">📊</span> Thống Kê</a>
-            <a href="#" class="menu-item" onclick="navTo('leaderboard')"><span class="icon">🏆</span> Bảng Xếp Hạng</a>
-            <a href="#" class="menu-item" onclick="window.open('https://t.me/LIVEOTPIVAS', '_blank')"><span class="icon">📢</span> OTP Group</a>
-            <a href="#" class="menu-item" onclick="navTo('profile')"><span class="icon">👤</span> Hồ Sơ</a>
+            <a href="#" class="menu-item active" onclick="navTo('home')"><span class="icon">🏠</span> <span data-i18n="home">Trang chủ</span></a>
+            <a href="#" class="menu-item" onclick="navTo('buy')"><span class="icon">🛒</span> <span data-i18n="buy">Mua Số OTP</span></a>
+            <a href="#" class="menu-item" onclick="navTo('history')"><span class="icon">📜</span> <span data-i18n="history">Lịch sử</span></a>
+            <a href="#" class="menu-item" onclick="navTo('wallet')"><span class="icon">💵</span> <span data-i18n="wallet">Ví & Rút Tiền</span></a>
+            <a href="#" class="menu-item" onclick="navTo('stats')"><span class="icon">📊</span> <span data-i18n="stats">Thống Kê</span></a>
+            <a href="#" class="menu-item" onclick="navTo('leaderboard')"><span class="icon">🏆</span> <span data-i18n="leaderboard">Bảng Xếp Hạng</span></a>
+            <a href="#" class="menu-item" onclick="window.open('https://t.me/LIVEOTPIVAS', '_blank')"><span class="icon">📢</span> <span data-i18n="otp_group">OTP Group</span></a>
+            <a href="#" class="menu-item" onclick="navTo('profile')"><span class="icon">👤</span> <span data-i18n="profile">Hồ Sơ</span></a>
             
             <a href="#" class="menu-item menu-admin" id="menu-admin" onclick="navTo('admin')" style="display: none;">
-                <span class="icon">🛡</span> ADMIN PANEL
+                <span class="icon">🛡</span> <span data-i18n="admin">ADMIN PANEL</span>
             </a>
         </div>
     </div>
 
     <div class="top-bar" id="main-top-bar">
         <button class="menu-btn" onclick="toggleSidebar()">☰</button>
-        <div class="page-title" id="top-title">Trang chủ</div>
+        <div class="page-title" id="top-title" data-i18n="home">Trang chủ</div>
     </div>
 
     <div class="container" id="main-container">
         <!-- HOME -->
         <div id="view-home" class="view active">
             <div class="card balance-card">
-                <div class="balance-title">Số dư khả dụng</div>
+                <div class="balance-title" data-i18n="balance">Số dư khả dụng</div>
                 <div class="balance-amount" id="home-balance">$0.000</div>
             </div>
             <div class="stats-grid">
                 <div class="stat-box">
-                    <div class="label">OTP Hôm Nay</div>
+                    <div class="label" data-i18n="today_otp">OTP Hôm Nay</div>
                     <div class="value" id="home-today-otps">0</div>
                 </div>
                 <div class="stat-box">
-                    <div class="label">Tổng Đơn</div>
+                    <div class="label" data-i18n="total_orders">Tổng Đơn</div>
                     <div class="value" id="home-total-orders">0</div>
                 </div>
             </div>
 
-            <h3 style="margin-bottom: 15px; font-size: 18px; font-weight: 600;">⏳ Đơn Đang Chờ</h3>
+            <h3 style="margin-bottom: 15px; font-size: 18px; font-weight: 600;" data-i18n="active_orders">⏳ Đơn Đang Chờ</h3>
             <div id="active-orders-list">
                 <div class="loading"><div class="spinner"></div>Đang tải...</div>
             </div>
@@ -215,7 +215,7 @@ MINIAPP_HTML = """
         <div id="view-buy" class="view">
             <div class="card">
                 <div class="form-group">
-                    <label class="form-label">Chọn Nguồn Số</label>
+                    <label class="form-label" data-i18n="select_source">Chọn Nguồn Số</label>
                     <select class="form-control" id="provider-select" onchange="renderBuyOptions()">
                         <option value="MK">🎱 Numbers 1 (MK)</option>
                         <option value="NP">📱 Numbers 2 (NP)</option>
@@ -233,61 +233,61 @@ MINIAPP_HTML = """
                 <div class="loading"><div class="spinner"></div>Đang tải...</div>
             </div>
             <div class="pagination" id="history-pagination" style="display: none;">
-                <button id="btn-prev" onclick="changeHistoryPage(-1)">← Trang trước</button>
+                <button id="btn-prev" onclick="changeHistoryPage(-1)" data-i18n="prev_page">← Trang trước</button>
                 <span id="page-info">Trang 1 / 1</span>
-                <button id="btn-next" onclick="changeHistoryPage(1)">Trang sau →</button>
+                <button id="btn-next" onclick="changeHistoryPage(1)" data-i18n="next_page">Trang sau →</button>
             </div>
         </div>
 
         <!-- WALLET -->
         <div id="view-wallet" class="view">
             <div class="card">
-                <div class="form-label" style="font-size: 16px; color: var(--text); margin-bottom: 15px;">💵 Ví TON</div>
+                <div class="form-label" style="font-size: 16px; color: var(--text); margin-bottom: 15px;" data-i18n="ton_wallet">💵 Ví TON</div>
                 <div class="form-group">
                     <input type="text" class="form-control" id="ton-address" placeholder="UQ... hoặc EQ...">
                 </div>
-                <button class="btn btn-primary" onclick="saveWallet()">Lưu Địa Chỉ</button>
+                <button class="btn btn-primary" onclick="saveWallet()" data-i18n="save_address">Lưu Địa Chỉ</button>
             </div>
             <div class="card">
-                <div class="form-label" style="font-size: 16px; color: var(--text); margin-bottom: 15px;">💰 Rút Tiền</div>
+                <div class="form-label" style="font-size: 16px; color: var(--text); margin-bottom: 15px;" data-i18n="withdraw">💰 Rút Tiền</div>
                 <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px;">
                     <button class="btn-small copy" onclick="setWithdrawAmount(1)">$1</button>
                     <button class="btn-small copy" onclick="setWithdrawAmount(2)">$2</button>
                     <button class="btn-small copy" onclick="setWithdrawAmount(5)">$5</button>
                     <button class="btn-small copy" onclick="setWithdrawAmount(8)">$8</button>
                 </div>
-                <button class="btn-small copy" style="width: 100%; margin-bottom: 15px; background: rgba(59, 130, 246, 0.15); border-color: rgba(59, 130, 246, 0.4); color: #93c5fd;" onclick="setWithdrawAmount('max')">
+                <button class="btn-small copy" style="width: 100%; margin-bottom: 15px; background: rgba(59, 130, 246, 0.15); border-color: rgba(59, 130, 246, 0.4); color: #93c5fd;" onclick="setWithdrawAmount('max')" data-i18n="withdraw_all">
                     ⚡ Rút Toàn Bộ (Phí $0.1)
                 </button>
                 <div class="form-group">
                     <input type="number" class="form-control" id="withdraw-amount" placeholder="Nhập số tiền ($)" step="0.1">
                 </div>
-                <button class="btn btn-success" onclick="requestWithdraw()">Gửi Yêu Cầu</button>
+                <button class="btn btn-success" onclick="requestWithdraw()" data-i18n="send_request">Gửi Yêu Cầu</button>
             </div>
             <div class="card">
-                <div class="form-label" style="font-size: 16px; color: var(--text); margin-bottom: 15px;">💌 Mời Bạn Bè</div>
+                <div class="form-label" style="font-size: 16px; color: var(--text); margin-bottom: 15px;" data-i18n="invite_friends">💌 Mời Bạn Bè</div>
                 <div style="background: rgba(15,23,42,0.6); padding: 12px; border-radius: 8px; word-break: break-all; font-size: 13px; margin-bottom: 10px; border: 1px solid var(--border);" id="ref-link"></div>
-                <button class="btn btn-outline" onclick="copyRef()">📋 Sao Chép Link</button>
+                <button class="btn btn-outline" onclick="copyRef()" data-i18n="copy_link">📋 Sao Chép Link</button>
             </div>
         </div>
 
         <!-- STATS -->
         <div id="view-stats" class="view">
             <div class="card">
-                <div class="form-label" style="font-size: 16px; color: var(--text); margin-bottom: 15px;">📊 THỐNG KÊ HÔM NAY <span style="font-size: 12px; color: var(--success);" id="stats-realtime-indicator">● Real-time</span></div>
+                <div class="form-label" style="font-size: 16px; color: var(--text); margin-bottom: 15px;" data-i18n="stats_today">📊 THỐNG KÊ HÔM NAY <span style="font-size: 12px; color: var(--success);" id="stats-realtime-indicator">● Real-time</span></div>
                 <div class="stats-grid">
                     <div class="stat-box">
-                        <div class="label">Tổng OTP</div>
+                        <div class="label" data-i18n="total_otp">Tổng OTP</div>
                         <div class="value" id="stats-total-otps" style="color: var(--primary);">0</div>
                     </div>
                 </div>
             </div>
             <div class="card">
-                <div class="form-label" style="font-size: 16px; color: var(--text); margin-bottom: 15px;">🌍 OTP THEO QUỐC GIA</div>
+                <div class="form-label" style="font-size: 16px; color: var(--text); margin-bottom: 15px;" data-i18n="stats_country">🌍 OTP THEO QUỐC GIA</div>
                 <div id="stats-countries-list"></div>
             </div>
             <div class="card">
-                <div class="form-label" style="font-size: 16px; color: var(--text); margin-bottom: 15px;">📱 OTP THEO NỀN TẢNG</div>
+                <div class="form-label" style="font-size: 16px; color: var(--text); margin-bottom: 15px;" data-i18n="stats_platform">📱 OTP THEO NỀN TẢNG</div>
                 <div id="stats-platforms-list"></div>
             </div>
         </div>
@@ -295,7 +295,7 @@ MINIAPP_HTML = """
         <!-- LEADERBOARD -->
         <div id="view-leaderboard" class="view">
             <div class="card">
-                <div class="form-label" style="font-size: 16px; color: var(--text); margin-bottom: 15px;">🏆 TOP 10 CAO THỦ</div>
+                <div class="form-label" style="font-size: 16px; color: var(--text); margin-bottom: 15px;" data-i18n="top_10">🏆 TOP 10 CAO THỦ</div>
                 <div id="leaderboard-list">
                     <div class="loading"><div class="spinner"></div>Đang tải...</div>
                 </div>
@@ -305,11 +305,11 @@ MINIAPP_HTML = """
         <!-- PROFILE -->
         <div id="view-profile" class="view">
             <div class="card">
-                <div class="form-label" style="font-size: 16px; color: var(--text); margin-bottom: 15px;">👤 HỒ SƠ CỦA BẠN</div>
+                <div class="form-label" style="font-size: 16px; color: var(--text); margin-bottom: 15px;" data-i18n="your_profile">👤 HỒ SƠ CỦA BẠN</div>
                 <div id="profile-info" style="font-size: 15px; line-height: 2;"></div>
             </div>
             <div class="card">
-                <div class="form-label" style="font-size: 16px; color: var(--text); margin-bottom: 15px;">🌐 Ngôn Ngữ (Language)</div>
+                <div class="form-label" style="font-size: 16px; color: var(--text); margin-bottom: 15px;" data-i18n="language">🌐 Ngôn Ngữ (Language)</div>
                 <select class="form-control" id="lang-select" onchange="changeLanguage(this.value)">
                     <option value="vi">🇻🇳 Tiếng Việt</option>
                     <option value="en">🇬🇧 English</option>
@@ -425,10 +425,10 @@ MINIAPP_HTML = """
     </div>
 
     <div class="bottom-nav" id="main-bottom-nav">
-        <button class="nav-item active" id="nav-home" onclick="navTo('home')"><span class="icon">🏠</span>Trang chủ</button>
-        <button class="nav-item" id="nav-buy" onclick="navTo('buy')"><span class="icon">🛒</span>Mua số</button>
-        <button class="nav-item" id="nav-history" onclick="navTo('history')"><span class="icon">📜</span>Lịch sử</button>
-        <button class="nav-item" id="nav-wallet" onclick="navTo('wallet')"><span class="icon">💵</span>Ví</button>
+        <button class="nav-item active" id="nav-home" onclick="navTo('home')"><span class="icon">🏠</span><span data-i18n="home">Trang chủ</span></button>
+        <button class="nav-item" id="nav-buy" onclick="navTo('buy')"><span class="icon">🛒</span><span data-i18n="buy">Mua số</span></button>
+        <button class="nav-item" id="nav-history" onclick="navTo('history')"><span class="icon">📜</span><span data-i18n="history">Lịch sử</span></button>
+        <button class="nav-item" id="nav-wallet" onclick="navTo('wallet')"><span class="icon">💵</span><span data-i18n="wallet">Ví</span></button>
     </div>
 
     <script>
@@ -462,8 +462,24 @@ MINIAPP_HTML = """
         let isMaintenanceOn = false;
 
         const translations = {
-            vi: { home: "Trang chủ", buy: "Mua Số OTP", history: "Lịch sử", wallet: "Ví & Rút Tiền", leaderboard: "Bảng Xếp Hạng", stats: "Thống Kê", profile: "Hồ Sơ", admin: "ADMIN PANEL", balance: "Số dư khả dụng", today_otp: "OTP Hôm Nay", total_orders: "Tổng Đơn", active_orders: "⏳ Đơn Đang Chờ", select_source: "Chọn Nguồn Số", ton_wallet: "💵 Ví TON", save_address: "Lưu Địa Chỉ", withdraw: "💰 Rút Tiền", withdraw_all: "⚡ Rút Toàn Bộ (Phí $0.1)", send_request: "Gửi Yêu Cầu", invite_friends: "💌 Mời Bạn Bè", copy_link: "📋 Sao Chép Link", top_10: "🏆 TOP 10 CAO THỦ", your_profile: "👤 HỒ SƠ CỦA BẠN", language: "🌐 Ngôn Ngữ (Language)", users: "Người dùng", orders: "Đơn hàng", approve_wd: "💸 Duyệt Rút Tiền", add_bs: "➕ Thêm Số BS", add_number: "Thêm Số", buy_short: "Mua số", wallet_short: "Ví", prev_page: "← Trang trước", next_page: "Trang sau →", total_otp: "Tổng OTP đã nhận", joined: "Ngày tham gia", name: "Tên", balance_label: "Số dư" },
-            en: { home: "Home", buy: "Buy OTP Number", history: "History", wallet: "Wallet & Withdraw", leaderboard: "Leaderboard", stats: "Statistics", profile: "Profile", admin: "ADMIN PANEL", balance: "Available Balance", today_otp: "Today's OTP", total_orders: "Total Orders", active_orders: "⏳ Active Orders", select_source: "Select Source", ton_wallet: "💵 TON Wallet", save_address: "Save Address", withdraw: "💰 Withdraw", withdraw_all: "⚡ Withdraw All (Fee $0.1)", send_request: "Send Request", invite_friends: "💌 Invite Friends", copy_link: "📋 Copy Link", top_10: "🏆 TOP 10 PLAYERS", your_profile: "👤 YOUR PROFILE", language: "🌐 Language", users: "Users", orders: "Orders", approve_wd: "💸 Approve Withdrawals", add_bs: "➕ Add BS Numbers", add_number: "Add Number", buy_short: "Buy", wallet_short: "Wallet", prev_page: "← Prev", next_page: "Next →", total_otp: "Total OTPs Received", joined: "Joined", name: "Name", balance_label: "Balance" }
+            vi: { 
+                home: "Trang chủ", buy: "Mua Số OTP", history: "Lịch sử", wallet: "Ví & Rút Tiền", leaderboard: "Bảng Xếp Hạng", stats: "Thống Kê", profile: "Hồ Sơ", admin: "ADMIN PANEL", otp_group: "OTP Group",
+                balance: "Số dư khả dụng", today_otp: "OTP Hôm Nay", total_orders: "Tổng Đơn", active_orders: "⏳ Đơn Đang Chờ", 
+                select_source: "Chọn Nguồn Số", ton_wallet: "💵 Ví TON", save_address: "Lưu Địa Chỉ", withdraw: "💰 Rút Tiền", withdraw_all: "⚡ Rút Toàn Bộ (Phí $0.1)", send_request: "Gửi Yêu Cầu", 
+                invite_friends: "💌 Mời Bạn Bè", copy_link: "📋 Sao Chép Link", top_10: "🏆 TOP 10 CAO THỦ", your_profile: "👤 HỒ SƠ CỦA BẠN", language: "🌐 Ngôn Ngữ (Language)", 
+                users: "Người dùng", orders: "Đơn hàng", approve_wd: "💸 Duyệt Rút Tiền", add_bs: "➕ Thêm Số BS", add_number: "Thêm Số", 
+                prev_page: "← Trang trước", next_page: "Trang sau →", total_otp: "Tổng OTP đã nhận", joined: "Ngày tham gia", name: "Tên", balance_label: "Số dư",
+                stats_today: "📊 THỐNG KÊ HÔM NAY", stats_country: "🌍 OTP THEO QUỐC GIA", stats_platform: "📱 OTP THEO NỀN TẢNG", maint_title: "🛠 BẢO TRÌ HỆ THỐNG"
+            },
+            en: { 
+                home: "Home", buy: "Buy OTP Number", history: "History", wallet: "Wallet & Withdraw", leaderboard: "Leaderboard", stats: "Statistics", profile: "Profile", admin: "ADMIN PANEL", otp_group: "OTP Group",
+                balance: "Available Balance", today_otp: "Today's OTP", total_orders: "Total Orders", active_orders: "⏳ Active Orders", 
+                select_source: "Select Source", ton_wallet: "💵 TON Wallet", save_address: "Save Address", withdraw: "💰 Withdraw", withdraw_all: "⚡ Withdraw All (Fee $0.1)", send_request: "Send Request", 
+                invite_friends: "💌 Invite Friends", copy_link: "📋 Copy Link", top_10: "🏆 TOP 10 PLAYERS", your_profile: "👤 YOUR PROFILE", language: "🌐 Language", 
+                users: "Users", orders: "Orders", approve_wd: "💸 Approve Withdrawals", add_bs: "➕ Add BS Numbers", add_number: "Add Number", 
+                prev_page: "← Prev", next_page: "Next →", total_otp: "Total OTPs Received", joined: "Joined", name: "Name", balance_label: "Balance",
+                stats_today: "📊 TODAY'S STATISTICS", stats_country: "🌍 OTP BY COUNTRY", stats_platform: "📱 OTP BY PLATFORM", maint_title: "🛠 SYSTEM MAINTENANCE"
+            }
         };
 
         function applyLanguage(lang) {
@@ -473,10 +489,17 @@ MINIAPP_HTML = """
                 const key = el.getAttribute('data-i18n');
                 if (translations[lang][key]) el.innerText = translations[lang][key];
             });
-            document.getElementById('lang-select').value = lang;
-            const activeViewId = document.querySelector('.view.active').id.replace('view-', '');
-            document.getElementById('top-title').innerText = translations[lang][activeViewId] || activeViewId;
-            navTo(activeViewId);
+            const langSelect = document.getElementById('lang-select');
+            if (langSelect) langSelect.value = lang;
+            
+            const activeView = document.querySelector('.view.active');
+            if (activeView) {
+                const viewId = activeView.id.replace('view-', '');
+                const titleKey = { home: 'home', buy: 'buy', history: 'history', wallet: 'wallet', leaderboard: 'leaderboard', stats: 'stats', profile: 'profile', admin: 'admin' }[viewId];
+                if (titleKey && translations[lang][titleKey]) {
+                    document.getElementById('top-title').innerText = translations[lang][titleKey];
+                }
+            }
         }
 
         async function changeLanguage(lang) {
@@ -542,32 +565,45 @@ MINIAPP_HTML = """
             document.querySelectorAll('.nav-item').forEach(v => v.classList.remove('active'));
             document.querySelectorAll('.menu-item').forEach(v => v.classList.remove('active'));
 
-            document.getElementById('view-' + viewId).classList.add('active');
+            const targetView = document.getElementById('view-' + viewId);
+            if (targetView) targetView.classList.add('active');
+            
             const navBtn = document.getElementById('nav-' + viewId);
             if (navBtn) navBtn.classList.add('active');
 
             const titleKey = { home: 'home', buy: 'buy', history: 'history', wallet: 'wallet', leaderboard: 'leaderboard', stats: 'stats', profile: 'profile', admin: 'admin' }[viewId];
-            document.getElementById('top-title').setAttribute('data-i18n', titleKey);
-            document.getElementById('top-title').innerText = translations[currentLang][titleKey] || viewId;
+            const topTitle = document.getElementById('top-title');
+            if (topTitle) {
+                if (titleKey) topTitle.setAttribute('data-i18n', titleKey);
+                topTitle.innerText = translations[currentLang][titleKey] || viewId;
+            }
 
             if (document.getElementById('sidebar').classList.contains('open')) toggleSidebar();
 
-            if (viewId === 'home') loadHome();
-            if (viewId === 'buy') renderBuyOptions();
-            if (viewId === 'history') loadHistory(1);
-            if (viewId === 'wallet') loadWallet();
-            if (viewId === 'stats') { loadStats(); startStatsRefresh(); } else { stopStatsRefresh(); }
-            if (viewId === 'leaderboard') loadLeaderboard();
-            if (viewId === 'profile') loadProfile();
-            if (viewId === 'admin') loadAdmin();
+            try {
+                if (viewId === 'home') loadHome();
+                if (viewId === 'buy') renderBuyOptions();
+                if (viewId === 'history') loadHistory(1);
+                if (viewId === 'wallet') loadWallet();
+                if (viewId === 'stats') { loadStats(); startStatsRefresh(); } else { stopStatsRefresh(); }
+                if (viewId === 'leaderboard') loadLeaderboard();
+                if (viewId === 'profile') loadProfile();
+                if (viewId === 'admin') loadAdmin();
+            } catch(err) {
+                console.log("Nav error:", err);
+            }
         }
 
         async function loadUserData() {
             const data = await api('/api/mini/me');
-            if (data.error) return showToast(data.error);
+            if (data.error) return;
             
             userData = data;
-            if (data.user.language && data.user.language !== currentLang) applyLanguage(data.user.language);
+            if (data.user.language && data.user.language !== currentLang) {
+                applyLanguage(data.user.language);
+            } else {
+                applyLanguage(currentLang);
+            }
 
             isMaintenanceOn = (data.maintenance === 'on');
             if (isMaintenanceOn && !data.is_admin) {
@@ -591,20 +627,35 @@ MINIAPP_HTML = """
                 document.getElementById('main-bottom-nav').style.display = 'flex';
             }
 
-            document.getElementById('home-balance').innerText = '$' + (data.user.usd_milli / 1000).toFixed(3);
-            document.getElementById('home-today-otps').innerText = data.today_otps;
-            document.getElementById('home-total-orders').innerText = data.total_orders;
-            document.getElementById('side-user-info').innerText = 'ID: ' + data.user.id + ' | ' + data.user.first_name;
-            document.getElementById('ton-address').value = data.user.wallet_ton || '';
-            document.getElementById('ref-link').innerText = data.referral_link;
+            const homeBal = document.getElementById('home-balance');
+            if (homeBal) homeBal.innerText = '$' + (data.user.usd_milli / 1000).toFixed(3);
             
-            if (data.is_admin) document.getElementById('menu-admin').style.display = 'flex';
-            else document.getElementById('menu-admin').style.display = 'none';
+            const todayOtp = document.getElementById('home-today-otps');
+            if (todayOtp) todayOtp.innerText = data.today_otps;
+            
+            const totalOrd = document.getElementById('home-total-orders');
+            if (totalOrd) totalOrd.innerText = data.total_orders;
+            
+            const sideInfo = document.getElementById('side-user-info');
+            if (sideInfo) sideInfo.innerText = 'ID: ' + data.user.id + ' | ' + (data.user.first_name || 'User');
+            
+            const tonAdd = document.getElementById('ton-address');
+            if (tonAdd) tonAdd.value = data.user.wallet_ton || '';
+            
+            const refLink = document.getElementById('ref-link');
+            if (refLink) refLink.innerText = data.referral_link;
+            
+            const menuAdmin = document.getElementById('menu-admin');
+            if (menuAdmin) {
+                menuAdmin.style.display = data.is_admin ? 'flex' : 'none';
+            }
         }
 
-        async function loadHome() {
-            loadUserData();
+        async function loadHome(silent = false) {
+            if (!silent) await loadUserData();
             const listDiv = document.getElementById('active-orders-list');
+            if (!listDiv) return;
+            
             const data = await api('/api/mini/orders/active');
             if (!data.orders) return;
             
@@ -618,6 +669,7 @@ MINIAPP_HTML = """
         async function loadStats() {
             const listC = document.getElementById('stats-countries-list');
             const listP = document.getElementById('stats-platforms-list');
+            if (!listC || !listP) return;
             
             const data = await api('/api/mini/stats');
             if(data.error) {
@@ -626,7 +678,8 @@ MINIAPP_HTML = """
                 return;
             }
 
-            document.getElementById('stats-total-otps').innerText = data.total_otps;
+            const totalOtpEl = document.getElementById('stats-total-otps');
+            if (totalOtpEl) totalOtpEl.innerText = data.total_otps;
 
             if(data.countries.length === 0) listC.innerHTML = '<div style="color:var(--text-muted);font-size:14px;">Chưa có dữ liệu hôm nay.</div>';
             else listC.innerHTML = data.countries.map(c => `
@@ -655,6 +708,7 @@ MINIAPP_HTML = """
 
         async function loadLeaderboard() {
             const listDiv = document.getElementById('leaderboard-list');
+            if (!listDiv) return;
             const data = await api('/api/mini/leaderboard');
             if (!data.leaderboard || data.leaderboard.length === 0) {
                 listDiv.innerHTML = '<div class="loading">Chưa có dữ liệu.</div>';
@@ -682,24 +736,25 @@ MINIAPP_HTML = """
             currentHistoryPage = page;
             const listDiv = document.getElementById('history-list');
             const pagDiv = document.getElementById('history-pagination');
+            if (!listDiv) return;
             listDiv.innerHTML = '<div class="loading"><div class="spinner"></div>Đang tải...</div>';
             
             const data = await api('/api/mini/orders?page=' + page);
             if (!data.orders || data.orders.length === 0) {
                 listDiv.innerHTML = '<div class="loading">Chưa có lịch sử giao dịch.</div>';
-                pagDiv.style.display = 'none';
+                if (pagDiv) pagDiv.style.display = 'none';
                 return;
             }
             listDiv.innerHTML = data.orders.map(o => renderOrderCard(o, true)).join('');
             totalHistoryPages = data.total_pages || 1;
             currentHistoryPage = data.current_page || 1;
             
-            if (totalHistoryPages > 1) {
+            if (totalHistoryPages > 1 && pagDiv) {
                 pagDiv.style.display = 'flex';
                 document.getElementById('page-info').innerText = `Trang ${currentHistoryPage} / ${totalHistoryPages}`;
                 document.getElementById('btn-prev').disabled = currentHistoryPage <= 1;
                 document.getElementById('btn-next').disabled = currentHistoryPage >= totalHistoryPages;
-            } else {
+            } else if (pagDiv) {
                 pagDiv.style.display = 'none';
             }
         }
@@ -762,12 +817,16 @@ MINIAPP_HTML = """
         }
 
         async function renderBuyOptions() {
-            const provider = document.getElementById('provider-select').value;
+            const providerSel = document.getElementById('provider-select');
             const container = document.getElementById('buy-list-container');
+            if (!providerSel || !container) return;
+            
+            const provider = providerSel.value;
             container.innerHTML = '<div class="loading" style="grid-column: 1/-1;"><div class="spinner"></div>Đang tải...</div>';
 
             if (provider === 'MK') {
                 const data = await api('/api/mini/mk/ranges');
+                if (!data.countries) return container.innerHTML = '<div class="loading" style="grid-column: 1/-1;">Không có dữ liệu.</div>';
                 container.innerHTML = data.countries.map(c => `
                     <button class="list-btn" onclick="buyNumber('MK', '${c.range}', '${c.name}')">
                         <div class="name">${c.flag} ${c.name}</div>
@@ -776,6 +835,7 @@ MINIAPP_HTML = """
             } 
             else if (provider === 'NP') {
                 const data = await api('/api/mini/np/services');
+                if (!data.services) return container.innerHTML = '<div class="loading" style="grid-column: 1/-1;">Không có dữ liệu (Kiểm tra NP Key).</div>';
                 container.innerHTML = data.services.map(s => `
                     <button class="list-btn" onclick="loadNpCountries('${s.key}')">
                         <div class="name">🔧 ${s.name}</div>
@@ -785,7 +845,7 @@ MINIAPP_HTML = """
             }
             else if (provider === 'BASHA') {
                 const data = await api('/api/mini/bs/countries');
-                if (data.countries.length === 0) container.innerHTML = '<div class="loading" style="grid-column: 1/-1;">Chưa có số BS.</div>';
+                if (!data.countries || data.countries.length === 0) container.innerHTML = '<div class="loading" style="grid-column: 1/-1;">Chưa có số BS.</div>';
                 else container.innerHTML = data.countries.map(c => `
                     <button class="list-btn" onclick="buyNumber('BASHA', '${c.name}', '${c.name}')">
                         <div class="name">${c.flag} ${c.name}</div>
@@ -795,7 +855,7 @@ MINIAPP_HTML = """
             }
             else if (provider === 'SLVN') {
                 const data = await api('/api/mini/slvn/countries');
-                if (!data.countries || data.countries.length === 0) container.innerHTML = '<div class="loading" style="grid-column: 1/-1;">Chưa có số (Hoặc lỗi API Key).</div>';
+                if (!data.countries || data.countries.length === 0) container.innerHTML = '<div class="loading" style="grid-column: 1/-1;">Chưa có số (Hoặc lỗi SLVN Key).</div>';
                 else container.innerHTML = data.countries.map(c => `
                     <button class="list-btn" onclick="buyNumber('SLVN', '${c.code}', '${c.name}', '${c.tag}')">
                         <div class="name">${c.flag} ${c.name}</div>
@@ -807,8 +867,10 @@ MINIAPP_HTML = """
 
         async function loadNpCountries(service) {
             const container = document.getElementById('buy-list-container');
+            if (!container) return;
             container.innerHTML = '<div class="loading" style="grid-column: 1/-1;"><div class="spinner"></div>Đang tải...</div>';
             const data = await api('/api/mini/np/countries/' + service);
+            if (!data.countries) return container.innerHTML = '<div class="loading" style="grid-column: 1/-1;">Lỗi tải quốc gia NP.</div>';
             container.innerHTML = data.countries.map(c => `
                 <button class="list-btn" onclick="buyNumber('NP', '${c.code}', '${c.name}', '${service}')">
                     <div class="name">🌍 ${c.name}</div>
@@ -845,17 +907,21 @@ MINIAPP_HTML = """
             if (!userData || !userData.user) return;
             const u = userData.user;
             const t = translations[currentLang];
-            document.getElementById('profile-info').innerHTML = `
-                <div style="padding: 10px 0; border-bottom: 1px solid var(--border);">🆔 Telegram ID: <b>${u.id}</b></div>
-                <div style="padding: 10px 0; border-bottom: 1px solid var(--border);">👤 ${t.name}: <b>${u.first_name}</b></div>
-                <div style="padding: 10px 0; border-bottom: 1px solid var(--border);">💰 ${t.balance_label}: <b style="color: var(--success);">$${(u.usd_milli/1000).toFixed(3)}</b></div>
-                <div style="padding: 10px 0; border-bottom: 1px solid var(--border);">📩 ${t.total_otp}: <b style="color: var(--primary);">${userData.total_otps}</b></div>
-                <div style="padding: 10px 0;">📅 ${t.joined}: <b>${new Date(u.joined_at).toLocaleDateString()}</b></div>
-            `;
+            const pInfo = document.getElementById('profile-info');
+            if (pInfo) {
+                pInfo.innerHTML = `
+                    <div style="padding: 10px 0; border-bottom: 1px solid var(--border);">🆔 Telegram ID: <b>${u.id}</b></div>
+                    <div style="padding: 10px 0; border-bottom: 1px solid var(--border);">👤 ${t.name}: <b>${u.first_name || 'User'}</b></div>
+                    <div style="padding: 10px 0; border-bottom: 1px solid var(--border);">💰 ${t.balance_label}: <b style="color: var(--success);">$${(u.usd_milli/1000).toFixed(3)}</b></div>
+                    <div style="padding: 10px 0; border-bottom: 1px solid var(--border);">📩 ${t.total_otp}: <b style="color: var(--primary);">${userData.total_otps || 0}</b></div>
+                    <div style="padding: 10px 0;">📅 ${t.joined}: <b>${new Date(u.joined_at).toLocaleDateString()}</b></div>
+                `;
+            }
         }
 
         function setWithdrawAmount(type) {
             const input = document.getElementById('withdraw-amount');
+            if (!input) return;
             if (type === 'max') {
                 if (!userData || !userData.user) return;
                 const maxAmount = (userData.user.usd_milli / 1000).toFixed(3);
@@ -867,14 +933,18 @@ MINIAPP_HTML = """
         }
 
         async function saveWallet() {
-            const address = document.getElementById('ton-address').value;
+            const addressEl = document.getElementById('ton-address');
+            if (!addressEl) return;
+            const address = addressEl.value;
             const res = await api('/api/mini/wallet/address', 'POST', { address });
             if (res.ok) showToast('Đã lưu địa chỉ ví!');
             else { if (tg.showAlert) tg.showAlert('Lỗi: ' + res.error); else alert('Lỗi: ' + res.error); }
         }
 
         async function requestWithdraw() {
-            const amount = document.getElementById('withdraw-amount').value;
+            const amountEl = document.getElementById('withdraw-amount');
+            if (!amountEl) return;
+            const amount = amountEl.value;
             if (!amount || amount < 1) {
                 if (tg.showAlert) tg.showAlert('Số tiền tối thiểu là $1.00'); else alert('Số tiền tối thiểu là $1.00');
                 return;
@@ -885,65 +955,84 @@ MINIAPP_HTML = """
                 else alert('Đã gửi yêu cầu rút tiền. Vui lòng chờ Admin duyệt.'); 
                 loadUserData(); 
             } else { 
-                if (tg.showAlert) tg.showAlert('Lỗi: ' + res.error); else alert('Lỗi: ' + res.error); 
+                if (tg.showAlert) tg.showAlert('Lỗi: ' + (res.error || 'Lỗi không xác định')); else alert('Lỗi: ' + (res.error || 'Lỗi không xác định')); 
             }
         }
 
         function copyRef() {
-            const text = document.getElementById('ref-link').innerText;
+            const refLink = document.getElementById('ref-link');
+            if (!refLink) return;
+            const text = refLink.innerText;
             navigator.clipboard.writeText(text).then(() => showToast('Đã sao chép link!'));
         }
 
         // ADMIN
         async function loadAdmin() {
-            const data = await api('/api/mini/admin/data');
-            if (data.error) {
-                if (tg.showAlert) tg.showAlert(data.error); else alert(data.error);
-                return;
-            }
-            
-            document.getElementById('admin-total-users').innerText = data.stats.users;
-            document.getElementById('admin-total-orders').innerText = data.stats.orders;
-            
-            const statusEl = document.getElementById('admin-bot-status');
-            if (data.maintenance === 'on') {
-                statusEl.innerText = '🔴 Đang bảo trì';
-                statusEl.style.color = 'var(--danger)';
-                isMaintenanceOn = true;
-            } else {
-                statusEl.innerText = '🟢 Đang hoạt động';
-                statusEl.style.color = 'var(--success)';
-                isMaintenanceOn = false;
-            }
+            try {
+                const data = await api('/api/mini/admin/data');
+                if (data.error) {
+                    if (tg.showAlert) tg.showAlert(data.error); else alert(data.error);
+                    return;
+                }
+                
+                const tu = document.getElementById('admin-total-users');
+                const to = document.getElementById('admin-total-orders');
+                if (tu) tu.innerText = data.stats.users;
+                if (to) to.innerText = data.stats.orders;
+                
+                const statusEl = document.getElementById('admin-bot-status');
+                if (statusEl) {
+                    if (data.maintenance === 'on') {
+                        statusEl.innerText = '🔴 Đang bảo trì';
+                        statusEl.style.color = 'var(--danger)';
+                        isMaintenanceOn = true;
+                    } else {
+                        statusEl.innerText = '🟢 Đang hoạt động';
+                        statusEl.style.color = 'var(--success)';
+                        isMaintenanceOn = false;
+                    }
+                }
 
-            document.getElementById('admin-stock-info').innerHTML = `
-                <div class="row"><span>Pending Withdrawals:</span> <b>${data.stats.pending_wd}</b></div>
-                <div class="row"><span>BS Stock:</span> <b>${data.stats.bs_count}</b></div>
-            `;
+                const stockInfo = document.getElementById('admin-stock-info');
+                if (stockInfo) {
+                    stockInfo.innerHTML = `
+                        <div class="row"><span>Pending Withdrawals:</span> <b>${data.stats.pending_wd}</b></div>
+                        <div class="row"><span>BS Stock:</span> <b>${data.stats.bs_count}</b></div>
+                    `;
+                }
 
-            const wdDiv = document.getElementById('admin-wd-list');
-            if (!data.withdrawals || data.withdrawals.length === 0) wdDiv.innerHTML = '<div style="color: var(--text-muted); font-size: 14px;">Không có yêu cầu rút tiền.</div>';
-            else {
-                wdDiv.innerHTML = data.withdrawals.map(w => `
-                    <div class="order-card" style="border-left-color: var(--primary);">
-                        <div class="order-header"><div class="order-phone">${w.name} (${w.user_id})</div><div class="order-badge" style="color: var(--primary);">$${(w.amount/1000).toFixed(3)}</div></div>
-                        <div style="font-size: 13px; color: var(--text-muted); word-break: break-all; margin-bottom: 12px;">Ví: ${w.wallet}</div>
-                        <div class="action-row">
-                            <button class="btn-small" style="background: var(--success);" onclick="adminWdAction(${w.id}, 'approve')">✅ Duyệt</button>
-                            <button class="btn-small" style="background: var(--danger);" onclick="adminWdAction(${w.id}, 'reject')">❌ Từ chối</button>
-                        </div>
-                    </div>
-                `).join('');
+                const wdDiv = document.getElementById('admin-wd-list');
+                if (wdDiv) {
+                    if (!data.withdrawals || data.withdrawals.length === 0) wdDiv.innerHTML = '<div style="color: var(--text-muted); font-size: 14px;">Không có yêu cầu rút tiền.</div>';
+                    else {
+                        wdDiv.innerHTML = data.withdrawals.map(w => `
+                            <div class="order-card" style="border-left-color: var(--primary);">
+                                <div class="order-header"><div class="order-phone">${w.name} (${w.user_id})</div><div class="order-badge" style="color: var(--primary);">$${(w.amount/1000).toFixed(3)}</div></div>
+                                <div style="font-size: 13px; color: var(--text-muted); word-break: break-all; margin-bottom: 12px;">Ví: ${w.wallet}</div>
+                                <div class="action-row">
+                                    <button class="btn-small" style="background: var(--success);" onclick="adminWdAction(${w.id}, 'approve')">✅ Duyệt</button>
+                                    <button class="btn-small" style="background: var(--danger);" onclick="adminWdAction(${w.id}, 'reject')">❌ Từ chối</button>
+                                </div>
+                            </div>
+                        `).join('');
+                    }
+                }
+
+                updateMaintUI();
+            } catch(e) {
+                console.log("Load Admin Error:", e);
             }
-
-            updateMaintUI();
         }
 
         function switchAdminTab(tab) {
             document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.admin-tab-content').forEach(c => c.style.display = 'none');
-            event.target.classList.add('active');
-            document.getElementById('admin-tab-' + tab).style.display = 'block';
+            
+            const btnEl = event?.target;
+            if (btnEl) btnEl.classList.add('active');
+            
+            const tabContent = document.getElementById('admin-tab-' + tab);
+            if (tabContent) tabContent.style.display = 'block';
 
             if (tab === 'users') loadAdminUsers();
             if (tab === 'bs') loadAdminBs();
@@ -954,6 +1043,7 @@ MINIAPP_HTML = """
             const btnOn = document.getElementById('btn-maint-on');
             const btnOff = document.getElementById('btn-maint-off');
             const form = document.getElementById('maint-form-container');
+            if (!btnOn || !btnOff || !form) return;
             
             if (isMaintenanceOn) {
                 btnOn.classList.remove('on');
@@ -987,12 +1077,15 @@ MINIAPP_HTML = """
 
         function setMaintTemplate(id) {
             const ta = document.getElementById('maint-msg');
+            if (!ta) return;
             if (id === 1) ta.value = "Hệ thống đang được bảo trì để nâng cấp. Vui lòng quay lại sau ít phút. Xin lỗi vì sự bất tiện này!";
             if (id === 2) ta.value = "Server đang gặp sự cố kỹ thuật. Admin đang khắc phục. Vui lòng quay lại sau!";
         }
 
         async function submitMaintenance() {
-            const msg = document.getElementById('maint-msg').value;
+            const ta = document.getElementById('maint-msg');
+            if (!ta) return;
+            const msg = ta.value;
             if(!msg) {
                 if (tg.showAlert) tg.showAlert("Vui lòng nhập thông báo!"); else alert("Vui lòng nhập thông báo!");
                 return;
@@ -1000,7 +1093,7 @@ MINIAPP_HTML = """
             
             const fileInput = document.getElementById('maint-image');
             let b64 = "";
-            if(fileInput.files.length > 0) {
+            if(fileInput && fileInput.files.length > 0) {
                 b64 = await new Promise((resolve) => {
                     const reader = new FileReader();
                     reader.onload = (e) => resolve(e.target.result);
@@ -1017,25 +1110,26 @@ MINIAPP_HTML = """
             
             if(res.ok) {
                 if (tg.showAlert) tg.showAlert(res.msg); else alert(res.msg);
-                document.getElementById('maint-msg').value = '';
-                document.getElementById('maint-image').value = '';
+                ta.value = '';
+                if (fileInput) fileInput.value = '';
                 isMaintenanceOn = true;
                 updateMaintUI();
                 loadAdmin();
             } else {
-                if (tg.showAlert) tg.showAlert("Lỗi: " + res.error); else alert("Lỗi: " + res.error);
+                if (tg.showAlert) tg.showAlert("Lỗi: " + (res.error || 'Không xác định')); else alert("Lỗi: " + (res.error || 'Không xác định'));
             }
         }
 
         async function loadAdminUsers() {
             const div = document.getElementById('admin-user-list');
+            if (!div) return;
             div.innerHTML = '<div class="spinner"></div>';
             const data = await api('/api/mini/admin/users');
             if(data.error) return div.innerText = data.error;
-            div.innerHTML = data.users.map(u => `
+            div.innerHTML = (data.users || []).map(u => `
                 <div style="padding:10px 0;border-bottom:1px solid var(--border);cursor:pointer;" onclick="loadAdminUserDetail(${u.id})">
-                    <b>${u.name}</b> (@${u.username || '—'}) - ID: ${u.id}<br>
-                    <span style="color:var(--success);">$${(u.balance/1000).toFixed(3)}</span> | Joined: ${new Date(u.joined).toLocaleDateString()}
+                    <b>${u.name || 'User'}</b> (@${u.username || '—'}) - ID: ${u.id}<br>
+                    <span style="color:var(--success);">$${((u.balance || 0)/1000).toFixed(3)}</span> | Joined: ${new Date(u.joined).toLocaleDateString()}
                 </div>
             `).join('');
         }
@@ -1045,39 +1139,52 @@ MINIAPP_HTML = """
             currentUserDetailPage = 1;
             document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.admin-tab-content').forEach(c => c.style.display = 'none');
-            document.getElementById('admin-tab-user-detail').style.display = 'block';
-            document.getElementById('admin-user-detail-info').innerHTML = '<div class="spinner"></div>';
-            document.getElementById('admin-user-detail-orders').innerHTML = '<div class="spinner"></div>';
+            const detailTab = document.getElementById('admin-tab-user-detail');
+            if (detailTab) detailTab.style.display = 'block';
+            
+            const infoEl = document.getElementById('admin-user-detail-info');
+            const ordEl = document.getElementById('admin-user-detail-orders');
+            if (infoEl) infoEl.innerHTML = '<div class="spinner"></div>';
+            if (ordEl) ordEl.innerHTML = '<div class="spinner"></div>';
             
             const data = await api('/api/mini/admin/users/' + uid + '?page=1');
-            if(data.error) return document.getElementById('admin-user-detail-info').innerText = data.error;
+            if(data.error) {
+                if (infoEl) infoEl.innerText = data.error;
+                return;
+            }
 
             const u = data.user;
-            document.getElementById('admin-user-detail-info').innerHTML = `
-                <div><b>Tên:</b> ${u.name}</div>
-                <div><b>Username:</b> @${u.username || '—'}</div>
-                <div><b>Telegram ID:</b> ${u.id}</div>
-                <div><b>Số dư:</b> <span style="color:var(--success);">$${(u.balance/1000).toFixed(3)}</span></div>
-                <div><b>Ngày tham gia:</b> ${new Date(u.joined).toLocaleDateString()}</div>
-            `;
+            if (infoEl) {
+                infoEl.innerHTML = `
+                    <div><b>Tên:</b> ${u.name}</div>
+                    <div><b>Username:</b> @${u.username || '—'}</div>
+                    <div><b>Telegram ID:</b> ${u.id}</div>
+                    <div><b>Số dư:</b> <span style="color:var(--success);">$${(u.balance/1000).toFixed(3)}</span></div>
+                    <div><b>Ngày tham gia:</b> ${new Date(u.joined).toLocaleDateString()}</div>
+                `;
+            }
 
-            const s = data.stats;
-            document.getElementById('admin-user-detail-stats').innerHTML = `
-                <div><div style="font-size:20px;color:var(--primary);font-weight:bold;">${s.MK || 0}</div>MK</div>
-                <div><div style="font-size:20px;color:var(--warning);font-weight:bold;">${s.NP || 0}</div>NP</div>
-                <div><div style="font-size:20px;color:var(--success);font-weight:bold;">${s.BASHA || 0}</div>BS</div>
-                <div><div style="font-size:20px;color:var(--danger);font-weight:bold;">${s.SLVN || 0}</div>SLVN</div>
-            `;
+            const s = data.stats || {};
+            const statStats = document.getElementById('admin-user-detail-stats');
+            if (statStats) {
+                statStats.innerHTML = `
+                    <div><div style="font-size:20px;color:var(--primary);font-weight:bold;">${s.MK || 0}</div>MK</div>
+                    <div><div style="font-size:20px;color:var(--warning);font-weight:bold;">${s.NP || 0}</div>NP</div>
+                    <div><div style="font-size:20px;color:var(--success);font-weight:bold;">${s.BASHA || 0}</div>BS</div>
+                    <div><div style="font-size:20px;color:var(--danger);font-weight:bold;">${s.SLVN || 0}</div>SLVN</div>
+                `;
+            }
             renderAdminUserOrders(data);
         }
 
         function renderAdminUserOrders(data) {
             const div = document.getElementById('admin-user-detail-orders');
             const pag = document.getElementById('user-detail-pagination');
+            if (!div) return;
             
             if(!data.orders || data.orders.length === 0) {
                 div.innerHTML = '<div style="color:var(--text-muted);font-size:14px;">Chưa có số nào.</div>';
-                pag.style.display = 'none';
+                if (pag) pag.style.display = 'none';
                 return;
             }
             
@@ -1094,12 +1201,12 @@ MINIAPP_HTML = """
             `).join('');
 
             totalUserDetailPages = data.total_pages || 1;
-            if (totalUserDetailPages > 1) {
+            if (totalUserDetailPages > 1 && pag) {
                 pag.style.display = 'flex';
                 document.getElementById('user-page-info').innerText = `Trang ${data.current_page} / ${totalUserDetailPages}`;
                 document.getElementById('btn-user-prev').disabled = data.current_page <= 1;
                 document.getElementById('btn-user-next').disabled = data.current_page >= totalUserDetailPages;
-            } else {
+            } else if (pag) {
                 pag.style.display = 'none';
             }
         }
@@ -1115,6 +1222,7 @@ MINIAPP_HTML = """
 
         async function loadAdminBs() {
             const div = document.getElementById('admin-bs-list');
+            if (!div) return;
             div.innerHTML = '<div class="spinner"></div>';
             const data = await api('/api/mini/bs/countries');
             if(!data.countries || data.countries.length === 0) return div.innerHTML = 'Chưa có số BS.';
@@ -1139,10 +1247,11 @@ MINIAPP_HTML = """
 
         async function runAdminCmd(cmd) {
             const out = document.getElementById('cmd-output');
+            if (!out) return;
             out.innerText = 'Đang chạy...';
             const res = await api('/api/mini/admin/cmd', 'POST', { cmd });
             if(res.ok) out.innerText = res.msg;
-            else out.innerText = 'Lỗi: ' + res.error;
+            else out.innerText = 'Lỗi: ' + (res.error || 'Unknown');
         }
 
         async function adminWdAction(wid, action) {
@@ -1154,7 +1263,9 @@ MINIAPP_HTML = """
         }
 
         async function addBsNumbers() {
-            const numbers = document.getElementById('bs-input').value;
+            const bsInput = document.getElementById('bs-input');
+            if (!bsInput) return;
+            const numbers = bsInput.value;
             if (!numbers) {
                 if (tg.showAlert) tg.showAlert('Vui lòng nhập số!'); else alert('Vui lòng nhập số!');
                 return;
@@ -1162,10 +1273,10 @@ MINIAPP_HTML = """
             const res = await api('/api/mini/admin/bs/add', 'POST', { numbers });
             if (res.ok) { 
                 if (tg.showAlert) tg.showAlert(`Đã thêm ${res.added} số`); else alert(`Đã thêm ${res.added} số`); 
-                document.getElementById('bs-input').value = ''; 
+                bsInput.value = ''; 
                 loadAdminBs(); 
             } else { 
-                if (tg.showAlert) tg.showAlert(res.error); else alert(res.error); 
+                if (tg.showAlert) tg.showAlert(res.error || 'Lỗi'); else alert(res.error || 'Lỗi'); 
             }
         }
 
@@ -1173,7 +1284,7 @@ MINIAPP_HTML = """
             if (autoRefreshInterval) clearInterval(autoRefreshInterval);
             autoRefreshInterval = setInterval(() => {
                 const activeView = document.querySelector('.view.active')?.id;
-                if (activeView === 'view-home') loadHome();
+                if (activeView === 'view-home') loadHome(true); // silent refresh ko load lai user data de do giật
             }, 5000); 
         }
 
@@ -1182,6 +1293,7 @@ MINIAPP_HTML = """
             if (tg.expand) tg.expand();
         } catch(e) {}
 
+        // Khởi động nhanh và kiểm tra bảo trì tức thì
         loadUserData();
         loadHome();
         startAutoRefresh();
