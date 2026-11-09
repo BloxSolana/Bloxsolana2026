@@ -47,8 +47,6 @@ def setup_handlers(dp: Dispatcher, bot: Bot, webapp_url: str, admin_id: int):
     @dp.message(F.text)
     async def handle_text(message: Message):
         if message.text.startswith('/'): return
-        
         if await get_setting("maintenance", "off") == "on" and not is_admin(message.from_user.id):
             return await message.answer("🛠 <b>HỆ THỐNG ĐANG BẢO TRÌ</b>\n\nVui lòng quay lại sau.")
-            
         await message.answer("Vui lòng mở Mini App để sử dụng các tính năng.")
