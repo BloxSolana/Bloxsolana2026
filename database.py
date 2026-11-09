@@ -38,7 +38,6 @@ def mask_phone(phone):
     if not phone or len(phone) < 7: return phone
     return phone[:3] + "*" * (len(phone) - 6) + phone[-3:]
 
-# ĐẦY ĐỦ 195+ QUỐC GIA VÀ VÙNG LÃNH THỔ TRÊN THẾ GIỚI
 COUNTRY_CODES = {
     "1": ("United States", "🇺🇸"),
     "7": ("Russia", "🇷🇺"),
