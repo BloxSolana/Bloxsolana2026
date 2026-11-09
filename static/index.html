@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>FAST IVAS SMS</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --surface-color: #1e293b;
+            --primary-color: #3b82f6;
+            --primary-gradient: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --warning-color: #f59e0b;
+            --radius: 16px;
+            --bottom-nav-height: 70px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            padding-bottom: calc(var(--bottom-nav-height) + 20px);
+            min-height: 100vh;
+        }
+
+        button {
+            cursor: pointer;
+            border: none;
+            outline: none;
+            font-family: inherit;
+        }
+
+        .container {
+            padding: 20px;
+        }
+
+        .view {
+            display: none;
+            animation: fadeIn 0.3s ease;
+        }
+        .view.active {
+            display: block;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .balance-card {
+            background: var(--primary-gradient);
+            border-radius: var(--radius);
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 32px rgba(59, 130, 246, 0.3);
+        }
+        .balance-title {
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.8);
+            font-weight: 500;
+            margin-bottom: 8px;
+        }
+        .balance-amount {
+            font-size: 36px;
+            font-weight: 700;
+            color: #ffffff;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 24px;
+        }
+        .stat-box {
+            background: var(--surface-color);
+            padding: 16px;
+            border-radius: var(--radius);
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .stat-label {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+            font-weight: 500;
+        }
+        .stat-value {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--text-main);
+        }
+
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        #orders-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .order-card {
+            background: var(--surface-color);
+            border-radius: var(--radius);
+            padding: 16px;
+            border-left: 4px solid var(--warning-color);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .order-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+        .order-phone {
+            font-size: 18px;
+            font-weight: 700;
+        }
+        .order-status {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--warning-color);
+            background: rgba(245, 158, 11, 0.1);
+            padding: 4px 10px;
+            border-radius: 20px;
+        }
+
+        .loading-state, .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-muted);
+            background: var(--surface-color);
+            border-radius: var(--radius);
+            border: 1px dashed rgba(255, 255, 255, 0.1);
+            pointer-events: none;
+        }
+        .spinner {
+            width: 30px;
+            height: 30px;
+            border: 3px solid rgba(255, 255, 255, 0.1);
+            border-top-color: var(--primary-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 12px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .bottom-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: var(--bottom-nav-height);
+            background: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(10px);
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            z-index: 1000;
+        }
+        .nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: transparent;
+            color: var(--text-muted);
+            font-size: 11px;
+            font-weight: 500;
+            gap: 4px;
+            width: 25%;
+            transition: 0.2s;
+        }
+        .nav-item .icon {
+            font-size: 22px;
+            transition: 0.2s;
+        }
+        .nav-item.active {
+            color: var(--primary-color);
+        }
+        .nav-item.active .icon {
+            transform: translateY(-3px);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <!-- TAB TRANG CHỦ -->
+        <div id="view-home" class="view active">
+            <div class="balance-card">
+                <div class="balance-title">Số dư khả dụng</div>
+                <div class="balance-amount" id="ui-balance">$0.000</div>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-box">
+                    <div class="stat-label">OTP Hôm Nay</div>
+                    <div class="stat-value" id="ui-today-otp">0</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">Tổng Đơn</div>
+                    <div class="stat-value" id="ui-total-orders">0</div>
+                </div>
+            </div>
+
+            <div class="section-title">⏳ Đơn Đang Chờ</div>
+            <div id="orders-list"></div>
+        </div>
+
+        <!-- TAB MUA SỐ -->
+        <div id="view-buy" class="view">
+            <h2 class="section-title">🛒 Mua Số OTP</h2>
+            <div class="empty-state">Chức năng Mua Số đang được cập nhật...</div>
+        </div>
+
+        <!-- TAB LỊCH SỬ -->
+        <div id="view-history" class="view">
+            <h2 class="section-title">📜 Lịch sử</h2>
+            <div class="empty-state">Chưa có lịch sử giao dịch.</div>
+        </div>
+
+        <!-- TAB VÍ -->
+        <div id="view-wallet" class="view">
+            <h2 class="section-title">💵 Ví & Rút Tiền</h2>
+            <div class="empty-state">Chức năng Ví đang được cập nhật...</div>
+        </div>
+    </div>
+
+    <!-- BOTTOM NAV -->
+    <div class="bottom-nav">
+        <button class="nav-item active" data-target="home">
+            <span class="icon">🏠</span>
+            <span>Trang chủ</span>
+        </button>
+        <button class="nav-item" data-target="buy">
+            <span class="icon">🛒</span>
+            <span>Mua số</span>
+        </button>
+        <button class="nav-item" data-target="history">
+            <span class="icon">📜</span>
+            <span>Lịch sử</span>
+        </button>
+        <button class="nav-item" data-target="wallet">
+            <span class="icon">💵</span>
+            <span>Ví</span>
+        </button>
+    </div>
+
+    <script>
+        const tg = window.Telegram?.WebApp || {};
+        if (tg.ready) tg.ready();
+        if (tg.expand) tg.expand();
+
+        function fetchWithTimeout(resource, options = {}) {
+            const { timeout = 2000 } = options;
+            return Promise.race([
+                fetch(resource, {
+                    ...options,
+                    headers: {
+                        ...options.headers,
+                        'X-Telegram-Init-Data': tg.initData || ''
+                    }
+                }),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), timeout))
+            ]);
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const navItems = document.querySelectorAll('.nav-item');
+            const views = document.querySelectorAll('.view');
+
+            navItems.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    navItems.forEach(n => n.classList.remove('active'));
+                    views.forEach(v => v.classList.remove('active'));
+
+                    btn.classList.add('active');
+                    const targetId = btn.getAttribute('data-target');
+                    const targetView = document.getElementById('view-' + targetId);
+                    if (targetView) targetView.classList.add('active');
+                });
+            });
+
+            loadProfile();
+            loadHome();
+        });
+
+        async function loadProfile() {
+            try {
+                const response = await fetchWithTimeout('/api/mini/me');
+                if (!response.ok) throw new Error("HTTP error");
+                const data = await response.json();
+
+                document.getElementById('ui-balance').innerText = '$' + ((data.user?.usd_milli || 0) / 1000).toFixed(3);
+                document.getElementById('ui-today-otp').innerText = data.today_otps || 0;
+                document.getElementById('ui-total-orders').innerText = data.total_orders || 0;
+            } catch (error) {
+                console.warn("Lỗi tải Profile:", error.message);
+            }
+        }
+
+        async function loadHome() {
+            const ordersList = document.getElementById('orders-list');
+            if (!ordersList) return;
+
+            ordersList.innerHTML = `
+                <div class="loading-state">
+                    <div class="spinner"></div>
+                    Đang tải dữ liệu...
+                </div>
+            `;
+
+            try {
+                const response = await fetchWithTimeout('/api/mini/orders', { timeout: 2000 });
+                if (!response.ok) throw new Error("HTTP error");
+                
+                const data = await response.json();
+                const orders = data.orders || [];
+
+                if (orders.length === 0) {
+                    ordersList.innerHTML = `<div class="empty-state">Không có đơn nào đang chờ.</div>`;
+                    return;
+                }
+
+                let html = '';
+                orders.forEach(order => {
+                    html += `
+                        <div class="order-card">
+                            <div class="order-header">
+                                <div class="order-phone">${order.phone || 'N/A'}</div>
+                                <div class="order-status">${order.status || 'PENDING'}</div>
+                            </div>
+                        </div>
+                    `;
+                });
+                ordersList.innerHTML = html;
+
+            } catch (error) {
+                ordersList.innerHTML = `<div class="empty-state">Không có đơn nào đang chờ.</div>`;
+            }
+        }
+    </script>
+</body>
+</html>
