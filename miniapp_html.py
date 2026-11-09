@@ -106,7 +106,7 @@ MINIAPP_HTML = """
         .pagination span { flex: 1; text-align: center; font-size: 14px; color: var(--text-muted); font-weight: 500; }
 
         .bottom-nav { position: fixed; bottom: 0; left: 0; width: 100%; height: 70px; background: rgba(15, 23, 42, 0.9); backdrop-filter: var(--glass-blur); display: flex; justify-content: space-around; align-items: center; border-top: 1px solid var(--border); z-index: 100; }
-        .nav-item { display: flex; flex-direction: column; align-items: center; color: var(--text-muted); font-size: 11px; gap: 4px; background: none; transition: 0.2s; width: 25%; font-weight: 500; }
+        .nav-item { display: flex; flex-direction: column; align-items: center; color: var(--text-muted); font-size: 11px; gap: 4px; background: none; transition: 0.2s; width: 20%; font-weight: 500; }
         .nav-item .icon { font-size: 24px; transition: 0.2s; }
         .nav-item.active { color: var(--primary); }
         .nav-item.active .icon { transform: translateY(-3px); }
@@ -167,6 +167,7 @@ MINIAPP_HTML = """
         <div class="sidebar-menu">
             <a href="#" class="menu-item active" onclick="navTo('home')"><span class="icon">🏠</span> <span data-i18n="home">Trang chủ</span></a>
             <a href="#" class="menu-item" onclick="navTo('buy')"><span class="icon">🛒</span> <span data-i18n="buy">Mua Số OTP</span></a>
+            <a href="#" class="menu-item" onclick="navTo('radar')"><span class="icon">📡</span> <span data-i18n="radar_title">Radar OTP</span></a>
             <a href="#" class="menu-item" onclick="navTo('history')"><span class="icon">📜</span> <span data-i18n="history">Lịch sử</span></a>
             <a href="#" class="menu-item" onclick="navTo('wallet')"><span class="icon">💵</span> <span data-i18n="wallet">Ví & Rút Tiền</span></a>
             <a href="#" class="menu-item" onclick="navTo('stats')"><span class="icon">📊</span> <span data-i18n="stats">Thống Kê</span></a>
@@ -223,6 +224,22 @@ MINIAPP_HTML = """
                 </div>
             </div>
             <div id="buy-list-container" class="list-grid"></div>
+        </div>
+
+        <!-- RADAR OTP -->
+        <div id="view-radar" class="view">
+            <div class="card">
+                <div class="form-label" style="font-size: 16px; color: var(--text); margin-bottom: 10px;">📊 Platform Activity (Last 30 mins)</div>
+                <div id="radar-platforms-chart" style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;"></div>
+            </div>
+            <div class="card">
+                <div class="form-label" style="font-size: 16px; color: var(--text); margin-bottom: 10px;">🌍 Country & Operator</div>
+                <div id="radar-countries-chart" style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;"></div>
+            </div>
+            <div class="card">
+                <div class="form-label" style="font-size: 16px; color: var(--text); margin-bottom: 15px;">⚡ Live OTP Feed (Real-time)</div>
+                <div id="radar-feed-list"><div class="loading"><div class="spinner"></div>Đang tải radar...</div></div>
+            </div>
         </div>
 
         <!-- HISTORY -->
@@ -320,6 +337,7 @@ MINIAPP_HTML = """
             <div class="admin-tabs">
                 <button class="admin-tab active" onclick="switchAdminTab('overview')">Tổng quan</button>
                 <button class="admin-tab" onclick="switchAdminTab('users')">Users</button>
+                <button class="admin-tab" onclick="switchAdminTab('broadcast')">📡 Radar TB</button>
                 <button class="admin-tab" onclick="switchAdminTab('withdraw')">Rút tiền</button>
                 <button class="admin-tab" onclick="switchAdminTab('bs')">Số BS</button>
                 <button class="admin-tab" onclick="switchAdminTab('cmds')">Commands</button>
@@ -343,6 +361,39 @@ MINIAPP_HTML = """
             <div id="admin-tab-users" class="admin-tab-content" style="display: none;">
                 <div class="card">
                     <div id="admin-user-list" class="loading">Đang tải...</div>
+                </div>
+            </div>
+
+            <!-- TAB BROADCAST RADAR THỦ CÔNG & GỢI Ý -->
+            <div id="admin-tab-broadcast" class="admin-tab-content" style="display: none;">
+                <div class="card">
+                    <div class="form-label" style="font-size:16px; font-weight:bold; margin-bottom:10px;">📡 Gửi Thông Báo Radar Nền Tảng</div>
+                    <div style="font-size:13px; color:var(--text-muted); margin-bottom:12px;">Chọn nhanh nền tảng đang có tỷ lệ nhận OTP cao hoặc tự soạn nội dung:</div>
+                    
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 15px;">
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Instagram')">📸 Instagram</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Threads')">🧵 Threads</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Facebook')">📘 Facebook</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Tiktok')">🎬 Tiktok</button>
+                        <button class="btn-small copy" style="grid-column: span 2;" onclick="selectRadarPlatform('Tất cả mạng xã hội')">🌐 Tất cả MXH khác</button>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Nền tảng đã chọn:</label>
+                        <input type="text" class="form-control" id="broadcast-platform" value="Instagram">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Nội dung thông báo (Tùy chỉnh):</label>
+                        <textarea class="form-control" id="broadcast-msg" rows="4" placeholder="Nhập nội dung thông báo thủ công..."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Ảnh đính kèm (Tùy chọn):</label>
+                        <input type="file" id="broadcast-image" class="form-control" accept="image/*">
+                    </div>
+                    <div style="display: flex; gap: 10px;">
+                        <button class="btn btn-success" style="flex:1;" onclick="sendRadarBroadcast()">🚀 Gửi Thông Báo</button>
+                        <button class="btn btn-danger" style="flex:1;" onclick="clearRadarBroadcast()">❌ Hủy / Đặt lại</button>
+                    </div>
                 </div>
             </div>
             
@@ -425,6 +476,7 @@ MINIAPP_HTML = """
     <div class="bottom-nav" id="main-bottom-nav">
         <button class="nav-item active" id="nav-home" onclick="navTo('home')"><span class="icon">🏠</span><span data-i18n="home">Trang chủ</span></button>
         <button class="nav-item" id="nav-buy" onclick="navTo('buy')"><span class="icon">🛒</span><span data-i18n="buy">Mua số</span></button>
+        <button class="nav-item" id="nav-radar" onclick="navTo('radar')"><span class="icon">📡</span><span data-i18n="radar_title">Radar</span></button>
         <button class="nav-item" id="nav-history" onclick="navTo('history')"><span class="icon">📜</span><span data-i18n="history">Lịch sử</span></button>
         <button class="nav-item" id="nav-wallet" onclick="navTo('wallet')"><span class="icon">💵</span><span data-i18n="wallet">Ví</span></button>
     </div>
@@ -451,6 +503,7 @@ MINIAPP_HTML = """
         let userData = null;
         let autoRefreshInterval = null;
         let statsRefreshInterval = null;
+        let radarRefreshInterval = null;
         let currentHistoryPage = 1;
         let totalHistoryPages = 1;
         let currentLang = 'vi';
@@ -461,7 +514,7 @@ MINIAPP_HTML = """
 
         const translations = {
             vi: { 
-                home: "Trang chủ", buy: "Mua Số OTP", history: "Lịch sử", wallet: "Ví & Rút Tiền", leaderboard: "Bảng Xếp Hạng", stats: "Thống Kê", profile: "Hồ Sơ", admin: "ADMIN PANEL", otp_group: "OTP Group",
+                home: "Trang chủ", buy: "Mua Số OTP", radar_title: "Radar OTP", history: "Lịch sử", wallet: "Ví & Rút Tiền", leaderboard: "Bảng Xếp Hạng", stats: "Thống Kê", profile: "Hồ Sơ", admin: "ADMIN PANEL", otp_group: "OTP Group",
                 balance: "Số dư khả dụng", today_otp: "OTP Hôm Nay", total_orders: "Tổng Đơn", active_orders: "⏳ Đơn Đang Chờ", 
                 select_source: "Chọn Nguồn Số", ton_wallet: "💵 Ví TON", save_address: "Lưu Địa Chỉ", withdraw: "💰 Rút Tiền", withdraw_all: "⚡ Rút Toàn Bộ (Phí $0.1)", send_request: "Gửi Yêu Cầu", 
                 invite_friends: "💌 Mời Bạn Bè", copy_link: "📋 Sao Chép Link", top_10: "🏆 TOP 10 CAO THỦ", your_profile: "👤 HỒ SƠ CỦA BẠN", language: "🌐 Ngôn Ngữ (Language)", 
@@ -470,7 +523,7 @@ MINIAPP_HTML = """
                 stats_today: "📊 THỐNG KÊ HÔM NAY", stats_country: "🌍 OTP THEO QUỐC GIA", stats_platform: "📱 OTP THEO NỀN TẢNG", maint_title: "🛠 BẢO TRÌ HỆ THỐNG"
             },
             en: { 
-                home: "Home", buy: "Buy OTP Number", history: "History", wallet: "Wallet & Withdraw", leaderboard: "Leaderboard", stats: "Statistics", profile: "Profile", admin: "ADMIN PANEL", otp_group: "OTP Group",
+                home: "Home", buy: "Buy OTP Number", radar_title: "Radar OTP", history: "History", wallet: "Wallet & Withdraw", leaderboard: "Leaderboard", stats: "Statistics", profile: "Profile", admin: "ADMIN PANEL", otp_group: "OTP Group",
                 balance: "Available Balance", today_otp: "Today's OTP", total_orders: "Total Orders", active_orders: "⏳ Active Orders", 
                 select_source: "Select Source", ton_wallet: "💵 TON Wallet", save_address: "Save Address", withdraw: "💰 Withdraw", withdraw_all: "⚡ Withdraw All (Fee $0.1)", send_request: "Send Request", 
                 invite_friends: "💌 Invite Friends", copy_link: "📋 Copy Link", top_10: "🏆 TOP 10 PLAYERS", your_profile: "👤 YOUR PROFILE", language: "🌐 Language", 
@@ -493,7 +546,7 @@ MINIAPP_HTML = """
             const activeView = document.querySelector('.view.active');
             if (activeView) {
                 const viewId = activeView.id.replace('view-', '');
-                const titleKey = { home: 'home', buy: 'buy', history: 'history', wallet: 'wallet', leaderboard: 'leaderboard', stats: 'stats', profile: 'profile', admin: 'admin' }[viewId];
+                const titleKey = { home: 'home', buy: 'buy', radar: 'radar_title', history: 'history', wallet: 'wallet', leaderboard: 'leaderboard', stats: 'stats', profile: 'profile', admin: 'admin' }[viewId];
                 if (titleKey && translations[lang][titleKey]) {
                     document.getElementById('top-title').innerText = translations[lang][titleKey];
                 }
@@ -569,7 +622,7 @@ MINIAPP_HTML = """
             const navBtn = document.getElementById('nav-' + viewId);
             if (navBtn) navBtn.classList.add('active');
 
-            const titleKey = { home: 'home', buy: 'buy', history: 'history', wallet: 'wallet', leaderboard: 'leaderboard', stats: 'stats', profile: 'profile', admin: 'admin' }[viewId];
+            const titleKey = { home: 'home', buy: 'buy', radar: 'radar_title', history: 'history', wallet: 'wallet', leaderboard: 'leaderboard', stats: 'stats', profile: 'profile', admin: 'admin' }[viewId];
             const topTitle = document.getElementById('top-title');
             if (topTitle) {
                 if (titleKey) topTitle.setAttribute('data-i18n', titleKey);
@@ -581,6 +634,7 @@ MINIAPP_HTML = """
             try {
                 if (viewId === 'home') loadHome();
                 if (viewId === 'buy') renderBuyOptions();
+                if (viewId === 'radar') { loadRadarFeed(); startRadarRefresh(); } else { stopRadarRefresh(); }
                 if (viewId === 'history') loadHistory(1);
                 if (viewId === 'wallet') loadWallet();
                 if (viewId === 'stats') { loadStats(); startStatsRefresh(); } else { stopStatsRefresh(); }
@@ -662,6 +716,70 @@ MINIAPP_HTML = """
                 return;
             }
             listDiv.innerHTML = data.orders.map(o => renderOrderCard(o, false)).join('');
+        }
+
+        async function loadRadarFeed() {
+            const feedDiv = document.getElementById('radar-feed-list');
+            const platDiv = document.getElementById('radar-platforms-chart');
+            const ctryDiv = document.getElementById('radar-countries-chart');
+            if (!feedDiv) return;
+
+            const data = await api('/api/mini/radar');
+            if (data.error) {
+                feedDiv.innerHTML = `<div style="color:var(--danger)">${data.error}</div>`;
+                return;
+            }
+
+            if (platDiv && data.platforms) {
+                platDiv.innerHTML = data.platforms.map(p => `
+                    <div style="background: rgba(59,130,246,0.1); border: 1px solid var(--border); padding: 10px 15px; border-radius: 12px; flex:1; text-align:center;">
+                        <div style="font-size: 13px; color: var(--text-muted);">${p.icon} ${p.name}</div>
+                        <div style="font-size: 18px; font-weight: bold; color: var(--primary); margin-top: 4px;">${p.count}</div>
+                    </div>
+                `).join('');
+            }
+
+            if (ctryDiv && data.countries) {
+                ctryDiv.innerHTML = data.countries.map(c => `
+                    <div style="background: rgba(16,185,129,0.1); border: 1px solid var(--border); padding: 10px 15px; border-radius: 12px; flex:1; text-align:center;">
+                        <div style="font-size: 13px; color: var(--text-muted);">${c.flag} ${c.name}</div>
+                        <div style="font-size: 18px; font-weight: bold; color: var(--success); margin-top: 4px;">${c.count}</div>
+                    </div>
+                `).join('');
+            }
+
+            if (!data.items || data.items.length === 0) {
+                feedDiv.innerHTML = '<div class="loading">Không có dữ liệu Radar feed.</div>';
+                return;
+            }
+
+            feedDiv.innerHTML = data.items.map(i => `
+                <div class="order-card" style="border-left-color: var(--primary);">
+                    <div class="order-header">
+                        <div class="order-phone">${i.phone}</div>
+                        <div class="order-badge" style="color: var(--success);">🟢 NEW</div>
+                    </div>
+                    <div class="order-info">
+                        <span>${i.flag} ${i.country}</span>
+                        <span>🔧 ${i.operator}</span>
+                        <span style="color: var(--warning);">⏳ ${i.time_ago}</span>
+                    </div>
+                    <div class="otp-box">
+                        <div>
+                            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">Nội dung SMS:</div>
+                            <div style="font-size: 14px; font-weight: 500; color: var(--text);">${i.message}</div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function startRadarRefresh() {
+            stopRadarRefresh();
+            radarRefreshInterval = setInterval(loadRadarFeed, 5000);
+        }
+        function stopRadarRefresh() {
+            if (radarRefreshInterval) clearInterval(radarRefreshInterval);
         }
 
         async function loadStats() {
@@ -767,12 +885,11 @@ MINIAPP_HTML = """
             const statusTexts = { 'PENDING': '⏳ Chờ OTP', 'COMPLETED': '✅ Đã nhận', 'EXPIRED': '⌛ Hết hạn', 'CANCELLED': '🚫 Đã hủy' };
             const color = statusColors[o.status] || 'var(--text-muted)';
             const text = statusTexts[o.status] || o.status;
-            let dateStr = o.created_at ? new Date(o.created_at).toLocaleString('vi-VN') : '';
             
             let countdownHtml = '';
             if (o.status === 'PENDING' && o.created_at) {
                 const createdTime = new Date(o.created_at).getTime();
-                const expireTime = createdTime + (15 * 60 * 1000); // 15 phút hết hạn chuẩn MK & NP
+                const expireTime = createdTime + (15 * 60 * 1000);
                 const remaining = Math.max(0, Math.floor((expireTime - Date.now()) / 1000));
                 countdownHtml = `<span class="order-countdown" data-expire="${expireTime}" style="color: var(--warning); font-weight: bold;">⏳ Còn ${Math.floor(remaining / 60)}m ${remaining % 60}s</span>`;
             }
@@ -809,7 +926,6 @@ MINIAPP_HTML = """
             `;
         }
 
-        // Vòng lặp Real-time đếm ngược 15 phút cho đơn hàng đang chờ
         setInterval(() => {
             document.querySelectorAll('.order-countdown').forEach(el => {
                 const expireTime = parseInt(el.getAttribute('data-expire'));
@@ -935,7 +1051,7 @@ MINIAPP_HTML = """
                     <div style="padding: 10px 0; border-bottom: 1px solid var(--border);">👤 ${t.name}: <b>${u.first_name || 'User'}</b></div>
                     <div style="padding: 10px 0; border-bottom: 1px solid var(--border);">💰 ${t.balance_label}: <b style="color: var(--success);">$${(u.usd_milli/1000).toFixed(3)}</b></div>
                     <div style="padding: 10px 0; border-bottom: 1px solid var(--border);">📩 ${t.total_otp}: <b style="color: var(--primary);">${userData.total_otps || 0}</b></div>
-                    <div style="padding: 10px 0;">📅 ${t.joined}: <b>${new Date(u.joined_at).toLocaleDateString()}</b></div>
+                    <div style="padding: 10px 0;">📅 ${t.joined}: <b>${new Date(u.joined_at).toLocaleString('vi-VN')}</b></div>
                 `;
             }
         }
@@ -1060,6 +1176,48 @@ MINIAPP_HTML = """
             if (tab === 'maint') updateMaintUI();
         }
 
+        function selectRadarPlatform(platName) {
+            document.getElementById('broadcast-platform').value = platName;
+            document.getElementById('broadcast-msg').value = `🚨 THÔNG BÁO RADAR OTP CAO\n\nNền tảng đang có tỷ lệ nhận OTP cao: ${platName}\nNhanh tay vào ứng dụng lấy số ngay nào anh em!`;
+            showToast('Đã chọn: ' + platName);
+        }
+
+        function clearRadarBroadcast() {
+            document.getElementById('broadcast-platform').value = '';
+            document.getElementById('broadcast-msg').value = '';
+            document.getElementById('broadcast-image').value = '';
+            showToast('Đã đặt lại form!');
+        }
+
+        async function sendRadarBroadcast() {
+            const platform = document.getElementById('broadcast-platform').value;
+            const message = document.getElementById('broadcast-msg').value;
+            const fileInput = document.getElementById('broadcast-image');
+            let b64 = "";
+
+            if (fileInput && fileInput.files.length > 0) {
+                b64 = await new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => resolve(e.target.result);
+                    reader.readAsDataURL(fileInput.files[0]);
+                });
+            }
+
+            const confirmed = await showCustomModal('Xác Nhận Gửi', 'Bạn có chắc chắn muốn gửi thông báo radar này đến tất cả user?');
+            if (!confirmed) return;
+
+            try { if (tg.showLoading) tg.showLoading(); } catch(e) {}
+            const res = await api('/api/mini/admin/broadcast/radar', 'POST', { platform, message, image_b64: b64 });
+            try { if (tg.hideLoading) tg.hideLoading(); } catch(e) {}
+
+            if (res.ok) {
+                if (tg.showAlert) tg.showAlert(res.msg); else alert(res.msg);
+                clearRadarBroadcast();
+            } else {
+                if (tg.showAlert) tg.showAlert(res.error || 'Lỗi gửi thông báo'); else alert(res.error || 'Lỗi gửi thông báo');
+            }
+        }
+
         function updateMaintUI() {
             const btnOn = document.getElementById('btn-maint-on');
             const btnOff = document.getElementById('btn-maint-off');
@@ -1174,6 +1332,10 @@ MINIAPP_HTML = """
                             <button class="btn btn-success" style="margin-top:0; width:120px;" onclick="adminUserAction(${uid}, 'bonus')">➕ Cộng tiền</button>
                         </div>
                         <div style="display: flex; gap: 8px;">
+                            <input type="number" id="admin-deduct-amt" class="form-control" placeholder="Số tiền trừ ($)" step="0.1" style="flex:1;">
+                            <button class="btn btn-danger" style="margin-top:0; width:120px; background: #ea580c;" onclick="adminUserAction(${uid}, 'deduct')">➖ Trừ tiền</button>
+                        </div>
+                        <div style="display: flex; gap: 8px;">
                             <input type="number" id="admin-min-amt" class="form-control" placeholder="Số dư tối thiểu ($)" step="0.1" style="flex:1;">
                             <button class="btn btn-primary" style="margin-top:0; width:120px;" onclick="adminUserAction(${uid}, 'set_min')">⚙️ Set Min</button>
                         </div>
@@ -1197,7 +1359,7 @@ MINIAPP_HTML = """
                     <div><b>Username:</b> @${u.username || '—'}</div>
                     <div><b>Telegram ID:</b> ${u.id}</div>
                     <div><b>Số dư:</b> <span style="color:var(--success);">$${(u.balance/1000).toFixed(3)}</span></div>
-                    <div><b>Ngày tham gia:</b> ${new Date(u.joined).toLocaleDateString()}</div>
+                    <div><b>Ngày tham gia:</b> ${new Date(u.joined).toLocaleString('vi-VN')}</div>
                 `;
             }
 
@@ -1217,9 +1379,10 @@ MINIAPP_HTML = """
         async function adminUserAction(uid, action) {
             let val = 0;
             if (action === 'bonus') val = document.getElementById('admin-bonus-amt').value;
+            if (action === 'deduct') val = document.getElementById('admin-deduct-amt').value;
             if (action === 'set_min') val = document.getElementById('admin-min-amt').value;
             
-            if ((action === 'bonus' || action === 'set_min') && (!val || val <= 0)) {
+            if ((action === 'bonus' || action === 'deduct' || action === 'set_min') && (!val || val <= 0)) {
                 return alert('Vui lòng nhập số tiền hợp lệ!');
             }
             
