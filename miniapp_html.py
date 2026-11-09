@@ -87,7 +87,6 @@ MINIAPP_HTML = """
         .order-info { display: flex; gap: 15px; font-size: 13px; color: var(--text-muted); margin-bottom: 12px; flex-wrap: wrap;}
         .order-info span { display: flex; align-items: center; gap: 5px; }
         
-        /* FORMAT TOGGLE CONTROLS (REMOVE + & NATIONAL FORMAT) */
         .format-toggles { display: flex; gap: 15px; margin-bottom: 12px; font-size: 13px; background: rgba(15,23,42,0.5); padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); }
         .format-toggles label { display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text-muted); }
         .format-toggles input[type="checkbox"] { accent-color: var(--primary); width: 15px; height: 15px; }
@@ -386,6 +385,7 @@ MINIAPP_HTML = """
                 </div>
             </div>
 
+            <!-- ADMIN BROADCAST TAB VỚI ĐẦY ĐỦ NHIỀU NỀN TẢNG MẠNG XÃ HỘI & DỊCH VỤ -->
             <div id="admin-tab-broadcast" class="admin-tab-content" style="display: none;">
                 <div class="card">
                     <div class="form-label" style="font-size:16px; font-weight:bold; margin-bottom:10px;">📡 Gửi Thông Báo Radar Nền Tảng</div>
@@ -393,10 +393,16 @@ MINIAPP_HTML = """
                     
                     <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 15px;">
                         <button class="btn-small copy" onclick="selectRadarPlatform('Instagram')">📸 Instagram</button>
-                        <button class="btn-small copy" onclick="selectRadarPlatform('Threads')">🧵 Threads</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('Facebook')">📘 Facebook</button>
-                        <button class="btn-small copy" onclick="selectRadarPlatform('Tiktok')">🎬 Tiktok</button>
-                        <button class="btn-small copy" style="grid-column: span 2;" onclick="selectRadarPlatform('Tất cả mạng xã hội')">🌐 Tất cả MXH khác</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('TikTok')">🎬 TikTok</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Telegram')">✈️ Telegram</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('WhatsApp')">💬 WhatsApp</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Zalo')">🇻🇳 Zalo</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Google')">🇬 Google</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('YouTube')">▶️ YouTube</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Shopee')">🛍️ Shopee</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Binance/Crypto')">🪙 Binance/Crypto</button>
+                        <button class="btn-small copy" style="grid-column: span 2;" onclick="selectRadarPlatform('Tất cả mạng xã hội & Dịch vụ')">🌐 Tất cả mạng xã hội khác</button>
                     </div>
 
                     <div class="form-group">
@@ -740,7 +746,6 @@ MINIAPP_HTML = """
                 return;
             }
 
-            // Kiểm tra xem có đơn nào vừa nhận được OTP (COMPLETED) để thông báo toast cho user (như video 2)
             data.orders.forEach(o => {
                 if (o.status === 'COMPLETED' && o.otp && !lastKnownCompletedOrders.has(o.id)) {
                     lastKnownCompletedOrders.add(o.id);
@@ -751,11 +756,9 @@ MINIAPP_HTML = """
             listDiv.innerHTML = data.orders.map(o => renderOrderCard(o, false)).join('');
         }
 
-        // FORMAT PHONE NUMBER VỚI OPTION BỎ (+) VÀ NATIONAL FORMAT
         function formatPhoneNumber(phone, removePlus, nationalFormat) {
             let p = String(phone || '').trim();
             if (nationalFormat) {
-                // Các mã vùng quốc tế phổ biến để cắt bỏ khi chuyển về National Format
                 const prefixes = ["84", "62", "60", "65", "66", "63", "95", "855", "856", "1", "44", "7", "81", "82", "86", "91", "92", "880", "234", "254", "27", "20", "212", "213", "216", "218", "249", "251", "255", "256", "263", "260", "233", "221", "224", "231", "232", "225", "237", "243", "242", "241", "235", "227", "223", "226", "228", "229", "220", "222", "245", "30", "31", "32", "33", "34", "36", "39", "40", "41", "43", "45", "46", "47", "48", "49", "351", "352", "353", "358", "370", "371", "372", "380", "420", "421", "90", "972", "971", "966", "974", "965", "968", "973", "962", "961", "964", "98", "93", "94", "977", "975", "960", "673", "670", "61", "64", "52", "55", "54", "56", "57", "58", "51", "593", "591", "595", "598", "509", "244", "267", "266", "261", "258", "264", "970", "250", "252", "998", "967"];
                 prefixes.sort((a,b) => b.length - a.length);
                 let cleaned = p.replace(/^\+/, '');
@@ -1005,7 +1008,6 @@ MINIAPP_HTML = """
                 const createdTime = new Date(o.created_at).getTime();
                 const expireTime = createdTime + (15 * 60 * 1000);
                 const remaining = Math.max(0, Math.floor((expireTime - Date.now()) / 1000));
-                // Giới hạn max 15 phút (900s) chuẩn xác như yêu cầu video 1
                 const actualRem = Math.min(900, remaining);
                 countdownHtml = `<span class="order-countdown" data-expire="${expireTime}" style="color: var(--warning); font-weight: bold;">⏳ ${Math.floor(actualRem / 60)}m ${actualRem % 60}s</span>`;
             }
