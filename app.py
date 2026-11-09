@@ -5,6 +5,7 @@ import hmac
 import logging
 import asyncio
 import re
+import time
 from urllib.parse import parse_qsl
 from types import SimpleNamespace
 from datetime import timedelta
@@ -13,7 +14,7 @@ from aiohttp import web
 from aiogram import Bot, Dispatcher, BaseMiddleware
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.types import BotCommand, BotCommandScopeChat, BotCommandScopeDefault, MenuButtonWebApp, WebAppInfo, Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import BotCommand, BotCommandScopeChat, BotCommandScopeDefault, MenuButtonWebApp, WebAppInfo, Message, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 
 from database import (
     init_db, db_exec, get_setting, set_setting, get_user, register_user, now, now_text, 
@@ -123,6 +124,42 @@ async def mini_stats(request):
         })
     except Exception as e: return web.json_response({"error": str(e)}, status=500)
 
+async def mini_radar_feed(request):
+    data, err = await api_request("GET", "radar", params={"limit": 20}, api_type="MK")
+    if err or not data:
+        return web.json_response({"items": [], "platforms": [], "countries": []})
+    
+    items = data.get("data", {}).get("items") or data.get("items") or []
+    formatted_items = []
+    platform_counts = {"Instagram": 0, "Threads": 0, "Facebook": 0, "Tiktok": 0, "Other": 0}
+    country_counts = {}
+
+    for item in items:
+        p_name = item.get("platform") or item.get("service") or "Other"
+        if "instagram" in p_name.lower(): plat = "Instagram"
+        elif "threads" in p_name.lower(): plat = "Threads"
+        elif "facebook" in p_name.lower(): plat = "Facebook"
+        elif "tiktok" in p_name.lower(): plat = "Tiktok"
+        else: plat = "Other"
+        platform_counts[plat] = platform_counts.get(plat, 0) + 1
+
+        country = item.get("country") or "Zambia"
+        country_counts[country] = country_counts.get(country, 0) + 1
+
+        formatted_items.append({
+            "phone": item.get("phone") or item.get("number") or "260XXX",
+            "country": country,
+            "flag": get_country_flag(country),
+            "operator": item.get("operator") or item.get("network") or "Zamtel",
+            "message": item.get("message") or item.get("sms") or "OTP Code received",
+            "time_ago": item.get("time_ago") or "Just now"
+        })
+
+    platforms = [{"name": k, "count": v, "icon": get_network_icon(k)} for k, v in platform_counts.items() if v > 0]
+    countries = [{"name": k, "count": v, "flag": get_country_flag(k)} for k, v in country_counts.items()]
+
+    return web.json_response({"items": formatted_items, "platforms": platforms, "countries": countries})
+
 async def mini_leaderboard(request):
     top_users = await db_exec("""
         SELECT u.user_id, u.first_name, u.usd_milli, 
@@ -161,7 +198,7 @@ async def mini_create_order(request):
     if provider == "MK":
         range_val = body.get("range")
         if not range_val or range_val == "undefined" or range_val == "null":
-            return web.json_response({"error": "Lỗi MK: Range (mã vùng) không hợp lệ hoặc bị trống."}, status=400)
+            return web.json_response({"error": "Lỗi MK: Range không hợp lệ."}, status=400)
         data, err = await api_request("POST", "getnum/number", {"range": str(range_val).strip()})
         if err: return web.json_response({"error": f"Lỗi MK: {err}"}, status=400)
         inner_data = data.get("data", {})
@@ -174,10 +211,14 @@ async def mini_create_order(request):
         return web.json_response({"ok": True})
 
     elif provider == "NP":
+        if not NP_API_KEY:
+            return web.json_response({"error": "Chưa cấu hình NP_API_KEY trên server!"}, status=400)
         data, err = await api_request("POST", "request_number", {"service": body.get("service"), "country": body.get("country")}, api_type="NP")
         if err: return web.json_response({"error": f"Lỗi NP: {err}"}, status=400)
-        phone = data.get("number")
-        if not phone: return web.json_response({"error": f"Lỗi NP: API không trả về số."}, status=400)
+        if not data or not isinstance(data, dict):
+            return web.json_response({"error": "Phản hồi từ NP không hợp lệ"}, status=400)
+        phone = data.get("number") or data.get("phone")
+        if not phone: return web.json_response({"error": "Lỗi NP: API không trả về số."}, status=400)
         req_id = f"NP_{phone}_{int(time.time())}"
         await db_exec("INSERT INTO orders (user_id, request_id, provider, phone, country, operator, range_code, status, created_at, expires_at) VALUES (?, ?, 'NP', ?, ?, ?, ?, 'PENDING', ?, ?)", (uid, req_id, str(phone), body.get("country"), body.get("service"), body.get("service"), now_text(), (now() + timedelta(minutes=15)).isoformat()))
         await clean_old_orders(uid)
@@ -185,9 +226,14 @@ async def mini_create_order(request):
 
     elif provider == "BASHA":
         row = await db_exec("SELECT phone, country FROM basha_numbers WHERE country=? ORDER BY RANDOM() LIMIT 1", (body.get("country"),), fetch="one")
-        if not row: return web.json_response({"error": "Hết số BS"}, status=404)
-        req_id = f"BS_{row['phone']}_{int(time.time())}"
-        await db_exec("INSERT INTO orders (user_id, request_id, provider, phone, country, range_code, status, created_at, expires_at) VALUES (?, ?, 'BASHA', ?, ?, ?, 'PENDING', ?, ?)", (uid, req_id, row["phone"], row["country"], row["country"], now_text(), (now() + timedelta(minutes=15)).isoformat()))
+        if not row: return web.json_response({"error": "Hết số BS cho quốc gia này"}, status=404)
+        
+        phone = row["phone"] if isinstance(row, dict) else row[0]
+        country_val = row["country"] if isinstance(row, dict) else row[1]
+        
+        req_id = f"BS_{phone}_{int(time.time())}"
+        await db_exec("INSERT INTO orders (user_id, request_id, provider, phone, country, range_code, status, created_at, expires_at) VALUES (?, ?, 'BASHA', ?, ?, ?, 'PENDING', ?, ?)", (uid, req_id, str(phone), country_val, country_val, now_text(), (now() + timedelta(minutes=15)).isoformat()))
+        await db_exec("DELETE FROM basha_numbers WHERE phone=?", (phone,))
         await clean_old_orders(uid)
         return web.json_response({"ok": True})
 
@@ -277,7 +323,20 @@ async def mini_admin_user_action(request):
             await bot.send_message(uid, f"🎁 <b>Bạn nhận được tiền từ Admin!</b>\n\nSố tiền: <b>${amt/1000:.3f}</b>\nBấm chấp nhận để cộng vào số dư tài khoản.", reply_markup=kb)
             return web.json_response({"ok": True, "msg": "Đã gửi thông báo cho user!"})
         except Exception as e:
-            return web.json_response({"error": f"Không thể gửi tin nhắn cho user: {str(e)}"}, status=400)
+            return web.json_response({"error": f"Không thể gửi tin nhắn: {str(e)}"}, status=400)
+            
+    elif action == "deduct":
+        amt = int(float(body.get("amount", 0)) * 1000)
+        if amt <= 0: return web.json_response({"error": "Số tiền không hợp lệ"}, status=400)
+        u = await get_user(uid)
+        if not u or u["usd_milli"] < amt:
+            return web.json_response({"error": "Số dư của user không đủ để trừ!"}, status=400)
+        ok, res = await change_usd(uid, -amt, "ADMIN_DEDUCT", "Admin deducted balance")
+        if ok:
+            try: await bot.send_message(uid, f"⚠️ Số dư của bạn đã bị Admin trừ <b>${amt/1000:.3f}</b>.")
+            except: pass
+            return web.json_response({"ok": True, "msg": f"Đã trừ ${amt/1000:.3f} của user!"})
+        return web.json_response({"error": res}, status=400)
             
     elif action == "revoke":
         u = await get_user(uid)
@@ -300,6 +359,37 @@ async def mini_admin_user_action(request):
         return web.json_response({"ok": True, "msg": f"Đã cập nhật số dư thành ${min_val/1000:.3f}!"})
         
     return web.json_response({"error": "Action không hợp lệ"}, status=400)
+
+async def mini_admin_broadcast_radar(request):
+    if not mini_admin_guard(request): return web.json_response({"error": "Forbidden"}, status=403)
+    body = await request.json()
+    platform = body.get("platform", "All")
+    custom_msg = body.get("message", "").strip()
+    image_b64 = body.get("image_b64", "").strip()
+
+    text_content = custom_msg if custom_msg else f"🚨 <b>THÔNG BÁO RADAR OTP CAO</b>\n\nNền tảng đang có tỷ lệ nhận OTP cao: <b>{platform}</b>\nNhanh tay vào ứng dụng lấy số ngay nào anh em!"
+
+    photo_bytes = None
+    if image_b64:
+        try:
+            import base64
+            header, encoded = image_b64.split(",", 1)
+            photo_bytes = base64.b64decode(encoded)
+        except: pass
+
+    users = await db_exec("SELECT user_id FROM users", fetch="all")
+    sent = 0
+    for row in users or []:
+        try:
+            if photo_bytes:
+                await bot.send_photo(row["user_id"], photo=BufferedInputFile(photo_bytes, filename="radar.jpg"), caption=text_content)
+            else:
+                await bot.send_message(row["user_id"], text_content)
+            sent += 1
+            await asyncio.sleep(0.05)
+        except: pass
+
+    return web.json_response({"ok": True, "msg": f"Đã gửi thông báo Radar đến {sent} user!"})
 
 async def mini_admin_cmd(request):
     if not mini_admin_guard(request): return web.json_response({"error": "Forbidden"}, status=403)
@@ -349,7 +439,6 @@ async def mini_admin_maintenance(request):
                 import base64
                 header, encoded = image_b64.split(",", 1); photo_bytes = base64.b64decode(encoded)
             except: pass
-        from aiogram.types import BufferedInputFile
         for row in users or []:
             try:
                 if photo_bytes: await bot.send_photo(row["user_id"], photo=BufferedInputFile(photo_bytes, filename="maintenance.jpg"), caption=f"🛠 <b>THÔNG BÁO BẢO TRÌ</b>\n\n{message}")
@@ -445,6 +534,7 @@ async def web_server():
     app.router.add_get('/api/mini/me', mini_me)
     app.router.add_post('/api/mini/language', mini_language_update)
     app.router.add_get('/api/mini/stats', mini_stats)
+    app.router.add_get('/api/mini/radar', mini_radar_feed)
     app.router.add_get('/api/mini/leaderboard', mini_leaderboard)
     app.router.add_get('/api/mini/orders/active', mini_active_orders)
     app.router.add_get('/api/mini/orders', mini_history_orders)
@@ -462,6 +552,7 @@ async def web_server():
     app.router.add_get('/api/mini/admin/users', mini_admin_users)
     app.router.add_get('/api/mini/admin/users/{uid}', mini_admin_user_detail)
     app.router.add_post('/api/mini/admin/users/{uid}/action', mini_admin_user_action)
+    app.router.add_post('/api/mini/admin/broadcast/radar', mini_admin_broadcast_radar)
     app.router.add_post('/api/mini/admin/cmd', mini_admin_cmd)
     app.router.add_post('/api/mini/admin/maintenance', mini_admin_maintenance)
     app.router.add_post('/api/mini/admin/withdraw/action', mini_admin_wd_action)
