@@ -84,8 +84,14 @@ MINIAPP_HTML = """
         .order-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
         .order-phone { font-size: 18px; font-weight: 700; color: var(--text); letter-spacing: 0.5px; }
         .order-badge { font-size: 12px; padding: 4px 10px; border-radius: 20px; font-weight: 600; background: rgba(255,255,255,0.1); display: flex; align-items: center; gap: 5px; }
-        .order-info { display: flex; gap: 15px; font-size: 13px; color: var(--text-muted); margin-bottom: 15px; flex-wrap: wrap;}
+        .order-info { display: flex; gap: 15px; font-size: 13px; color: var(--text-muted); margin-bottom: 12px; flex-wrap: wrap;}
         .order-info span { display: flex; align-items: center; gap: 5px; }
+        
+        /* FORMAT TOGGLE CONTROLS (REMOVE + & NATIONAL FORMAT) */
+        .format-toggles { display: flex; gap: 15px; margin-bottom: 12px; font-size: 13px; background: rgba(15,23,42,0.5); padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); }
+        .format-toggles label { display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text-muted); }
+        .format-toggles input[type="checkbox"] { accent-color: var(--primary); width: 15px; height: 15px; }
+
         .otp-box { background: rgba(15, 23, 42, 0.8); padding: 12px; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border: 1px dashed rgba(16, 185, 129, 0.5); }
         .otp-code { font-size: 22px; font-weight: 700; color: var(--success); letter-spacing: 3px; font-family: monospace;}
         
@@ -228,16 +234,32 @@ MINIAPP_HTML = """
 
         <!-- RADAR OTP -->
         <div id="view-radar" class="view">
-            <div class="card">
-                <div class="form-label" style="font-size: 16px; color: var(--text); margin-bottom: 10px;">📊 Platform Activity (Last 30 mins)</div>
-                <div id="radar-platforms-chart" style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;"></div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <div style="font-size: 16px; font-weight: 700; color: var(--text);">📡 Unified Radar Feed</div>
+                <div style="font-size: 12px; color: var(--success); background: rgba(16,185,129,0.1); padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(16,185,129,0.3);" id="radar-records-count">0 records</div>
             </div>
+
             <div class="card">
-                <div class="form-label" style="font-size: 16px; color: var(--text); margin-bottom: 10px;">🌍 Country & Operator</div>
-                <div id="radar-countries-chart" style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;"></div>
+                <div class="form-label" style="font-size: 15px; color: var(--text); margin-bottom: 12px; display: flex; justify-content: space-between;">
+                    <span>📊 Platform Activity</span>
+                    <span style="font-size: 12px; color: var(--text-muted);">Last 30 mins</span>
+                </div>
+                <div id="radar-platforms-chart" style="display: flex; flex-direction: column; gap: 10px;"></div>
             </div>
+
             <div class="card">
-                <div class="form-label" style="font-size: 16px; color: var(--text); margin-bottom: 15px;">⚡ Live OTP Feed (Real-time)</div>
+                <div class="form-label" style="font-size: 15px; color: var(--text); margin-bottom: 12px; display: flex; justify-content: space-between;">
+                    <span>🌍 Country & Operator</span>
+                    <span style="font-size: 12px; color: var(--text-muted);">Last 30 mins</span>
+                </div>
+                <div id="radar-countries-chart" style="display: flex; flex-direction: column; gap: 10px;"></div>
+            </div>
+
+            <div class="card">
+                <div class="form-label" style="font-size: 15px; color: var(--text); margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center;">
+                    <span>⚡ Live OTP Feed (Real-time)</span>
+                    <span style="font-size: 11px; color: var(--primary);">● Live Updates</span>
+                </div>
                 <div id="radar-feed-list"><div class="loading"><div class="spinner"></div>Đang tải radar...</div></div>
             </div>
         </div>
@@ -364,7 +386,6 @@ MINIAPP_HTML = """
                 </div>
             </div>
 
-            <!-- TAB BROADCAST RADAR THỦ CÔNG & GỢI Ý -->
             <div id="admin-tab-broadcast" class="admin-tab-content" style="display: none;">
                 <div class="card">
                     <div class="form-label" style="font-size:16px; font-weight:bold; margin-bottom:10px;">📡 Gửi Thông Báo Radar Nền Tảng</div>
@@ -511,6 +532,7 @@ MINIAPP_HTML = """
         let currentUserDetailPage = 1;
         let totalUserDetailPages = 1;
         let isMaintenanceOn = false;
+        let lastKnownCompletedOrders = new Set();
 
         const translations = {
             vi: { 
@@ -520,7 +542,8 @@ MINIAPP_HTML = """
                 invite_friends: "💌 Mời Bạn Bè", copy_link: "📋 Sao Chép Link", top_10: "🏆 TOP 10 CAO THỦ", your_profile: "👤 HỒ SƠ CỦA BẠN", language: "🌐 Ngôn Ngữ (Language)", 
                 users: "Người dùng", orders: "Đơn hàng", approve_wd: "💸 Duyệt Rút Tiền", add_bs: "➕ Thêm Số BS", add_number: "Thêm Số", 
                 prev_page: "← Trang trước", next_page: "Trang sau →", total_otp: "Tổng OTP đã nhận", joined: "Ngày tham gia", name: "Tên", balance_label: "Số dư",
-                stats_today: "📊 THỐNG KÊ HÔM NAY", stats_country: "🌍 OTP THEO QUỐC GIA", stats_platform: "📱 OTP THEO NỀN TẢNG", maint_title: "🛠 BẢO TRÌ HỆ THỐNG"
+                stats_today: "📊 THỐNG KÊ HÔM NAY", stats_country: "🌍 OTP THEO QUỐC GIA", stats_platform: "📱 OTP THEO NỀN TẢNG", maint_title: "🛠 BẢO TRÌ HỆ THỐNG",
+                remove_plus: "Bỏ dấu (+)", national_fmt: "Định dạng nội địa"
             },
             en: { 
                 home: "Home", buy: "Buy OTP Number", radar_title: "Radar OTP", history: "History", wallet: "Wallet & Withdraw", leaderboard: "Leaderboard", stats: "Statistics", profile: "Profile", admin: "ADMIN PANEL", otp_group: "OTP Group",
@@ -529,7 +552,8 @@ MINIAPP_HTML = """
                 invite_friends: "💌 Invite Friends", copy_link: "📋 Copy Link", top_10: "🏆 TOP 10 PLAYERS", your_profile: "👤 YOUR PROFILE", language: "🌐 Language", 
                 users: "Users", orders: "Orders", approve_wd: "💸 Approve Withdrawals", add_bs: "➕ Add BS Numbers", add_number: "Add Number", 
                 prev_page: "← Prev", next_page: "Next →", total_otp: "Total OTPs Received", joined: "Joined", name: "Name", balance_label: "Balance",
-                stats_today: "📊 TODAY'S STATISTICS", stats_country: "🌍 OTP BY COUNTRY", stats_platform: "📱 OTP BY PLATFORM", maint_title: "🛠 SYSTEM MAINTENANCE"
+                stats_today: "📊 TODAY'S STATISTICS", stats_country: "🌍 OTP BY COUNTRY", stats_platform: "📱 OTP BY PLATFORM", maint_title: "🛠 SYSTEM MAINTENANCE",
+                remove_plus: "Remove (+)", national_fmt: "National Format"
             }
         };
 
@@ -560,7 +584,7 @@ MINIAPP_HTML = """
                 if (tg.hideLoading) tg.hideLoading();
             } catch(e) {}
             applyLanguage(lang);
-            showToast("Language changed!");
+            showToast(lang === 'en' ? "Language changed to English!" : "Đã đổi sang Tiếng Việt!");
         }
 
         function showCustomModal(title, msg) {
@@ -589,7 +613,7 @@ MINIAPP_HTML = """
             const toast = document.getElementById('toast');
             toast.innerText = msg;
             toast.classList.add('show');
-            setTimeout(() => toast.classList.remove('show'), 2000);
+            setTimeout(() => toast.classList.remove('show'), 2500);
         }
 
         async function api(path, method = 'GET', body = null) {
@@ -712,16 +736,72 @@ MINIAPP_HTML = """
             if (!data.orders) return;
             
             if (data.orders.length === 0) {
-                listDiv.innerHTML = '<div class="loading" style="background: var(--surface); border-radius: 16px; border: 1px dashed var(--border);">Không có đơn nào đang chờ.</div>';
+                listDiv.innerHTML = '<div class="loading" style="background: var(--surface); border-radius: 16px; border: 1px dashed var(--border);">' + (currentLang === 'en' ? 'No active orders.' : 'Không có đơn nào đang chờ.') + '</div>';
                 return;
             }
+
+            // Kiểm tra xem có đơn nào vừa nhận được OTP (COMPLETED) để thông báo toast cho user (như video 2)
+            data.orders.forEach(o => {
+                if (o.status === 'COMPLETED' && o.otp && !lastKnownCompletedOrders.has(o.id)) {
+                    lastKnownCompletedOrders.add(o.id);
+                    showToast(currentLang === 'en' ? `🎉 OTP Received for ${o.phone}: ${o.otp}` : `🎉 Đã nhận mã OTP cho số ${o.phone}: ${o.otp}`);
+                }
+            });
+
             listDiv.innerHTML = data.orders.map(o => renderOrderCard(o, false)).join('');
+        }
+
+        // FORMAT PHONE NUMBER VỚI OPTION BỎ (+) VÀ NATIONAL FORMAT
+        function formatPhoneNumber(phone, removePlus, nationalFormat) {
+            let p = String(phone || '').trim();
+            if (nationalFormat) {
+                // Các mã vùng quốc tế phổ biến để cắt bỏ khi chuyển về National Format
+                const prefixes = ["84", "62", "60", "65", "66", "63", "95", "855", "856", "1", "44", "7", "81", "82", "86", "91", "92", "880", "234", "254", "27", "20", "212", "213", "216", "218", "249", "251", "255", "256", "263", "260", "233", "221", "224", "231", "232", "225", "237", "243", "242", "241", "235", "227", "223", "226", "228", "229", "220", "222", "245", "30", "31", "32", "33", "34", "36", "39", "40", "41", "43", "45", "46", "47", "48", "49", "351", "352", "353", "358", "370", "371", "372", "380", "420", "421", "90", "972", "971", "966", "974", "965", "968", "973", "962", "961", "964", "98", "93", "94", "977", "975", "960", "673", "670", "61", "64", "52", "55", "54", "56", "57", "58", "51", "593", "591", "595", "598", "509", "244", "267", "266", "261", "258", "264", "970", "250", "252", "998", "967"];
+                prefixes.sort((a,b) => b.length - a.length);
+                let cleaned = p.replace(/^\+/, '');
+                for (let pfx of prefixes) {
+                    if (cleaned.startsWith(pfx) && cleaned.length > pfx.length + 3) {
+                        cleaned = cleaned.substring(pfx.length);
+                        if (pfx === '84' && !cleaned.startsWith('0')) {
+                            cleaned = '0' + cleaned;
+                        }
+                        p = cleaned;
+                        break;
+                    }
+                }
+            }
+            if (removePlus) {
+                p = p.replace(/^\+/, '');
+            }
+            return p;
+        }
+
+        function updatePhoneDisplay(orderId, rawPhone) {
+            const rpEl = document.getElementById('phone-text-' + orderId);
+            const cbPlus = document.getElementById('chk-plus-' + orderId);
+            const cbNat = document.getElementById('chk-nat-' + orderId);
+            if (!rpEl) return;
+            const removePlus = cbPlus ? cbPlus.checked : false;
+            const nationalFmt = cbNat ? cbNat.checked : false;
+            rpEl.innerText = formatPhoneNumber(rawPhone, removePlus, nationalFmt);
+        }
+
+        function formatTimeAgo(timestamp) {
+            const nowSec = Math.floor(Date.now() / 1000);
+            let tSec = typeof timestamp === 'number' ? timestamp : Math.floor(new Date(timestamp).getTime() / 1000);
+            if (isNaN(tSec)) return "Just now";
+            const diff = Math.max(0, nowSec - tSec);
+            if (diff < 5) return "Just now";
+            if (diff < 60) return diff + "s ago";
+            if (diff < 3600) return Math.floor(diff / 60) + "m ago";
+            return Math.floor(diff / 3600) + "h ago";
         }
 
         async function loadRadarFeed() {
             const feedDiv = document.getElementById('radar-feed-list');
             const platDiv = document.getElementById('radar-platforms-chart');
             const ctryDiv = document.getElementById('radar-countries-chart');
+            const countEl = document.getElementById('radar-records-count');
             if (!feedDiv) return;
 
             const data = await api('/api/mini/radar');
@@ -730,22 +810,42 @@ MINIAPP_HTML = """
                 return;
             }
 
+            if (countEl) countEl.innerText = (data.total_records || (data.items ? data.items.length : 0)) + " records";
+
             if (platDiv && data.platforms) {
-                platDiv.innerHTML = data.platforms.map(p => `
-                    <div style="background: rgba(59,130,246,0.1); border: 1px solid var(--border); padding: 10px 15px; border-radius: 12px; flex:1; text-align:center;">
-                        <div style="font-size: 13px; color: var(--text-muted);">${p.icon} ${p.name}</div>
-                        <div style="font-size: 18px; font-weight: bold; color: var(--primary); margin-top: 4px;">${p.count}</div>
-                    </div>
-                `).join('');
+                const maxPlat = Math.max(...data.platforms.map(p => p.count), 1);
+                platDiv.innerHTML = data.platforms.map(p => {
+                    const pct = Math.round((p.count / maxPlat) * 100);
+                    return `
+                        <div style="background: rgba(15,23,42,0.6); padding: 12px; border-radius: 12px; border: 1px solid var(--border);">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 14px;">
+                                <span style="font-weight: 600;">${p.icon} ${p.name}</span>
+                                <span style="color: var(--primary); font-weight: bold;">${p.count}</span>
+                            </div>
+                            <div style="width: 100%; background: rgba(255,255,255,0.08); height: 8px; border-radius: 4px; overflow: hidden;">
+                                <div style="width: ${pct}%; background: var(--primary); height: 100%; border-radius: 4px; transition: width 0.3s;"></div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
             }
 
             if (ctryDiv && data.countries) {
-                ctryDiv.innerHTML = data.countries.map(c => `
-                    <div style="background: rgba(16,185,129,0.1); border: 1px solid var(--border); padding: 10px 15px; border-radius: 12px; flex:1; text-align:center;">
-                        <div style="font-size: 13px; color: var(--text-muted);">${c.flag} ${c.name}</div>
-                        <div style="font-size: 18px; font-weight: bold; color: var(--success); margin-top: 4px;">${c.count}</div>
-                    </div>
-                `).join('');
+                const maxCtry = Math.max(...data.countries.map(c => c.count), 1);
+                ctryDiv.innerHTML = data.countries.map(c => {
+                    const pct = Math.round((c.count / maxCtry) * 100);
+                    return `
+                        <div style="background: rgba(15,23,42,0.6); padding: 12px; border-radius: 12px; border: 1px solid var(--border);">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 14px;">
+                                <span style="font-weight: 600;">${c.flag} ${c.name}</span>
+                                <span style="color: var(--success); font-weight: bold;">${c.count} OTPs</span>
+                            </div>
+                            <div style="width: 100%; background: rgba(255,255,255,0.08); height: 8px; border-radius: 4px; overflow: hidden;">
+                                <div style="width: ${pct}%; background: var(--success); height: 100%; border-radius: 4px; transition: width 0.3s;"></div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
             }
 
             if (!data.items || data.items.length === 0) {
@@ -762,7 +862,7 @@ MINIAPP_HTML = """
                     <div class="order-info">
                         <span>${i.flag} ${i.country}</span>
                         <span>🔧 ${i.operator}</span>
-                        <span style="color: var(--warning);">⏳ ${i.time_ago}</span>
+                        <span style="color: var(--warning);" class="radar-time" data-timestamp="${i.timestamp}">⏳ ${formatTimeAgo(i.timestamp)}</span>
                     </div>
                     <div class="otp-box">
                         <div>
@@ -774,9 +874,18 @@ MINIAPP_HTML = """
             `).join('');
         }
 
+        setInterval(() => {
+            document.querySelectorAll('.radar-time').forEach(el => {
+                const ts = parseInt(el.getAttribute('data-timestamp'));
+                if (!isNaN(ts)) {
+                    el.innerText = '⏳ ' + formatTimeAgo(ts);
+                }
+            });
+        }, 1000);
+
         function startRadarRefresh() {
             stopRadarRefresh();
-            radarRefreshInterval = setInterval(loadRadarFeed, 5000);
+            radarRefreshInterval = setInterval(loadRadarFeed, 3000);
         }
         function stopRadarRefresh() {
             if (radarRefreshInterval) clearInterval(radarRefreshInterval);
@@ -882,7 +991,12 @@ MINIAPP_HTML = """
 
         function renderOrderCard(o, isHistory) {
             const statusColors = { 'PENDING': 'var(--warning)', 'COMPLETED': 'var(--success)', 'EXPIRED': 'var(--danger)', 'CANCELLED': 'var(--danger)' };
-            const statusTexts = { 'PENDING': '⏳ Chờ OTP', 'COMPLETED': '✅ Đã nhận', 'EXPIRED': '⌛ Hết hạn', 'CANCELLED': '🚫 Đã hủy' };
+            const statusTexts = { 
+                'PENDING': currentLang === 'en' ? '⏳ Waiting OTP' : '⏳ Chờ OTP', 
+                'COMPLETED': currentLang === 'en' ? '✅ Received' : '✅ Đã nhận', 
+                'EXPIRED': currentLang === 'en' ? '⌛ Expired' : '⌛ Hết hạn', 
+                'CANCELLED': currentLang === 'en' ? '🚫 Cancelled' : '🚫 Đã hủy' 
+            };
             const color = statusColors[o.status] || 'var(--text-muted)';
             const text = statusTexts[o.status] || o.status;
             
@@ -891,7 +1005,9 @@ MINIAPP_HTML = """
                 const createdTime = new Date(o.created_at).getTime();
                 const expireTime = createdTime + (15 * 60 * 1000);
                 const remaining = Math.max(0, Math.floor((expireTime - Date.now()) / 1000));
-                countdownHtml = `<span class="order-countdown" data-expire="${expireTime}" style="color: var(--warning); font-weight: bold;">⏳ Còn ${Math.floor(remaining / 60)}m ${remaining % 60}s</span>`;
+                // Giới hạn max 15 phút (900s) chuẩn xác như yêu cầu video 1
+                const actualRem = Math.min(900, remaining);
+                countdownHtml = `<span class="order-countdown" data-expire="${expireTime}" style="color: var(--warning); font-weight: bold;">⏳ ${Math.floor(actualRem / 60)}m ${actualRem % 60}s</span>`;
             }
 
             let otpHtml = '';
@@ -899,27 +1015,36 @@ MINIAPP_HTML = """
                 otpHtml = `
                     <div class="otp-box">
                         <div>
-                            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">Mã OTP:</div>
+                            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">Mã OTP (${o.icon || '📱'} ${o.platform || 'Other'}):</div>
                             <div class="otp-code">${o.otp}</div>
                         </div>
                         <button class="btn-small copy" style="background: var(--success); width: 80px;" onclick="copyText('${o.otp}')">📋 Copy</button>
                     </div>
                 `;
             }
+
+            const tRemovePlus = translations[currentLang].remove_plus;
+            const tNationalFmt = translations[currentLang].national_fmt;
+
             return `
                 <div class="order-card ${o.status.toLowerCase()}">
                     <div class="order-header">
-                        <div class="order-phone">${o.phone}</div>
+                        <div class="order-phone" id="phone-text-${o.id}">${o.phone}</div>
                         <div class="order-badge" style="color: ${color};">${text}</div>
                     </div>
                     <div class="order-info">
                         <span>${o.flag} ${o.country}</span>
                         <span>🔧 ${o.provider}</span>
+                        <span>${o.icon || '📱'} ${o.platform || 'Other'}</span>
                         ${countdownHtml}
+                    </div>
+                    <div class="format-toggles">
+                        <label><input type="checkbox" id="chk-plus-${o.id}" onchange="updatePhoneDisplay('${o.id}', '${o.phone}')"> ${tRemovePlus}</label>
+                        <label><input type="checkbox" id="chk-nat-${o.id}" onchange="updatePhoneDisplay('${o.id}', '${o.phone}')"> ${tNationalFmt}</label>
                     </div>
                     ${otpHtml}
                     <div class="action-row">
-                        <button class="btn-small copy" onclick="copyText('${o.phone}')">📋 Copy Số</button>
+                        <button class="btn-small copy" onclick="copyText(document.getElementById('phone-text-${o.id}').innerText)">📋 Copy Số</button>
                         ${o.status === 'PENDING' && !isHistory ? `<button class="btn-small cancel" onclick="cancelOrder(${o.id})">❌ Hủy</button>` : ''}
                     </div>
                 </div>
@@ -930,26 +1055,27 @@ MINIAPP_HTML = """
             document.querySelectorAll('.order-countdown').forEach(el => {
                 const expireTime = parseInt(el.getAttribute('data-expire'));
                 const remaining = Math.max(0, Math.floor((expireTime - Date.now()) / 1000));
-                if (remaining <= 0) {
-                    el.innerText = "⏳ Đã hết hạn (15p)";
+                const actualRem = Math.min(900, remaining);
+                if (actualRem <= 0) {
+                    el.innerText = currentLang === 'en' ? "⏳ Expired" : "⏳ Hết hạn";
                     el.style.color = "var(--danger)";
                 } else {
-                    const m = Math.floor(remaining / 60);
-                    const s = remaining % 60;
-                    el.innerText = `⏳ Còn ${m}m ${s < 10 ? '0' : ''}${s}s`;
+                    const m = Math.floor(actualRem / 60);
+                    const s = actualRem % 60;
+                    el.innerText = `⏳ ${m}m ${s < 10 ? '0' : ''}${s}s`;
                 }
             });
         }, 1000);
 
         function copyText(text) {
-            navigator.clipboard.writeText(text).then(() => showToast('Đã sao chép: ' + text));
+            navigator.clipboard.writeText(text).then(() => showToast(currentLang === 'en' ? 'Copied: ' + text : 'Đã sao chép: ' + text));
         }
 
         async function cancelOrder(oid) {
-            const confirmed = await showCustomModal('Hủy Đơn', 'Bạn chắc chắn muốn hủy đơn này?');
+            const confirmed = await showCustomModal(currentLang === 'en' ? 'Cancel Order' : 'Hủy Đơn', currentLang === 'en' ? 'Are you sure you want to cancel this order?' : 'Bạn chắc chắn muốn hủy đơn này?');
             if (!confirmed) return;
             const res = await api('/api/mini/orders/' + oid + '/cancel', 'POST');
-            if (res.ok) { loadHome(); showToast('Đã hủy đơn'); }
+            if (res.ok) { loadHome(); showToast(currentLang === 'en' ? 'Order cancelled' : 'Đã hủy đơn'); }
             else { if (tg.showAlert) tg.showAlert('Lỗi: ' + res.error); else alert('Lỗi: ' + res.error); }
         }
 
@@ -1017,7 +1143,7 @@ MINIAPP_HTML = """
         }
 
         async function buyNumber(provider, code, name, param3 = null) {
-            const confirmed = await showCustomModal('Xác Nhận', `Bạn có chắc muốn lấy số ${name} không?`);
+            const confirmed = await showCustomModal(currentLang === 'en' ? 'Confirm' : 'Xác Nhận', currentLang === 'en' ? `Are you sure you want to buy number for ${name}?` : `Bạn có chắc muốn lấy số ${name} không?`);
             if (!confirmed) return;
 
             try { if (tg.showLoading) tg.showLoading(); } catch(e) {}
@@ -1030,7 +1156,7 @@ MINIAPP_HTML = """
             try {
                 const res = await api('/api/mini/orders', 'POST', body);
                 try { if (tg.hideLoading) tg.hideLoading(); } catch(e) {}
-                if (res.ok) { showToast('✅ Đã lấy số thành công!'); navTo('home'); }
+                if (res.ok) { showToast(currentLang === 'en' ? '✅ Number ordered successfully!' : '✅ Đã lấy số thành công!'); navTo('home'); }
                 else { if (tg.showAlert) tg.showAlert('❌ Lỗi: ' + (res.error || 'Không thể lấy số')); else alert('❌ Lỗi: ' + (res.error || 'Không thể lấy số')); }
             } catch (err) {
                 try { if (tg.hideLoading) tg.hideLoading(); } catch(e) {}
@@ -1065,7 +1191,7 @@ MINIAPP_HTML = """
                 let finalAmt = parseFloat(maxAmount) - 0.1;
                 if (finalAmt < 0) finalAmt = 0;
                 input.value = finalAmt.toFixed(3);
-                showToast('Đã trừ phí rút toàn bộ $0.1');
+                showToast(currentLang === 'en' ? 'Fee $0.1 deducted for full withdrawal' : 'Đã trừ phí rút toàn bộ $0.1');
             } else { input.value = type; }
         }
 
@@ -1074,7 +1200,7 @@ MINIAPP_HTML = """
             if (!addressEl) return;
             const address = addressEl.value;
             const res = await api('/api/mini/wallet/address', 'POST', { address });
-            if (res.ok) showToast('Đã lưu địa chỉ ví!');
+            if (res.ok) showToast(currentLang === 'en' ? 'Wallet address saved!' : 'Đã lưu địa chỉ ví!');
             else { if (tg.showAlert) tg.showAlert('Lỗi: ' + res.error); else alert('Lỗi: ' + res.error); }
         }
 
@@ -1083,13 +1209,14 @@ MINIAPP_HTML = """
             if (!amountEl) return;
             const amount = amountEl.value;
             if (!amount || amount < 1) {
-                if (tg.showAlert) tg.showAlert('Số tiền tối thiểu là $1.00'); else alert('Số tiền tối thiểu là $1.00');
+                if (tg.showAlert) tg.showAlert(currentLang === 'en' ? 'Minimum withdraw amount is $1.00' : 'Số tiền tối thiểu là $1.00'); 
+                else alert(currentLang === 'en' ? 'Minimum withdraw amount is $1.00' : 'Số tiền tối thiểu là $1.00');
                 return;
             }
             const res = await api('/api/mini/wallet/withdraw', 'POST', { amount });
             if (res.ok) { 
-                if (tg.showAlert) tg.showAlert('Đã gửi yêu cầu rút tiền. Vui lòng chờ Admin duyệt.'); 
-                else alert('Đã gửi yêu cầu rút tiền. Vui lòng chờ Admin duyệt.'); 
+                if (tg.showAlert) tg.showAlert(currentLang === 'en' ? 'Withdrawal requested. Please wait for admin approval.' : 'Đã gửi yêu cầu rút tiền. Vui lòng chờ Admin duyệt.'); 
+                else alert(currentLang === 'en' ? 'Withdrawal requested. Please wait for admin approval.' : 'Đã gửi yêu cầu rút tiền. Vui lòng chờ Admin duyệt.'); 
                 loadUserData(); 
             } else { 
                 if (tg.showAlert) tg.showAlert('Lỗi: ' + (res.error || 'Lỗi không xác định')); else alert('Lỗi: ' + (res.error || 'Lỗi không xác định')); 
@@ -1100,7 +1227,7 @@ MINIAPP_HTML = """
             const refLink = document.getElementById('ref-link');
             if (!refLink) return;
             const text = refLink.innerText;
-            navigator.clipboard.writeText(text).then(() => showToast('Đã sao chép link!'));
+            navigator.clipboard.writeText(text).then(() => showToast(currentLang === 'en' ? 'Referral link copied!' : 'Đã sao chép link!'));
         }
 
         // ADMIN
@@ -1505,7 +1632,7 @@ MINIAPP_HTML = """
             autoRefreshInterval = setInterval(() => {
                 const activeView = document.querySelector('.view.active')?.id;
                 if (activeView === 'view-home') loadHome(true);
-            }, 5000); 
+            }, 3000); 
         }
 
         try {
