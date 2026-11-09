@@ -1,3 +1,5 @@
+# File: database.py
+
 import os
 import re
 import json
@@ -36,52 +38,219 @@ def mask_phone(phone):
     if not phone or len(phone) < 7: return phone
     return phone[:3] + "*" * (len(phone) - 6) + phone[-3:]
 
+# ĐẦY ĐỦ 195+ QUỐC GIA VÀ VÙNG LÃNH THỔ TRÊN THẾ GIỚI
 COUNTRY_CODES = {
-    "84": ("Vietnam", "🇻🇳"), "62": ("Indonesia", "🇮🇩"), "60": ("Malaysia", "🇲🇾"),
-    "65": ("Singapore", "🇸🇬"), "66": ("Thailand", "🇹🇭"), "63": ("Philippines", "🇵🇭"),
-    "95": ("Myanmar", "🇲🇲"), "855": ("Cambodia", "🇰🇭"), "856": ("Laos", "🇱🇦"),
-    "1": ("United States", "🇺🇸"), "44": ("United Kingdom", "🇬🇧"), "7": ("Russia", "🇷🇺"),
-    "81": ("Japan", "🇯🇵"), "82": ("South Korea", "🇰🇷"), "86": ("China", "🇨🇳"),
-    "91": ("India", "🇮🇳"), "92": ("Pakistan", "🇵🇰"), "880": ("Bangladesh", "🇧🇩"),
-    "234": ("Nigeria", "🇳🇬"), "254": ("Kenya", "🇰🇪"), "27": ("South Africa", "🇿🇦"),
-    "20": ("Egypt", "🇪🇬"), "212": ("Morocco", "🇲🇦"), "213": ("Algeria", "🇩🇿"),
-    "216": ("Tunisia", "🇹🇳"), "218": ("Libya", "🇱🇾"), "249": ("Sudan", "🇸🇩"),
-    "251": ("Ethiopia", "🇪🇹"), "255": ("Tanzania", "🇹🇿"), "256": ("Uganda", "🇺🇬"),
-    "263": ("Zimbabwe", "🇿🇼"), "260": ("Zambia", "🇿🇲"), "233": ("Ghana", "🇬🇭"),
-    "221": ("Senegal", "🇸🇳"), "224": ("Guinea", "🇬🇳"), "231": ("Liberia", "🇱🇷"),
-    "232": ("Sierra Leone", "🇸🇱"), "225": ("Ivory Coast", "🇨🇮"), "237": ("Cameroon", "🇨🇲"),
-    "243": ("DR Congo", "🇨🇩"), "242": ("Congo", "🇨🇬"), "241": ("Gabon", "🇬🇦"),
-    "235": ("Chad", "🇹🇩"), "227": ("Niger", "🇳🇪"), "223": ("Mali", "🇲🇱"),
-    "226": ("Burkina Faso", "🇧🇫"), "228": ("Togo", "🇹🇬"), "229": ("Benin", "🇧🇯"),
-    "220": ("Gambia", "🇬🇲"), "222": ("Mauritania", "🇲🇷"), "245": ("Guinea-Bissau", "🇬🇼"),
-    "30": ("Greece", "🇬🇷"), "31": ("Netherlands", "🇳🇱"), "32": ("Belgium", "🇧🇪"),
-    "33": ("France", "🇫🇷"), "34": ("Spain", "🇪🇸"), "36": ("Hungary", "🇭🇺"),
-    "39": ("Italy", "🇮🇹"), "40": ("Romania", "🇷🇴"), "41": ("Switzerland", "🇨🇭"),
-    "43": ("Austria", "🇦🇹"), "45": ("Denmark", "🇩🇰"), "46": ("Sweden", "🇸🇪"),
-    "47": ("Norway", "🇳🇴"), "48": ("Poland", "🇵🇱"), "49": ("Germany", "🇩🇪"),
-    "351": ("Portugal", "🇵🇹"), "352": ("Luxembourg", "🇱🇺"), "353": ("Ireland", "🇮🇪"),
-    "358": ("Finland", "🇫🇮"), "370": ("Lithuania", "🇱🇹"), "371": ("Latvia", "🇱🇻"),
-    "372": ("Estonia", "🇪🇪"), "380": ("Ukraine", "🇺🇦"), "420": ("Czechia", "🇨🇿"),
-    "421": ("Slovakia", "🇸🇰"), "90": ("Turkey", "🇹🇷"), "972": ("Israel", "🇮🇱"),
-    "971": ("UAE", "🇦🇪"), "966": ("Saudi Arabia", "🇸🇦"), "974": ("Qatar", "🇶🇦"),
-    "965": ("Kuwait", "🇰🇼"), "968": ("Oman", "🇴🇲"), "973": ("Bahrain", "🇧🇭"),
-    "962": ("Jordan", "🇯🇴"), "961": ("Lebanon", "🇱🇧"), "964": ("Iraq", "🇮🇶"),
-    "98": ("Iran", "🇮🇷"), "93": ("Afghanistan", "🇦🇫"), "94": ("Sri Lanka", "🇱🇰"),
-    "977": ("Nepal", "🇳🇵"), "975": ("Bhutan", "🇧🇹"), "960": ("Maldives", "🇲🇻"),
-    "673": ("Brunei", "🇧🇳"), "670": ("Timor-Leste", "🇹🇱"), "61": ("Australia", "🇦🇺"),
-    "64": ("New Zealand", "🇳🇿"), "52": ("Mexico", "🇲🇽"), "55": ("Brazil", "🇧🇷"),
-    "54": ("Argentina", "🇦🇷"), "56": ("Chile", "🇨🇱"), "57": ("Colombia", "🇨🇴"),
-    "58": ("Venezuela", "🇻🇪"), "51": ("Peru", "🇵🇪"), "593": ("Ecuador", "🇪🇨"),
-    "591": ("Bolivia", "🇧🇴"), "595": ("Paraguay", "🇵🇾"), "598": ("Uruguay", "🇺🇾"),
-    "509": ("Haiti", "🇭🇹"), "244": ("Angola", "🇦🇴"), "267": ("Botswana", "🇧🇼"),
-    "266": ("Lesotho", "🇱🇸"), "261": ("Madagascar", "🇲🇬"), "258": ("Mozambique", "🇲🇿"),
-    "264": ("Namibia", "🇳🇦"), "970": ("Palestine", "🇵🇸"), "250": ("Rwanda", "🇷🇼"),
-    "252": ("Somalia", "🇸🇴"), "998": ("Uzbekistan", "🇺🇿"), "967": ("Yemen", "🇾🇪")
+    "1": ("United States", "🇺🇸"),
+    "7": ("Russia", "🇷🇺"),
+    "20": ("Egypt", "🇪🇬"),
+    "27": ("South Africa", "🇿🇦"),
+    "30": ("Greece", "🇬🇷"),
+    "31": ("Netherlands", "🇳🇱"),
+    "32": ("Belgium", "🇧🇪"),
+    "33": ("France", "🇫🇷"),
+    "34": ("Spain", "🇪🇸"),
+    "36": ("Hungary", "🇭🇺"),
+    "39": ("Italy", "🇮🇹"),
+    "40": ("Romania", "🇷🇴"),
+    "41": ("Switzerland", "🇨🇭"),
+    "43": ("Austria", "🇦🇹"),
+    "44": ("United Kingdom", "🇬🇧"),
+    "45": ("Denmark", "🇩🇰"),
+    "46": ("Sweden", "🇸🇪"),
+    "47": ("Norway", "🇳🇴"),
+    "48": ("Poland", "🇵🇱"),
+    "49": ("Germany", "🇩🇪"),
+    "51": ("Peru", "🇵🇪"),
+    "52": ("Mexico", "🇲🇽"),
+    "53": ("Cuba", "🇨🇺"),
+    "54": ("Argentina", "🇦🇷"),
+    "55": ("Brazil", "🇧🇷"),
+    "56": ("Chile", "🇨🇱"),
+    "57": ("Colombia", "🇨🇴"),
+    "58": ("Venezuela", "🇻🇪"),
+    "60": ("Malaysia", "🇲🇾"),
+    "61": ("Australia", "🇦🇺"),
+    "62": ("Indonesia", "🇮🇩"),
+    "63": ("Philippines", "🇵🇭"),
+    "64": ("New Zealand", "🇳🇿"),
+    "65": ("Singapore", "🇸🇬"),
+    "66": ("Thailand", "🇹🇭"),
+    "81": ("Japan", "🇯🇵"),
+    "82": ("South Korea", "🇰🇷"),
+    "84": ("Vietnam", "🇻🇳"),
+    "86": ("China", "🇨🇳"),
+    "90": ("Turkey", "🇹🇷"),
+    "91": ("India", "🇮🇳"),
+    "92": ("Pakistan", "🇵🇰"),
+    "93": ("Afghanistan", "🇦🇫"),
+    "94": ("Sri Lanka", "🇱🇰"),
+    "95": ("Myanmar", "🇲🇲"),
+    "98": ("Iran", "🇮🇷"),
+    "211": ("South Sudan", "🇸🇸"),
+    "212": ("Morocco", "🇲🇦"),
+    "213": ("Algeria", "🇩🇿"),
+    "216": ("Tunisia", "🇹🇳"),
+    "218": ("Libya", "🇱🇾"),
+    "220": ("Gambia", "🇬🇲"),
+    "221": ("Senegal", "🇸🇳"),
+    "222": ("Mauritania", "🇲🇷"),
+    "223": ("Mali", "🇲🇱"),
+    "224": ("Guinea", "🇬🇳"),
+    "225": ("Ivory Coast", "🇨🇮"),
+    "226": ("Burkina Faso", "🇧🇫"),
+    "227": ("Niger", "🇳🇪"),
+    "228": ("Togo", "🇹🇬"),
+    "229": ("Benin", "🇧🇯"),
+    "230": ("Mauritius", "🇲🇺"),
+    "231": ("Liberia", "🇱🇷"),
+    "232": ("Sierra Leone", "🇸🇱"),
+    "233": ("Ghana", "🇬🇭"),
+    "234": ("Nigeria", "🇳🇬"),
+    "235": ("Chad", "🇹🇩"),
+    "236": ("Central African Republic", "🇨🇫"),
+    "237": ("Cameroon", "🇨🇲"),
+    "238": ("Cape Verde", "🇨🇻"),
+    "239": ("Sao Tome and Principe", "🇸🇹"),
+    "240": ("Equatorial Guinea", "🇬🇶"),
+    "241": ("Gabon", "🇬🇦"),
+    "242": ("Congo", "🇨🇬"),
+    "243": ("DR Congo", "🇨🇩"),
+    "244": ("Angola", "🇦🇴"),
+    "245": ("Guinea-Bissau", "🇬🇼"),
+    "246": ("British Indian Ocean Territory", "🇮🇴"),
+    "248": ("Seychelles", "🇸🇨"),
+    "249": ("Sudan", "🇸🇩"),
+    "250": ("Rwanda", "🇷🇼"),
+    "251": ("Ethiopia", "🇪🇹"),
+    "252": ("Somalia", "🇸🇴"),
+    "253": ("Djibouti", "🇩🇯"),
+    "254": ("Kenya", "🇰🇪"),
+    "255": ("Tanzania", "🇹🇿"),
+    "256": ("Uganda", "🇺🇬"),
+    "257": ("Burundi", "🇧🇮"),
+    "258": ("Mozambique", "🇲🇿"),
+    "260": ("Zambia", "🇿🇲"),
+    "261": ("Madagascar", "🇲🇬"),
+    "262": ("Reunion", "🇷🇪"),
+    "263": ("Zimbabwe", "🇿🇼"),
+    "264": ("Namibia", "🇳🇦"),
+    "265": ("Malawi", "🇲🇼"),
+    "266": ("Lesotho", "🇱🇸"),
+    "267": ("Botswana", "🇧🇼"),
+    "268": ("Eswatini", "🇸🇿"),
+    "269": ("Comoros", "🇰🇲"),
+    "290": ("Saint Helena", "🇸🇭"),
+    "291": ("Eritrea", "🇪🇷"),
+    "297": ("Aruba", "🇦🇼"),
+    "298": ("Faroe Islands", "🇫🇴"),
+    "299": ("Greenland", "🇬🇱"),
+    "350": ("Gibraltar", "🇬🇮"),
+    "351": ("Portugal", "🇵🇹"),
+    "352": ("Luxembourg", "🇱🇺"),
+    "353": ("Ireland", "🇮🇪"),
+    "354": ("Iceland", "🇮🇸"),
+    "355": ("Albania", "🇦🇱"),
+    "356": ("Malta", "🇲🇹"),
+    "357": ("Cyprus", "🇨🇾"),
+    "358": ("Finland", "🇫🇮"),
+    "359": ("Bulgaria", "🇧🇬"),
+    "370": ("Lithuania", "🇱🇹"),
+    "371": ("Latvia", "🇱🇻"),
+    "372": ("Estonia", "🇪🇪"),
+    "373": ("Moldova", "🇲🇩"),
+    "374": ("Armenia", "🇦🇲"),
+    "375": ("Belarus", "🇧🇾"),
+    "376": ("Andorra", "🇦🇩"),
+    "377": ("Monaco", "🇲🇨"),
+    "378": ("San Marino", "🇸🇲"),
+    "379": ("Vatican City", "🇻🇦"),
+    "380": ("Ukraine", "🇺🇦"),
+    "381": ("Serbia", "🇷🇸"),
+    "382": ("Montenegro", "🇲🇪"),
+    "383": ("Kosovo", "🇽🇰"),
+    "385": ("Croatia", "🇭🇷"),
+    "386": ("Slovenia", "🇸🇮"),
+    "387": ("Bosnia and Herzegovina", "🇧🇦"),
+    "389": ("North Macedonia", "🇲🇰"),
+    "420": ("Czechia", "🇨🇿"),
+    "421": ("Slovakia", "🇸🇰"),
+    "423": ("Liechtenstein", "🇱🇮"),
+    "500": ("Falkland Islands", "🇫🇰"),
+    "501": ("Belize", "🇧🇿"),
+    "502": ("Guatemala", "🇬🇹"),
+    "503": ("El Salvador", "🇸🇻"),
+    "504": ("Honduras", "🇭🇳"),
+    "505": ("Nicaragua", "🇳🇮"),
+    "506": ("Costa Rica", "🇨🇷"),
+    "507": ("Panama", "🇵🇦"),
+    "508": ("Saint Pierre and Miquelon", "🇵🇲"),
+    "509": ("Haiti", "🇭🇹"),
+    "590": ("Saint Barthelemy", "🇧🇱"),
+    "591": ("Bolivia", "🇧🇴"),
+    "592": ("Guyana", "🇬🇾"),
+    "593": ("Ecuador", "🇪🇨"),
+    "594": ("French Guiana", "🇬🇫"),
+    "595": ("Paraguay", "🇵🇾"),
+    "596": ("Martinique", "🇲🇶"),
+    "597": ("Suriname", "🇸🇷"),
+    "598": ("Uruguay", "🇺🇾"),
+    "599": ("Curacao", "🇨🇼"),
+    "670": ("Timor-Leste", "🇹🇱"),
+    "672": ("Antarctica", "🇦🇶"),
+    "673": ("Brunei", "🇧🇳"),
+    "674": ("Nauru", "🇳🇷"),
+    "675": ("Papua New Guinea", "🇵🇬"),
+    "676": ("Tonga", "🇹🇴"),
+    "677": ("Solomon Islands", "🇸🇧"),
+    "678": ("Vanuatu", "🇻🇺"),
+    "679": ("Fiji", "🇫🇯"),
+    "680": ("Palau", "🇵🇼"),
+    "681": ("Wallis and Futuna", "🇼🇫"),
+    "682": ("Cook Islands", "🇨🇰"),
+    "683": ("Niue", "🇳🇺"),
+    "685": ("Samoa", "🇼🇸"),
+    "686": ("Kiribati", "🇰🇮"),
+    "687": ("New Caledonia", "🇳🇨"),
+    "688": ("Tuvalu", "🇹🇻"),
+    "689": ("French Polynesia", "🇵🇫"),
+    "691": ("Micronesia", "🇫🇲"),
+    "692": ("Marshall Islands", "🇲🇭"),
+    "850": ("North Korea", "🇰🇵"),
+    "852": ("Hong Kong", "🇭🇰"),
+    "853": ("Macau", "🇲🇴"),
+    "855": ("Cambodia", "🇰🇭"),
+    "856": ("Laos", "🇱🇦"),
+    "880": ("Bangladesh", "🇧🇩"),
+    "886": ("Taiwan", "🇹🇼"),
+    "960": ("Maldives", "🇲🇻"),
+    "961": ("Lebanon", "🇱🇧"),
+    "962": ("Jordan", "🇯🇴"),
+    "963": ("Syria", "🇸🇾"),
+    "964": ("Iraq", "🇮🇶"),
+    "965": ("Kuwait", "🇰🇼"),
+    "966": ("Saudi Arabia", "🇸🇦"),
+    "967": ("Yemen", "🇾🇪"),
+    "968": ("Oman", "🇴🇲"),
+    "970": ("Palestine", "🇵🇸"),
+    "971": ("UAE", "🇦🇪"),
+    "972": ("Israel", "🇮🇱"),
+    "973": ("Bahrain", "🇧🇭"),
+    "974": ("Qatar", "🇶🇦"),
+    "975": ("Bhutan", "🇧🇹"),
+    "976": ("Mongolia", "🇲🇳"),
+    "977": ("Nepal", "🇳🇵"),
+    "992": ("Tajikistan", "🇹🇯"),
+    "993": ("Turkmenistan", "🇹🇲"),
+    "994": ("Azerbaijan", "🇦🇿"),
+    "995": ("Georgia", "🇬🇪"),
+    "996": ("Kyrgyzstan", "🇰🇬"),
+    "998": ("Uzbekistan", "🇺🇿")
 }
 SORTED_PREFIXES = sorted(COUNTRY_CODES.keys(), key=len, reverse=True)
 
 ISO_MAP = {
-    "VN": "Vietnam", "TL": "Timor-Leste", "HT": "Haiti", "SN": "Senegal", "SD": "Sudan", "AF": "Afghanistan",
+    "VN": "Vietnam", "US": "United States", "GB": "United Kingdom", "FR": "France", "DE": "Germany",
+    "IT": "Italy", "ES": "Spain", "RU": "Russia", "CN": "China", "JP": "Japan", "KR": "South Korea",
     "ID": "Indonesia", "PH": "Philippines", "MM": "Myanmar", "KH": "Cambodia", "LA": "Laos", "MY": "Malaysia",
     "TH": "Thailand", "BD": "Bangladesh", "PK": "Pakistan", "NG": "Nigeria", "GH": "Ghana", "KE": "Kenya",
     "ZM": "Zambia", "CM": "Cameroon", "CI": "Ivory Coast", "UG": "Uganda", "TZ": "Tanzania", "ZW": "Zimbabwe",
@@ -89,20 +258,24 @@ ISO_MAP = {
     "BF": "Burkina Faso", "NE": "Niger", "TD": "Chad", "SO": "Somalia", "ET": "Ethiopia", "MG": "Madagascar",
     "MZ": "Mozambique", "AO": "Angola", "NA": "Namibia", "BW": "Botswana", "ZA": "South Africa", "LR": "Liberia",
     "SL": "Sierra Leone", "GN": "Guinea", "GW": "Guinea-Bissau", "GM": "Gambia", "MR": "Mauritania", "TG": "Togo",
-    "BJ": "Benin", "GA": "Gabon", "CG": "Congo", "RW": "Rwanda", "NO": "Norway"
+    "BJ": "Benin", "GA": "Gabon", "CG": "Congo", "RW": "Rwanda", "NO": "Norway", "IN": "India", "BR": "Brazil",
+    "CA": "Canada", "AU": "Australia", "TL": "Timor-Leste", "HT": "Haiti", "SN": "Senegal", "SD": "Sudan", "AF": "Afghanistan"
 }
 
 FALLBACK_COUNTRIES = {
-    "Vietnam": "84XXX", "Liberia": "231XXX", "Guinea": "2246XXX", "Sierra Leone": "2327XXX", "Indonesia": "62XXX",
-    "Cambodia": "855XXX", "Myanmar": "9596XXX", "Zambia": "260XXX", "Tanzania": "255XXX", "Lesotho": "2666XXX",
-    "Mozambique": "2588XXX", "Yemen": "9677XXX", "Algeria": "2135XXX", "Tunisia": "2162XXX", "Nigeria": "234XXX",
-    "Nepal": "977XXX", "Afghanistan": "9370XXX", "Lebanon": "961XXX", "Morocco": "2126XXX", "Libya": "2189XXX",
-    "Madagascar": "2613XXX", "Ethiopia": "2519XXX", "Senegal": "2217XXX", "Zimbabwe": "2637XXX", "Norway": "47XXX",
-    "Egypt": "2012XXX", "Palestine": "9725XXX", "Uzbekistan": "998XXX", "Sudan": "2491XXX", "Cameroon": "237XXX",
-    "Benin": "2290XXX", "Mali": "223XXX", "Ghana": "233XXX", "Kenya": "254XXX", "Uganda": "256XXX", "Rwanda": "250XXX",
-    "Chad": "235XXX", "Niger": "227XXX", "Somalia": "252XXX", "Angola": "244XXX", "Botswana": "267XXX", "Namibia": "264XXX",
-    "Gabon": "241XXX", "Congo": "242XXX", "Togo": "228XXX", "Burkina Faso": "226XXX", "Mauritania": "222XXX", "Gambia": "220XXX",
-    "Guinea-Bissau": "245XXX", "Maldives": "960XXX"
+    "Vietnam": "84XXX", "United States": "1XXX", "United Kingdom": "44XXX", "Germany": "49XXX",
+    "France": "33XXX", "Japan": "81XXX", "South Korea": "82XXX", "China": "86XXX", "India": "91XXX",
+    "Indonesia": "62XXX", "Philippines": "63XXX", "Malaysia": "60XXX", "Thailand": "66XXX", "Singapore": "65XXX",
+    "Liberia": "231XXX", "Guinea": "2246XXX", "Sierra Leone": "2327XXX", "Cambodia": "855XXX", "Myanmar": "9596XXX", 
+    "Zambia": "260XXX", "Tanzania": "255XXX", "Lesotho": "2666XXX", "Mozambique": "2588XXX", "Yemen": "9677XXX", 
+    "Algeria": "2135XXX", "Tunisia": "2162XXX", "Nigeria": "234XXX", "Nepal": "977XXX", "Afghanistan": "9370XXX", 
+    "Lebanon": "961XXX", "Morocco": "2126XXX", "Libya": "2189XXX", "Madagascar": "2613XXX", "Ethiopia": "2519XXX", 
+    "Senegal": "2217XXX", "Zimbabwe": "2637XXX", "Norway": "47XXX", "Egypt": "2012XXX", "Palestine": "9725XXX", 
+    "Uzbekistan": "998XXX", "Sudan": "2491XXX", "Cameroon": "237XXX", "Benin": "2290XXX", "Mali": "223XXX", 
+    "Ghana": "233XXX", "Kenya": "254XXX", "Uganda": "256XXX", "Rwanda": "250XXX", "Chad": "235XXX", 
+    "Niger": "227XXX", "Somalia": "252XXX", "Angola": "244XXX", "Botswana": "267XXX", "Namibia": "264XXX", 
+    "Gabon": "241XXX", "Congo": "242XXX", "Togo": "228XXX", "Burkina Faso": "226XXX", "Mauritania": "222XXX", 
+    "Gambia": "220XXX", "Guinea-Bissau": "245XXX", "Maldives": "960XXX"
 }
 
 def get_country_flag(c):
@@ -114,13 +287,75 @@ def get_country_flag(c):
 def detect_otp_platform(full_sms):
     if not full_sms: return "Other"
     sms = full_sms.lower()
-    for name, kw in {"TikTok": ["tiktok"], "Facebook": ["facebook", "fb"], "Instagram": ["instagram"], "Threads": ["threads"], "Google": ["google", "gmail"], "Telegram": ["telegram"], "WhatsApp": ["whatsapp"], "Zalo": ["zalo"], "Twitter": ["twitter"], "Shopee": ["shopee"], "Apple": ["apple"], "Microsoft": ["microsoft"]}.items():
-        if any(k in sms for k in kw): return name
+    platforms = {
+        "TikTok": ["tiktok"],
+        "Facebook": ["facebook", "fb", "messenger"],
+        "Instagram": ["instagram", "ig"],
+        "Threads": ["threads"],
+        "Google": ["google", "gmail"],
+        "Telegram": ["telegram"],
+        "WhatsApp": ["whatsapp"],
+        "Zalo": ["zalo"],
+        "Twitter/X": ["twitter", " x "],
+        "YouTube": ["youtube", "yt"],
+        "Discord": ["discord"],
+        "Steam": ["steam"],
+        "Netflix": ["netflix"],
+        "Spotify": ["spotify"],
+        "Shopee": ["shopee"],
+        "Lazada": ["lazada"],
+        "Tiki": ["tiki"],
+        "Amazon": ["amazon"],
+        "Apple": ["apple", "icloud"],
+        "Microsoft": ["microsoft", "outlook", "live"],
+        "Snapchat": ["snapchat"],
+        "Reddit": ["reddit"],
+        "LinkedIn": ["linkedin"],
+        "Tinder/Dating": ["tinder", "bumble", "hinge", "match"],
+        "Binance/Crypto": ["binance", "crypto", "usdt", "btc", "okx", "bybit"],
+        "PayPal": ["paypal"],
+        "Viber": ["viber"],
+        "WeChat": ["wechat"],
+        "Line": ["line"]
+    }
+    for name, keywords in platforms.items():
+        if any(k in sms for k in keywords):
+            return name
     return "Other"
 
 def get_network_icon(net):
-    net = str(net).upper()
-    return "📘" if "FACEBOOK" in net else "📸" if "INSTAGRAM" in net else "💬" if "WHATSAPP" in net else "✈️" if "TELEGRAM" in net else "📱" if "TIKTOK" in net else "🧵" if "THREADS" in net else "🇬" if "GOOGLE" in net else "🐦" if "TWITTER" in net or "X" in net else "🌐"
+    if not net: return "📱"
+    n = str(net).lower()
+    if "facebook" in n or "fb" in n: return "📘"
+    if "instagram" in n or "ig" in n: return "📸"
+    if "threads" in n: return "🧵"
+    if "tiktok" in n: return "🎬"
+    if "telegram" in n or "tg" in n: return "✈️"
+    if "whatsapp" in n: return "💬"
+    if "zalo" in n: return "🇻🇳"
+    if "twitter" in n or " x " in n or n == "x": return "🐦"
+    if "google" in n or "gmail" in n: return "🇬"
+    if "youtube" in n or "yt" in n: return "▶️"
+    if "discord" in n: return "🎮"
+    if "steam" in n: return "🎮"
+    if "netflix" in n: return "🍿"
+    if "spotify" in n: return "🎧"
+    if "shopee" in n: return "🛍️"
+    if "lazada" in n: return "🟠"
+    if "tiki" in n: return "💙"
+    if "amazon" in n: return "📦"
+    if "apple" in n or "icloud" in n: return "🍎"
+    if "microsoft" in n or "outlook" in n: return "🪟"
+    if "snapchat" in n: return "👻"
+    if "reddit" in n: return "🤖"
+    if "linkedin" in n: return "💼"
+    if "tinder" in n or "dating" in n: return "❤️"
+    if "binance" in n or "crypto" in n or "usdt" in n: return "🪙"
+    if "paypal" in n: return "🅿️"
+    if "viber" in n: return "🟣"
+    if "wechat" in n: return "🟢"
+    if "line" in n: return "🟩"
+    return "📱"
 
 def open_db():
     if TURSO_DATABASE_URL and TURSO_AUTH_TOKEN:
