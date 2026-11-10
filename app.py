@@ -18,7 +18,7 @@ from aiogram import Bot, Dispatcher, BaseMiddleware, F
 from aiogram.filters import Command, CommandStart
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.types import BotCommand, BotCommandScopeChat, BotCommandScopeDefault, MenuButtonWebApp, WebAppInfo, Message, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
+from aiogram.types import BotCommand, BotCommandScopeChat, BotCommandScopeDefault, MenuButtonWebApp, WebAppInfo, Message, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile, CallbackQuery
 
 from database import (
     init_db, db_exec, get_setting, set_setting, get_user, register_user, now, now_text, 
@@ -71,7 +71,7 @@ async def cmd_start(message: Message):
         return await message.answer("🛠 <b>HỆ THỐNG ĐANG BẢO TRÌ</b>\n\nVui lòng quay lại sau.")
     
     if WEBAPP_URL.startswith("https://"):
-        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚡ MỞ ỨNG DỤNG FAST IVAS", web_app=WebAppInfo(url=WEBAPP_URL + "?v=19"))]])
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚡ MỞ ỨNG DỤNG FAST IVAS", web_app=WebAppInfo(url=WEBAPP_URL + "?v=20"))]])
         await message.answer("🚀 Chào mừng đến với <b>FAST IVAS</b>!\n\nVui lòng bấm nút bên dưới để mở ứng dụng.", reply_markup=kb)
     else:
         await message.answer("⚠️ Lỗi: Chưa cấu hình WEBAPP_URL.")
@@ -99,6 +99,26 @@ async def handle_text(message: Message):
     if await get_setting("maintenance", "off") == "on" and not is_admin(message.from_user.id):
         return await message.answer("🛠 <b>HỆ THỐNG ĐANG BẢO TRÌ</b>\n\nVui lòng quay lại sau.")
     await message.answer("Vui lòng mở Mini App để sử dụng các tính năng.")
+
+# ==================== XỬ LÝ NÚT BẤM NHẬN TIỀN TỪ ADMIN ====================
+@dp.callback_query(F.data.startswith("admin_bonus_"))
+async def handle_admin_bonus_click(callback: CallbackQuery):
+    try:
+        data = callback.data.split("_")
+        action = data[2]
+        amt = int(data[3])
+        uid = callback.from_user.id
+
+        if action == "accept":
+            await change_usd(uid, amt, "ADMIN_BONUS", "Nhận tiền từ Admin")
+            await callback.message.edit_text(f"✅ Bạn đã nhận thành công <b>${amt/1000:.3f}</b> từ Admin!")
+            await callback.answer("Đã cộng tiền vào tài khoản!", show_alert=True)
+        elif action == "reject":
+            await callback.message.edit_text("❌ Bạn đã từ chối nhận tiền từ Admin.")
+            await callback.answer("Đã hủy nhận tiền.", show_alert=False)
+    except Exception as e:
+        logger.error(f"Bonus click error: {e}")
+        await callback.answer("Có lỗi xảy ra, vui lòng thử lại sau.", show_alert=True)
 
 # ==================== API SERVICES ====================
 
@@ -209,11 +229,9 @@ class MkOtpPoller:
         icon = get_network_icon(plat)
         flag = get_country_flag(order["country"])
 
-        # Cập nhật DB thành COMPLETED
         await db_exec("UPDATE orders SET status='COMPLETED', otp_code=?, full_sms=?, platform=?, updated_at=? WHERE id=?", 
                       (str(otp_code), str(full_sms), plat, now_text(), order["id"]))
 
-        # Thưởng $0.002 (2 milli) cho MK và SLVN
         if order["provider"] in ["MK", "SLVN"]:
             await change_usd(order["user_id"], 2, "OTP_REWARD", f"Reward {order['provider']} OTP")
 
@@ -406,13 +424,11 @@ async def mini_radar_feed(request):
 
 async def mini_leaderboard(request):
     try:
-        # 1. Bảng All-Time (Sắp xếp theo Tổng OTP, nếu bằng nhau thì xét số dư)
         top_users = await db_exec(
             "SELECT u.user_id, u.first_name, u.usd_milli, (SELECT COUNT(*) FROM orders WHERE user_id = u.user_id AND status = 'COMPLETED') as total_otps FROM users u ORDER BY total_otps DESC, u.usd_milli DESC LIMIT 10", 
             fetch="all"
         )
         
-        # 2. Bảng Top OTP Hôm Nay
         today_str = now().strftime("%Y-%m-%d")
         today_top = await db_exec(
             """SELECT u.user_id, u.first_name, COUNT(o.id) as today_otps 
@@ -859,7 +875,7 @@ async def mini_slvn_countries(request):
         return web.json_response({"countries": [{"name": c.get("country"), "code": c.get("countryCode"), "flag": c.get("flag"), "tag": c.get("tag"), "rate": c.get("rateUsd")} for c in data.get("data", [])]})
     except Exception as e: return web.json_response({"countries": []})
 
-# ==================== TEMP MAIL APIs (REAL-TIME QUA NUMBER PANEL) ====================
+# ==================== TEMP MAIL APIs ====================
 async def mini_mail_domains(request):
     try:
         data, err = await api_request("GET", "mail/domains", api_type="NP")
@@ -957,7 +973,7 @@ async def main():
     try: 
         me = await bot.get_me(); BOT_USERNAME = me.username; await set_bot_commands()
         if WEBAPP_URL.startswith("https://"):
-            await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="FAST IVAS", web_app=WebAppInfo(url=WEBAPP_URL + "?v=19")))
+            await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="FAST IVAS", web_app=WebAppInfo(url=WEBAPP_URL + "?v=20")))
     except Exception as e: logger.error(f"Error setting menu: {e}")
     
     await init_db()
