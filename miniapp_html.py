@@ -234,40 +234,47 @@ MINIAPP_HTML = """
 
         <!-- TEMP MAIL -->
         <div id="view-tempmail" class="view">
-            <div class="card">
-                <div class="form-label" style="font-size: 18px; font-weight: 700; color: var(--text); margin-bottom: 15px;">📧 Hòm Thư Tạm Thời (Temp Mail)</div>
-                <div class="form-group">
-                    <label class="form-label">Tên tài khoản tùy chỉnh (Tùy chọn):</label>
-                    <input type="text" class="form-control" id="mail-username" placeholder="VD: myaccount, demo,...">
+            <div class="card" style="border: 1px solid rgba(249,115,22,0.3); background: rgba(30,41,59,0.8);">
+                <div style="background: rgba(249,115,22,0.15); color: #fb923c; padding: 10px 14px; border-radius: 10px; font-size: 13px; margin-bottom: 15px; line-height: 1.5; border: 1px solid rgba(249,115,22,0.3);">
+                    ⚠️ All users please note earn per otp is in beta version, testing,... it is not scheduled for now... It will start soon ...Thank You......
                 </div>
+                
+                <div class="form-label" style="font-size: 18px; font-weight: 700; color: var(--text); margin-bottom: 15px;">Generate Temp Email</div>
+                
                 <div class="form-group">
-                    <label class="form-label">Chọn Tên Miền (Domain):</label>
+                    <label class="form-label">Username (Optional)</label>
+                    <input type="text" class="form-control" id="mail-username" placeholder="Prefix / username">
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Domain</label>
                     <select class="form-control" id="mail-domain-select">
-                        <option value="">Đang tải tên miền...</option>
+                        <option value="">Auto-select random domain</option>
                     </select>
                 </div>
-                <button class="btn btn-primary" onclick="generateTempMail()">✨ Tạo Hòm Thư Mới</button>
+                
+                <button class="btn" style="background: linear-gradient(135deg, #f97316, #ea580c); box-shadow: 0 4px 15px rgba(249,115,22,0.4);" onclick="generateTempMail()">Generate Mail ...</button>
             </div>
 
             <div class="card" id="mail-active-box" style="display: none;">
-                <div class="form-label" style="font-size: 16px; font-weight: bold; color: var(--success); margin-bottom: 10px;">📬 Hòm thư đang hoạt động:</div>
+                <div class="form-label" style="font-size: 16px; font-weight: bold; color: var(--success); margin-bottom: 10px;">📬 Live Inbox:</div>
                 <div style="background: rgba(16,185,129,0.1); padding: 12px; border-radius: 10px; border: 1px solid var(--success); display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                     <div id="current-mail-address" style="font-weight: 700; font-size: 15px; color: var(--text); word-break: break-all;"></div>
                     <button class="btn-small copy" style="background: var(--success); width: 85px;" onclick="copyText(document.getElementById('current-mail-address').innerText)">📋 Copy</button>
                 </div>
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                    <span style="font-weight: 600; font-size: 15px;">📥 Hộp thư đến (Messages):</span>
-                    <button class="btn-small copy" style="width: auto; padding: 6px 12px;" onclick="loadMailMessages()">🔄 Làm mới</button>
+                    <span style="font-weight: 600; font-size: 15px;">📥 Messages:</span>
+                    <button class="btn-small copy" style="width: auto; padding: 6px 12px;" onclick="loadMailMessages()">🔄 Refresh</button>
                 </div>
                 <div id="mail-messages-list">
-                    <div style="color: var(--text-muted); font-size: 14px; text-align: center; padding: 15px;">Chưa có tin nhắn nào.</div>
+                    <div style="color: var(--text-muted); font-size: 14px; text-align: center; padding: 15px;">No messages yet.</div>
                 </div>
             </div>
 
             <div class="card">
-                <div class="form-label" style="font-size: 16px; font-weight: bold; margin-bottom: 10px;">📜 Lịch sử các hòm thư đã tạo</div>
+                <div class="form-label" style="font-size: 16px; font-weight: bold; margin-bottom: 10px;">Recoverable Mails</div>
                 <div id="mail-history-list">
-                    <div class="loading">Đang tải lịch sử...</div>
+                    <div style="color: var(--text-muted); font-size: 14px; text-align: center; padding: 10px;">No saved history yet.</div>
                 </div>
             </div>
         </div>
@@ -304,7 +311,7 @@ MINIAPP_HTML = """
             </div>
         </div>
 
-        <!-- HISTORY (CÓ TÍCH HỢP CLEAR HISTORY CHO TRANG 100/100) -->
+        <!-- HISTORY -->
         <div id="view-history" class="view">
             <div style="margin-bottom: 15px; display: flex; justify-content: flex-end;">
                 <button class="btn btn-danger" style="width: auto; padding: 10px 18px; font-size: 14px;" onclick="clearHistory()">🗑️ Clear History (Xóa Lịch Sử)</button>
@@ -397,7 +404,7 @@ MINIAPP_HTML = """
             </div>
         </div>
 
-        <!-- ADMIN PANEL (ĐÃ KHÔI PHỤC ĐẦY ĐỦ 100% CÁC TABS) -->
+        <!-- ADMIN -->
         <div id="view-admin" class="view">
             <div class="admin-tabs">
                 <button class="admin-tab active" onclick="switchAdminTab('overview')">Tổng quan</button>
@@ -429,7 +436,7 @@ MINIAPP_HTML = """
                 </div>
             </div>
 
-            <!-- ADMIN BROADCAST TAB VỚI ĐẦY ĐỦ MẠNG XÃ HỘI QUỐC TẾ -->
+            <!-- ADMIN BROADCAST TAB TÍCH HỢP THANH TRƯỢT % (10% - 100%) NHƯ BRO YÊU CẦU -->
             <div id="admin-tab-broadcast" class="admin-tab-content" style="display: none;">
                 <div class="card">
                     <div class="form-label" style="font-size:16px; font-weight:bold; margin-bottom:10px;">📡 Gửi Thông Báo Radar Nền Tảng</div>
@@ -465,8 +472,18 @@ MINIAPP_HTML = """
                         <label class="form-label">Nền tảng đã chọn:</label>
                         <input type="text" class="form-control" id="broadcast-platform" value="Instagram">
                     </div>
+
+                    <!-- THANH TRƯỢT % TỶ LỆ NHẬN OTP (10% ĐẾN 100%) -->
                     <div class="form-group">
-                        <label class="form-label">Nội dung thông báo (Tùy chỉnh):</label>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <label class="form-label" style="margin-bottom:0;">⚡ Tỷ lệ nhận OTP (%):</label>
+                            <span id="slider-percent-val" style="font-weight: 700; color: var(--success); font-size: 16px;">100% (Mức 10)</span>
+                        </div>
+                        <input type="range" id="broadcast-rate-slider" min="1" max="10" value="10" class="form-control" style="padding: 0; height: 8px; accent-color: var(--success); cursor: pointer;" oninput="updateRateSlider(this.value)">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Nội dung thông báo (Tự động cập nhật tỷ lệ %):</label>
                         <textarea class="form-control" id="broadcast-msg" rows="4" placeholder="Nhập nội dung thông báo thủ công..."></textarea>
                     </div>
                     <div class="form-group">
@@ -482,9 +499,7 @@ MINIAPP_HTML = """
             
             <div id="admin-tab-user-detail" class="admin-tab-content" style="display: none;">
                 <button class="btn btn-outline" style="margin-bottom:15px;" onclick="switchAdminTab('users')">⬅️ Quay lại danh sách</button>
-                <div class="card">
-                    <div id="admin-user-detail-info"></div>
-                </div>
+                <div class="card"><div id="admin-user-detail-info"></div></div>
                 <div class="card">
                     <div class="form-label">Thống kê số đã lấy</div>
                     <div id="admin-user-detail-stats" style="display:flex; justify-content:space-around; text-align:center;"></div>
@@ -501,10 +516,7 @@ MINIAPP_HTML = """
             </div>
 
             <div id="admin-tab-withdraw" class="admin-tab-content" style="display: none;">
-                <div class="card">
-                    <div class="form-label">💸 Duyệt Rút Tiền</div>
-                    <div id="admin-wd-list"></div>
-                </div>
+                <div class="card"><div class="form-label">💸 Duyệt Rút Tiền</div><div id="admin-wd-list"></div></div>
             </div>
 
             <div id="admin-tab-bs" class="admin-tab-content" style="display: none;">
@@ -513,10 +525,7 @@ MINIAPP_HTML = """
                     <textarea class="form-control" id="bs-input" rows="4" placeholder="Mỗi dòng 1 số..."></textarea>
                     <button class="btn btn-success" onclick="addBsNumbers()">Thêm Số</button>
                 </div>
-                <div class="card">
-                    <div class="form-label">⚙️ Quản lý số BS</div>
-                    <div id="admin-bs-list"></div>
-                </div>
+                <div class="card"><div class="form-label">⚙️ Quản lý số BS</div><div id="admin-bs-list"></div></div>
             </div>
 
             <div id="admin-tab-cmds" class="admin-tab-content" style="display: none;">
@@ -567,12 +576,7 @@ MINIAPP_HTML = """
 
     <script>
         const tg = window.Telegram?.WebApp || {
-            initData: "",
-            expand: function() {},
-            setHeaderColor: function() {},
-            setBackgroundColor: function() {},
-            ready: function() {},
-            showAlert: function(msg) { alert(msg); }
+            initData: "", expand: function() {}, setHeaderColor: function() {}, setBackgroundColor: function() {}, ready: function() {}, showAlert: function(msg) { alert(msg); }
         };
 
         try {
@@ -641,10 +645,8 @@ MINIAPP_HTML = """
                 document.getElementById('modal-title').innerText = title;
                 document.getElementById('modal-msg').innerText = msg;
                 document.getElementById('custom-modal').classList.add('open');
-
                 const btnConfirm = document.getElementById('modal-btn-confirm');
                 const btnCancel = document.getElementById('modal-btn-cancel');
-
                 const handleConfirm = () => { cleanup(); resolve(true); };
                 const handleCancel = () => { cleanup(); resolve(false); };
                 const cleanup = () => {
@@ -652,7 +654,6 @@ MINIAPP_HTML = """
                     btnConfirm.removeEventListener('click', handleConfirm);
                     btnCancel.removeEventListener('click', handleCancel);
                 };
-
                 btnConfirm.addEventListener('click', handleConfirm);
                 btnCancel.addEventListener('click', handleCancel);
             });
@@ -666,16 +667,12 @@ MINIAPP_HTML = """
         }
 
         async function api(path, method = 'GET', body = null) {
-            const opts = {
-                method,
-                headers: { 'X-Telegram-Init-Data': tg.initData || '', 'Content-Type': 'application/json' }
-            };
+            const opts = { method, headers: { 'X-Telegram-Init-Data': tg.initData || '', 'Content-Type': 'application/json' } };
             if (body) opts.body = JSON.stringify(body);
             try {
                 const res = await fetch(path, opts);
                 const text = await res.text();
-                try { return JSON.parse(text); } 
-                catch(e) { return { error: 'Lỗi Server: ' + text.substring(0, 50) }; }
+                try { return JSON.parse(text); } catch(e) { return { error: 'Lỗi Server: ' + text.substring(0, 50) }; }
             } catch (e) { return { error: 'Lỗi kết nối máy chủ!' }; }
         }
 
@@ -691,15 +688,12 @@ MINIAPP_HTML = """
 
             const targetView = document.getElementById('view-' + viewId);
             if (targetView) targetView.classList.add('active');
-            
             const navBtn = document.getElementById('nav-' + viewId);
             if (navBtn) navBtn.classList.add('active');
 
             const titleKey = { home: 'home', buy: 'buy', radar: 'radar_title', history: 'history', wallet: 'wallet', leaderboard: 'leaderboard', stats: 'stats', profile: 'profile', admin: 'admin' }[viewId];
             const topTitle = document.getElementById('top-title');
-            if (topTitle && titleKey && translations[currentLang][titleKey]) {
-                topTitle.innerText = translations[currentLang][titleKey];
-            }
+            if (topTitle && titleKey && translations[currentLang][titleKey]) topTitle.innerText = translations[currentLang][titleKey];
 
             if (document.getElementById('sidebar').classList.contains('open')) toggleSidebar();
 
@@ -720,7 +714,6 @@ MINIAPP_HTML = """
         async function loadUserData() {
             const data = await api('/api/mini/me');
             if (data.error) return;
-            
             userData = data;
             if (data.user.language) applyLanguage(data.user.language);
 
@@ -808,9 +801,7 @@ MINIAPP_HTML = """
                 selectMailBox(res.mail.address);
                 loadTempMailData();
                 showToast('Đã tạo hòm thư thành công!');
-            } else {
-                alert(res.error || 'Lỗi tạo email ảo');
-            }
+            } else { alert(res.error || 'Lỗi tạo email ảo'); }
         }
 
         function selectMailBox(address) {
@@ -1177,7 +1168,52 @@ MINIAPP_HTML = """
             navigator.clipboard.writeText(document.getElementById('ref-link').innerText).then(() => showToast('Đã sao chép link!'));
         }
 
-        // ADMIN PANEL
+        // ADMIN PANEL & BROADCAST SLIDER LOGIC
+        function selectRadarPlatform(platName) {
+            document.getElementById('broadcast-platform').value = platName;
+            const sliderVal = document.getElementById('broadcast-rate-slider').value;
+            const pct = sliderVal * 10;
+            document.getElementById('broadcast-msg').value = `🚨 THÔNG BÁO RADAR OTP CAO\n\nNền tảng / Quốc gia: ${platName}\nTỷ lệ nhận OTP: ${pct}%\nNhanh tay vào ứng dụng lấy số ngay nào anh em!`;
+            showToast('Đã chọn: ' + platName);
+        }
+
+        function updateRateSlider(val) {
+            const pct = val * 10;
+            document.getElementById('slider-percent-val').innerText = `${pct}% (Mức ${val})`;
+            const plat = document.getElementById('broadcast-platform').value || 'Instagram';
+            document.getElementById('broadcast-msg').value = `🚨 THÔNG BÁO RADAR OTP CAO\n\nNền tảng / Quốc gia: ${plat}\nTỷ lệ nhận OTP: ${pct}%\nNhanh tay vào ứng dụng lấy số ngay nào anh em!`;
+        }
+
+        function clearRadarBroadcast() {
+            document.getElementById('broadcast-platform').value = 'Instagram';
+            document.getElementById('broadcast-rate-slider').value = 10;
+            updateRateSlider(10);
+            document.getElementById('broadcast-image').value = '';
+            showToast('Đã đặt lại form!');
+        }
+
+        async function sendRadarBroadcast() {
+            const platform = document.getElementById('broadcast-platform').value;
+            const message = document.getElementById('broadcast-msg').value;
+            const fileInput = document.getElementById('broadcast-image');
+            let b64 = "";
+
+            if (fileInput && fileInput.files.length > 0) {
+                b64 = await new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => resolve(e.target.result);
+                    reader.readAsDataURL(fileInput.files[0]);
+                });
+            }
+
+            const confirmed = await showCustomModal('Xác Nhận Gửi', 'Bạn có chắc chắn muốn gửi thông báo radar này đến tất cả user?');
+            if (!confirmed) return;
+
+            const res = await api('/api/mini/admin/broadcast/radar', 'POST', { platform, message, image_b64: b64 });
+            if (res.ok) { alert(res.msg); clearRadarBroadcast(); }
+            else { alert(res.error || 'Lỗi gửi thông báo'); }
+        }
+
         async function loadAdmin() {
             const data = await api('/api/mini/admin/data');
             if (data.error) return alert(data.error);
@@ -1225,47 +1261,11 @@ MINIAPP_HTML = """
             if (tab === 'maint') updateMaintUI();
         }
 
-        function selectRadarPlatform(platName) {
-            document.getElementById('broadcast-platform').value = platName;
-            document.getElementById('broadcast-msg').value = `🚨 THÔNG BÁO RADAR OTP CAO\n\nNền tảng đang có tỷ lệ nhận OTP cao: ${platName}\nNhanh tay vào ứng dụng lấy số ngay nào anh em!`;
-            showToast('Đã chọn: ' + platName);
-        }
-
-        function clearRadarBroadcast() {
-            document.getElementById('broadcast-platform').value = '';
-            document.getElementById('broadcast-msg').value = '';
-            document.getElementById('broadcast-image').value = '';
-            showToast('Đã đặt lại form!');
-        }
-
-        async function sendRadarBroadcast() {
-            const platform = document.getElementById('broadcast-platform').value;
-            const message = document.getElementById('broadcast-msg').value;
-            const fileInput = document.getElementById('broadcast-image');
-            let b64 = "";
-
-            if (fileInput && fileInput.files.length > 0) {
-                b64 = await new Promise((resolve) => {
-                    const reader = new FileReader();
-                    reader.onload = (e) => resolve(e.target.result);
-                    reader.readAsDataURL(fileInput.files[0]);
-                });
-            }
-
-            const confirmed = await showCustomModal('Xác Nhận Gửi', 'Bạn có chắc chắn muốn gửi thông báo radar này đến tất cả user?');
-            if (!confirmed) return;
-
-            const res = await api('/api/mini/admin/broadcast/radar', 'POST', { platform, message, image_b64: b64 });
-            if (res.ok) { alert(res.msg); clearRadarBroadcast(); }
-            else { alert(res.error || 'Lỗi gửi thông báo'); }
-        }
-
         function updateMaintUI() {
             const btnOn = document.getElementById('btn-maint-on');
             const btnOff = document.getElementById('btn-maint-off');
             const form = document.getElementById('maint-form-container');
             if (!btnOn || !btnOff || !form) return;
-            
             if (isMaintenanceOn) {
                 btnOn.classList.remove('on'); btnOff.classList.add('off'); form.style.display = 'block';
             } else {
@@ -1291,7 +1291,6 @@ MINIAPP_HTML = """
         async function submitMaintenance() {
             const ta = document.getElementById('maint-msg');
             if (!ta || !ta.value) return alert("Vui lòng nhập thông báo!");
-            
             const fileInput = document.getElementById('maint-image');
             let b64 = "";
             if(fileInput && fileInput.files.length > 0) {
@@ -1301,7 +1300,6 @@ MINIAPP_HTML = """
                     reader.readAsDataURL(fileInput.files[0]);
                 });
             }
-            
             const confirmed = await showCustomModal('Xác Nhận Bảo Trì', 'Hệ thống sẽ BẬT chế độ bảo trì và gửi thông báo đến toàn bộ user. Tiếp tục?');
             if(!confirmed) return;
 
@@ -1366,7 +1364,6 @@ MINIAPP_HTML = """
             if (action === 'bonus') val = document.getElementById('admin-bonus-amt').value;
             if (action === 'deduct') val = document.getElementById('admin-deduct-amt').value;
             if (action === 'set_min') val = document.getElementById('admin-min-amt').value;
-            
             if ((action === 'bonus' || action === 'deduct' || action === 'set_min') && (!val || val <= 0)) return alert('Vui lòng nhập số tiền hợp lệ!');
             if (action === 'revoke' && !confirm('Thu hồi toàn bộ số dư?')) return;
 
@@ -1378,13 +1375,11 @@ MINIAPP_HTML = """
             const div = document.getElementById('admin-user-detail-orders');
             const pag = document.getElementById('user-detail-pagination');
             if (!div) return;
-            
             if(!data.orders || data.orders.length === 0) {
                 div.innerHTML = '<div style="color:var(--text-muted);font-size:14px;">Chưa có số nào.</div>';
                 if (pag) pag.style.display = 'none';
                 return;
             }
-            
             div.innerHTML = data.orders.map(o => `
                 <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);font-size:14px;">
                     <div><b>${o.phone}</b><br><span style="font-size:12px;color:var(--text-muted);">${o.provider} | ${new Date(o.date).toLocaleString('vi-VN')}</span></div>
@@ -1416,7 +1411,6 @@ MINIAPP_HTML = """
             div.innerHTML = '<div class="spinner"></div>';
             const data = await api('/api/mini/bs/countries');
             if(!data.countries || data.countries.length === 0) return div.innerHTML = 'Chưa có số BS.';
-            
             div.innerHTML = data.countries.map(c => `
                 <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);align-items:center;">
                     <span>${c.flag} ${c.name} (${c.count})</span>
