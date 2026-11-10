@@ -132,38 +132,45 @@ async def mini_radar_feed(request):
     country_counts = {}
     current_unix = int(time.time())
 
-    # 1. Lấy dữ liệu từ MK API nếu có
-    data, err = await api_request("GET", "radar", params={"limit": 160}, api_type="MK")
-    if not err and data:
-        resp_data = data.get("data", data)
-        items = resp_data.get("items") or (data.get("items") if isinstance(data, dict) else []) or []
-        if isinstance(items, list):
-            for idx, item in enumerate(items):
-                p_name = item.get("platform") or item.get("service") or item.get("app") or item.get("message") or "Other"
-                plat = detect_otp_platform(p_name)
-                platform_counts[plat] = platform_counts.get(plat, 0) + 1
+    # 1. Lấy dữ liệu từ MK API nếu có và không bị lỗi kết nối
+    try:
+        data, err = await api_request("GET", "radar", params={"limit": 100}, api_type="MK")
+        if not err and data:
+            resp_data = data.get("data", data)
+            items = resp_data.get("items") or (data.get("items") if isinstance(data, dict) else []) or []
+            if isinstance(items, list):
+                for idx, item in enumerate(items):
+                    p_name = item.get("platform") or item.get("service") or item.get("app") or item.get("message") or "Other"
+                    plat = detect_otp_platform(p_name)
+                    platform_counts[plat] = platform_counts.get(plat, 0) + 1
 
-                country = item.get("country") or item.get("country_name") or "Zambia"
-                country_counts[country] = country_counts.get(country, 0) + 1
+                    country = item.get("country") or item.get("country_name") or "Vietnam"
+                    country_counts[country] = country_counts.get(country, 0) + 1
 
-                raw_ts = item.get("timestamp") or item.get("created_at") or item.get("time")
-                if raw_ts and str(raw_ts).isdigit() and int(raw_ts) > 1000000:
-                    timestamp = int(raw_ts)
-                else:
-                    timestamp = current_unix - (idx * 3)
+                    raw_ts = item.get("timestamp") or item.get("created_at") or item.get("time")
+                    if raw_ts and str(raw_ts).isdigit() and int(raw_ts) > 1000000:
+                        timestamp = int(raw_ts)
+                    else:
+                        timestamp = current_unix - (idx * 3)
 
-                formatted_items.append({
-                    "phone": item.get("phone") or item.get("number") or item.get("full_number") or "260XXX",
-                    "country": country,
-                    "flag": get_country_flag(country),
-                    "operator": item.get("operator") or item.get("network") or "Zamtel",
-                    "message": item.get("message") or item.get("sms") or item.get("text") or "OTP Code received",
-                    "timestamp": timestamp,
-                    "platform": plat
-                })
+                    formatted_items.append({
+                        "phone": item.get("phone") or item.get("number") or item.get("full_number") or "N/A",
+                        "country": country,
+                        "flag": get_country_flag(country),
+                        "operator": item.get("operator") or item.get("network") or "Network",
+                        "message": item.get("message") or item.get("sms") or item.get("text") or "OTP Code received",
+                        "timestamp": timestamp,
+                        "platform": plat
+                    })
+    except Exception as e:
+        logger.warning(f"MK API Radar Fetch Error: {e}")
 
-    # 2. Lấy thêm các đơn hàng đã hoàn thành (COMPLETED) từ Database để Radar luôn có dữ liệu thực tế
-    local_orders = await db_exec("SELECT phone, country, operator, full_sms, platform, updated_at, created_at FROM orders WHERE status='COMPLETED' ORDER BY id DESC LIMIT 50", fetch="all")
+    # 2. Lấy các đơn hàng COMPLETED thực tế trong Database (CHỈ LẤY TRONG 30 PHÚT GẦN NHẤT)
+    cutoff_time = (now() - timedelta(minutes=30)).isoformat()
+    local_orders = await db_exec(
+        "SELECT phone, country, operator, full_sms, platform, updated_at, created_at FROM orders WHERE status='COMPLETED' AND (updated_at >= ? OR created_at >= ?) ORDER BY id DESC LIMIT 50", 
+        (cutoff_time, cutoff_time), fetch="all"
+    )
     for r in (local_orders or []):
         plat = r["platform"] or detect_otp_platform(r["full_sms"])
         platform_counts[plat] = platform_counts.get(plat, 0) + 1
