@@ -239,18 +239,13 @@ MINIAPP_HTML = """
                     ⚠️ All users please note earn per otp is in beta version, testing,... it is not scheduled for now... It will start soon ...Thank You......
                 </div>
                 
-                <div class="form-label" style="font-size: 18px; font-weight: 700; color: var(--text); margin-bottom: 15px;">Generate Temp Email</div>
-                
                 <div class="form-group">
-                    <label class="form-label">Username (Optional)</label>
-                    <input type="text" class="form-control" id="mail-username" placeholder="Prefix / username">
-                </div>
-                
-                <div class="form-group">
-                    <label class="form-label">Domain (Hộp thư an toàn)</label>
-                    <select class="form-control" id="mail-domain-select" style="background: rgba(15, 23, 42, 0.9); color: var(--success); font-weight: 600;">
-                        <option value="">✨ Tự động chọn domain tối ưu</option>
-                    </select>
+    <label class="form-label">Domain (Hộp thư an toàn)</label>
+    <select class="form-control" id="mail-domain-select" style="background: rgba(15, 23, 42, 0.9); color: var(--success); font-weight: 600;">
+        <option value="inbox.numberpanel.tech">🔒 Máy chủ Email Bảo Mật #1</option>
+    </select>
+</div>
+
                 </div>
                 
                 <button class="btn" style="background: linear-gradient(135deg, #f97316, #ea580c); box-shadow: 0 4px 15px rgba(249,115,22,0.4);" onclick="generateTempMail()">Generate Mail ...</button>
