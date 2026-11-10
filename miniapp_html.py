@@ -945,26 +945,23 @@ MINIAPP_HTML = """
         function stopRadarRefresh() { if (radarRefreshInterval) clearInterval(radarRefreshInterval); }
 
         async function loadStats() {
-            const listC = document.getElementById('stats-countries-list');
-            const listP = document.getElementById('stats-platforms-list');
-            if (!listC || !listP) return;
-            
-            const data = await api('/api/mini/stats');
-            if(data.error) return;
+    const data = await api('/api/mini/stats');
+    if (data.error) return;
+    document.getElementById('stats-total-all-otps').innerText = data.total_all_otps || 0;
+    document.getElementById('stats-today-otps').innerText = data.today_otps || 0;
+    
+    document.getElementById('stats-countries-list').innerHTML = (data.countries || []).map(c => `
+        <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);">
+            <span>${c.flag} ${c.country}</span><b style="color:var(--primary);">${c.count}</b>
+        </div>
+    `).join('') || '<div style="color:var(--text-muted);font-size:14px;">Chưa có dữ liệu.</div>';
 
-            document.getElementById('stats-total-otps').innerText = data.total_otps;
-            listC.innerHTML = data.countries.length === 0 ? '<div style="color:var(--text-muted);font-size:14px;">Chưa có dữ liệu hôm nay.</div>' : data.countries.map(c => `
-                <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);">
-                    <span>${c.flag} ${c.country}</span><b style="color:var(--primary);">${c.count}</b>
-                </div>
-            `).join('');
-
-            listP.innerHTML = data.platforms.length === 0 ? '<div style="color:var(--text-muted);font-size:14px;">Chưa có dữ liệu hôm nay.</div>' : data.platforms.map(p => `
-                <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);">
-                    <span>${p.icon} ${p.platform}</span><b style="color:var(--success);">${p.count}</b>
-                </div>
-            `).join('');
-        }
+    document.getElementById('stats-platforms-list').innerHTML = (data.platforms || []).map(p => `
+        <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);">
+            <span>${p.icon} ${p.platform}</span><b style="color:var(--success);">${p.count}</b>
+        </div>
+    `).join('') || '<div style="color:var(--text-muted);font-size:14px;">Chưa có dữ liệu.</div>';
+}
 
         function startStatsRefresh() { stopStatsRefresh(); statsRefreshInterval = setInterval(loadStats, 5000); }
         function stopStatsRefresh() { if (statsRefreshInterval) clearInterval(statsRefreshInterval); }
@@ -1019,43 +1016,48 @@ MINIAPP_HTML = """
             if (newPage >= 1 && newPage <= totalHistoryPages) loadHistory(newPage);
         }
 
-        function renderOrderCard(o, isHistory) {
-            const hasOtp = o.status === 'COMPLETED' || (o.otp && o.otp !== 'null' && o.otp !== '');
-            const statusText = hasOtp ? '🟢 Nhận OTP thành công' : '⏳ Chờ OTP';
-            const cardClass = hasOtp ? 'order-card completed' : `order-card ${o.status.toLowerCase()}`;
-            const badgeColor = hasOtp ? 'var(--success)' : 'var(--warning)';
+        function renderOrderCard(o) {
+    const hasOtp = o.status === 'COMPLETED' || (o.otp && o.otp !== 'null' && o.otp !== '');
+    let statusText = '⏳ Chờ OTP';
+    let cardClass = 'order-card pending';
+    let badgeColor = 'var(--warning)';
 
-            return `
-                <div class="${cardClass}">
-                    <div class="order-header">
-                        <div class="order-phone" id="phone-text-${o.id}">${o.phone}</div>
-                        <div class="order-badge" style="color: ${badgeColor};">${statusText}</div>
+    if (hasOtp) {
+        statusText = '🟢 Thành công';
+        cardClass = 'order-card completed';
+        badgeColor = 'var(--success)';
+    } else if (o.status === 'CANCELLED') {
+        statusText = '❌ Đã hủy';
+        cardClass = 'order-card cancelled';
+        badgeColor = 'var(--danger)';
+    } else if (o.status === 'EXPIRED') {
+        statusText = '⏰ Hết hạn';
+        cardClass = 'order-card expired';
+        badgeColor = 'var(--danger)';
+    }
+
+    return `
+        <div class="${cardClass}">
+            <div class="order-header">
+                <div class="order-phone">${o.phone}</div>
+                <div class="order-badge" style="color: ${badgeColor};">${statusText}</div>
+            </div>
+            <div class="order-info">
+                <span>${o.flag || '🌐'} ${o.country || 'N/A'}</span>
+                <span>🔧 ${o.provider}</span>
+            </div>
+            ${hasOtp ? `
+                <div class="otp-box">
+                    <div>
+                        <div style="font-size: 12px; color: var(--success); font-weight: 600;">🔑 MÃ OTP:</div>
+                        <div class="otp-code">${o.otp}</div>
                     </div>
-                    <div class="order-info">
-                        <span>${o.flag} ${o.country}</span>
-                        <span>🔧 ${o.provider}</span>
-                        <span>${o.icon || '📱'} ${o.platform || 'Other'}</span>
-                    </div>
-                    <div class="format-toggles">
-                        <label><input type="checkbox" id="chk-plus-${o.id}" onchange="updatePhoneDisplay('${o.id}', '${o.phone}')"> Bỏ dấu (+)</label>
-                        <label><input type="checkbox" id="chk-nat-${o.id}" onchange="updatePhoneDisplay('${o.id}', '${o.phone}')"> Định dạng nội địa</label>
-                    </div>
-                    ${hasOtp ? `
-                        <div class="otp-box">
-                            <div>
-                                <div style="font-size: 12px; color: var(--success); margin-bottom: 4px; font-weight: 600;">🔑 MÃ OTP:</div>
-                                <div class="otp-code">${o.otp}</div>
-                            </div>
-                            <button class="btn-small copy" style="background: var(--success); width: 85px;" onclick="copyText('${o.otp}')">📋 Copy</button>
-                        </div>
-                    ` : ''}
-                    <div class="action-row">
-                        <button class="btn-small copy" onclick="copyText(document.getElementById('phone-text-${o.id}').innerText)">📋 Copy Số</button>
-                        ${o.status === 'PENDING' && !hasOtp && !isHistory ? `<button class="btn-small cancel" onclick="cancelOrder(${o.id})">❌ Hủy</button>` : ''}
-                    </div>
+                    <button class="btn-small copy" style="background: var(--success); width: 85px;" onclick="copyText('${o.otp}')">📋 Copy</button>
                 </div>
-            `;
-        }
+            ` : ''}
+        </div>
+    `;
+}
 
         async function cancelOrder(oid) {
             const confirmed = await showCustomModal('Hủy Đơn', 'Bạn chắc chắn muốn hủy đơn này?');
