@@ -122,7 +122,6 @@ MINIAPP_HTML = r"""
         .spinner { border: 3px solid rgba(255,255,255,0.1); border-top-color: var(--primary); border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 0 auto 15px; }
         @keyframes spin { to { transform: rotate(360deg); } }
 
-        /* NEW: Khung lỗi rõ ràng cho dropdown / buy list */
         .error-box { grid-column: 1/-1; background: rgba(239, 68, 68, 0.1); border: 1px solid var(--danger); color: #fca5a5; padding: 15px; border-radius: 12px; text-align: center; font-size: 14px; line-height: 1.5; word-break: break-word; }
         .error-box .err-hint { display: block; margin-top: 6px; font-size: 12px; color: var(--text-muted); }
         
@@ -230,7 +229,6 @@ MINIAPP_HTML = r"""
             <div class="card">
                 <div class="form-group">
                     <label class="form-label" data-i18n="select_source">Chọn Nguồn Số</label>
-                    <!-- FIX: Bỏ onchange inline, gắn bằng addEventListener trong JS -->
                     <select class="form-control" id="provider-select">
                         <option value="MK">🎱 Numbers 1 (MK)</option>
                         <option value="SLVN">🌐 Numbers 2 (SLVN)</option>
@@ -619,7 +617,9 @@ MINIAPP_HTML = r"""
         let autoRefreshInterval = null;
         let statsRefreshInterval = null;
         let radarRefreshInterval = null;
+        let buyRefreshInterval = null; // FIX: Thêm biến auto-refresh cho tab Buy
         let timerInterval = null;
+        
         let currentHistoryPage = 1;
         let totalHistoryPages = 1;
         let currentLang = 'vi';
@@ -629,6 +629,9 @@ MINIAPP_HTML = r"""
         let isMaintenanceOn = false;
         let lastKnownCompletedOrders = new Set();
         let currentActiveMailAddress = null;
+        
+        let currentBuyView = 'root'; // FIX: Lưu trạng thái xem (root hoặc np_countries)
+        let currentNpService = null;
 
         let isLoadingRadar = false;
         let isLoadingStats = false;
@@ -725,7 +728,6 @@ MINIAPP_HTML = r"""
             setTimeout(() => toast.classList.remove('show'), 2500);
         }
 
-        // FIX: Bọc alert qua Telegram WebApp để không bị chặn trên iOS
         function showAlert(msg) {
             try {
                 if (tg && typeof tg.showAlert === 'function') {
@@ -749,7 +751,6 @@ MINIAPP_HTML = r"""
                 }
                 try { 
                     const json = JSON.parse(text);
-                    // Nếu HTTP status lỗi mà body không có error, gắn thêm status
                     if (!res.ok && !json.error) json.error = `HTTP ${res.status}`;
                     return json;
                 } catch(e) { 
@@ -782,14 +783,23 @@ MINIAPP_HTML = r"""
 
             if (document.getElementById('sidebar').classList.contains('open')) toggleSidebar();
 
+            // FIX: Dọn dẹp các interval cũ khi chuyển tab
+            stopRadarRefresh();
+            stopStatsRefresh();
+            stopBuyRefresh();
+
             try {
                 if (viewId === 'home') loadHome();
-                if (viewId === 'buy') renderBuyOptions();
+                if (viewId === 'buy') {
+                    currentBuyView = 'root';
+                    renderBuyOptions();
+                    startBuyRefresh(); // Bật auto-refresh kho số
+                }
                 if (viewId === 'tempmail') loadTempMailData();
-                if (viewId === 'radar') { loadRadarFeed(); startRadarRefresh(); } else { stopRadarRefresh(); }
+                if (viewId === 'radar') { loadRadarFeed(); startRadarRefresh(); }
                 if (viewId === 'history') loadHistory(1);
                 if (viewId === 'wallet') loadWallet();
-                if (viewId === 'stats') { loadStats(); startStatsRefresh(); } else { stopStatsRefresh(); }
+                if (viewId === 'stats') { loadStats(); startStatsRefresh(); }
                 if (viewId === 'leaderboard') loadLeaderboard();
                 if (viewId === 'profile') loadProfile();
                 if (viewId === 'admin') loadAdmin();
@@ -1056,7 +1066,11 @@ MINIAPP_HTML = r"""
                     if (diff <= 0) {
                         el.innerText = "⌛ Đã hết hạn";
                         const card = el.closest('.order-card');
-                        if(card) card.style.display = 'none';
+                        // FIX: CHỈ ẩn thẻ nếu đang nằm ở danh sách "Đơn Đang Chờ" (Home)
+                        // KHÔNG ẩn nếu nằm trong Lịch Sử (History)
+                        if(card && card.closest('#active-orders-list')) {
+                            card.style.display = 'none';
+                        }
                     } else {
                         const m = Math.floor(diff / 60).toString().padStart(2, '0');
                         const s = (diff % 60).toString().padStart(2, '0');
@@ -1108,7 +1122,16 @@ MINIAPP_HTML = r"""
             if (!listDiv) return;
             const data = await api('/api/mini/leaderboard');
             if (!data.leaderboard || data.leaderboard.length === 0) return listDiv.innerHTML = '<div class="loading">No data.</div>';
-            listDiv.innerHTML = data.leaderboard.map((u, i) => `
+            
+            // FIX: Ép lại logic sắp xếp trên Frontend: Ưu tiên OTP giảm dần, nếu bằng nhau mới xét Balance
+            const sortedData = [...data.leaderboard].sort((a, b) => {
+                if (b.total_otps !== a.total_otps) {
+                    return b.total_otps - a.total_otps;
+                }
+                return b.balance - a.balance;
+            });
+
+            listDiv.innerHTML = sortedData.map((u, i) => `
                 <div style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border);">
                     <div><div>${i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '🔹'} ${u.name}</div><div style="font-size: 12px; color: var(--text-muted);">OTPs: ${u.total_otps}</div></div>
                     <strong style="color: var(--success); align-self:center;">$${(u.balance/1000).toFixed(3)}</strong>
@@ -1155,6 +1178,23 @@ MINIAPP_HTML = r"""
 
         function renderOrderCard(o, isHistory) {
             const hasOtp = o.status === 'COMPLETED' || (o.otp && o.otp !== 'null' && o.otp !== '');
+            
+            // FIX: Xử lý logic hiển thị cho đơn đã quá hạn ngay từ lúc render
+            let isExpired = false;
+            let expDate = null;
+            if (o.status === 'PENDING') {
+                if (o.expires_at && o.expires_at !== 'null' && o.expires_at !== 'undefined') {
+                    expDate = new Date(o.expires_at);
+                } else {
+                    const createdDate = new Date(o.created_at);
+                    const durationMs = (o.provider === 'SLVN') ? 30 * 60 * 1000 : 15 * 60 * 1000;
+                    expDate = new Date(createdDate.getTime() + durationMs);
+                }
+                if (expDate && expDate.getTime() < Date.now()) {
+                    isExpired = true;
+                }
+            }
+
             let statusText = '⏳ Waiting OTP';
             let badgeColor = 'var(--warning)';
             let cardClass = 'order-card pending';
@@ -1167,24 +1207,15 @@ MINIAPP_HTML = r"""
                 statusText = '🚫 Cancelled';
                 badgeColor = 'var(--danger)';
                 cardClass = 'order-card cancelled';
-            } else if (o.status === 'EXPIRED') {
+            } else if (o.status === 'EXPIRED' || isExpired) {
                 statusText = '⌛ Expired';
                 badgeColor = 'var(--danger)';
                 cardClass = 'order-card expired';
             }
 
             let countdownHtml = '';
-            if (o.status === 'PENDING') {
-                let expDate;
-                if (o.expires_at && o.expires_at !== 'null' && o.expires_at !== 'undefined') {
-                    expDate = new Date(o.expires_at);
-                } else {
-                    const createdDate = new Date(o.created_at);
-                    const durationMs = (o.provider === 'SLVN') ? 30 * 60 * 1000 : 15 * 60 * 1000;
-                    expDate = new Date(createdDate.getTime() + durationMs);
-                }
-                
-                if (!isNaN(expDate.getTime())) {
+            if (o.status === 'PENDING' && !isExpired) {
+                if (expDate && !isNaN(expDate.getTime())) {
                     countdownHtml = `<div id="timer-${o.id}" class="countdown" data-exp="${expDate.toISOString()}">⏳ Đang tính toán...</div>`;
                 }
             }
@@ -1216,7 +1247,7 @@ MINIAPP_HTML = r"""
                     ` : ''}
                     <div class="action-row">
                         <button class="btn-small copy" onclick="copyText(document.getElementById('phone-text-${o.id}').innerText)">📋 Copy Phone</button>
-                        ${o.status === 'PENDING' && !hasOtp && !isHistory ? `<button class="btn-small cancel" onclick="cancelOrder(${o.id})">❌ Cancel</button>` : ''}
+                        ${o.status === 'PENDING' && !hasOtp && !isHistory && !isExpired ? `<button class="btn-small cancel" onclick="cancelOrder(${o.id})">❌ Cancel</button>` : ''}
                     </div>
                 </div>
             `;
@@ -1230,16 +1261,27 @@ MINIAPP_HTML = r"""
             else { showAlert('Error: ' + res.error); }
         }
 
-        // ============================================================
-        // FIX CHÍNH: renderBuyOptions có try/catch + error chi tiết
-        // ============================================================
-        async function renderBuyOptions() {
+        // ==========================================
+        // FIX: Auto-refresh cho tab Buy (Real-time tồn kho)
+        // ==========================================
+        function startBuyRefresh() {
+            stopBuyRefresh();
+            buyRefreshInterval = setInterval(() => {
+                // Chỉ auto-refresh khi đang ở tab Buy VÀ đang ở màn hình chính (không phải trong màn hình chọn nước của NP)
+                if (document.querySelector('.view.active')?.id === 'view-buy' && currentBuyView === 'root') {
+                    renderBuyOptions(true); // true = silent refresh (không hiện spinner)
+                }
+            }, 5000);
+        }
+        function stopBuyRefresh() { if (buyRefreshInterval) clearInterval(buyRefreshInterval); }
+
+        async function renderBuyOptions(silent = false) {
             const providerSel = document.getElementById('provider-select');
             const container = document.getElementById('buy-list-container');
             if (!providerSel || !container) return;
             
             const provider = providerSel.value;
-            container.innerHTML = '<div class="loading" style="grid-column: 1/-1;"><div class="spinner"></div>Đang tải...</div>';
+            if (!silent) container.innerHTML = '<div class="loading" style="grid-column: 1/-1;"><div class="spinner"></div>Đang tải...</div>';
 
             try {
                 if (provider === 'MK') {
@@ -1272,7 +1314,7 @@ MINIAPP_HTML = r"""
                         return;
                     }
                     container.innerHTML = data.services.map(s => `
-                        <button class="list-btn" onclick="loadNpCountries('${s.key}')"><div class="name">🔧 ${s.name}</div><div class="count">Còn ${s.count} số</div></button>
+                        <button class="list-btn" onclick="loadNpCountries('${s.key}', '${s.name}')"><div class="name">🔧 ${s.name}</div><div class="count">Còn ${s.count} số</div></button>
                     `).join('');
                 }
                 else if (provider === 'BS') {
@@ -1298,30 +1340,43 @@ MINIAPP_HTML = r"""
             }
         }
 
-        // FIX: loadNpCountries có try/catch + nút back
-        async function loadNpCountries(serviceName) {
+        async function loadNpCountries(serviceKey, serviceName) {
+            currentBuyView = 'np'; // Đánh dấu đang ở trong màn hình chọn quốc gia NP
+            currentNpService = { key: serviceKey, name: serviceName };
+            stopBuyRefresh(); // Tạm dừng auto-refresh để không bị load đè
+
             const container = document.getElementById('buy-list-container');
             if (!container) return;
             container.innerHTML = '<div class="loading" style="grid-column: 1/-1;"><div class="spinner"></div>Đang tải...</div>';
             try {
-                const data = await api('/api/mini/np/countries?service=' + encodeURIComponent(serviceName));
+                const data = await api('/api/mini/np/countries?service=' + encodeURIComponent(serviceKey));
                 if (data.error) throw new Error(data.error);
                 if (!data.countries || data.countries.length === 0) {
                     container.innerHTML = '<div class="loading" style="grid-column: 1/-1;">Không có quốc gia nào cho dịch vụ này.</div>';
                     return;
                 }
-                container.innerHTML = data.countries.map(c => `
-                    <button class="list-btn" onclick="buyNumber('NP', '${c.name}', '${c.name}', '${serviceName}')"><div class="name">🌍 ${c.name}</div><div class="count">Còn ${c.count} số</div></button>
-                `).join('');
+                container.innerHTML = `
+                    <button class="btn btn-outline" style="grid-column: 1/-1; margin-bottom: 10px;" onclick="backToBuyRoot()">⬅️ Quay lại danh sách dịch vụ</button>
+                    ${data.countries.map(c => `
+                        <button class="list-btn" onclick="buyNumber('NP', '${c.name}', '${c.name}', '${serviceName}')"><div class="name">🌍 ${c.name}</div><div class="count">Còn ${c.count} số</div></button>
+                    `).join('')}
+                `;
             } catch (err) {
                 console.error('[loadNpCountries] Error:', err);
                 container.innerHTML = `
+                    <button class="btn btn-outline" style="grid-column: 1/-1; margin-bottom: 10px;" onclick="backToBuyRoot()">⬅️ Quay lại</button>
                     <div class="error-box">
                         ❌ Không tải được quốc gia NP
                         <span class="err-hint">${err.message || 'Lỗi không xác định'}</span>
                     </div>
                 `;
             }
+        }
+
+        function backToBuyRoot() {
+            currentBuyView = 'root';
+            renderBuyOptions();
+            startBuyRefresh(); // Bật lại auto-refresh
         }
 
         async function buyNumber(provider, code, name, param3 = null) {
@@ -1714,11 +1769,14 @@ MINIAPP_HTML = r"""
             }, 2000);
         }
 
-        // FIX: Gắn event listener cho dropdown (thay vì onchange inline - lỗi iOS WebApp)
+        // FIX: Gắn event listener cho dropdown
         (function attachProviderListener() {
             const sel = document.getElementById('provider-select');
             if (sel) {
-                sel.addEventListener('change', renderBuyOptions);
+                sel.addEventListener('change', () => {
+                    currentBuyView = 'root';
+                    renderBuyOptions();
+                });
                 console.log('[OK] Provider listener attached');
             }
         })();
