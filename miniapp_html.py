@@ -67,7 +67,7 @@ MINIAPP_HTML = """
 
         .form-group { margin-bottom: 15px; }
         .form-label { display: block; font-size: 14px; color: var(--text-muted); margin-bottom: 8px; font-weight: 500; }
-        .form-control { width: 100%; padding: 14px 16px; border-radius: 12px; background: rgba(15, 23, 42, 0.6); color: var(--text); border: 1px solid var(--border); font-size: 16px; transition: 0.2s; outline: none; }
+        .form-control { width: 100%; padding: 14px 16px; border-radius: 12px; background: rgba(15, 23, 42, 0.6); color: var(--text); border: 1px solid var(--border); font-size: 16px; transition: 0.2s; outline: none; appearance: none; }
         .form-control:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2); }
         
         .btn { width: 100%; padding: 15px; border-radius: 12px; font-size: 16px; font-weight: 600; display: flex; justify-content: center; align-items: center; gap: 8px; transition: 0.2s; margin-top: 10px; color: #fff; }
@@ -247,9 +247,9 @@ MINIAPP_HTML = """
                 </div>
                 
                 <div class="form-group">
-                    <label class="form-label">Domain</label>
-                    <select class="form-control" id="mail-domain-select">
-                        <option value="">Auto-select random domain</option>
+                    <label class="form-label">Domain (Hộp thư an toàn)</label>
+                    <select class="form-control" id="mail-domain-select" style="background: rgba(15, 23, 42, 0.9); color: var(--success); font-weight: 600;">
+                        <option value="">✨ Tự động chọn domain tối ưu</option>
                     </select>
                 </div>
                 
@@ -436,20 +436,16 @@ MINIAPP_HTML = """
                 </div>
             </div>
 
-            <!-- ADMIN BROADCAST TAB VỚI ĐẦY ĐỦ MK NETWORK & TOÀN BỘ MXH -->
             <div id="admin-tab-broadcast" class="admin-tab-content" style="display: none;">
                 <div class="card">
                     <div class="form-label" style="font-size:16px; font-weight:bold; margin-bottom:10px;">📡 Gửi Thông Báo Radar Nền Tảng & MK NETWORK</div>
                     <div style="font-size:13px; color:var(--text-muted); margin-bottom:12px;">Chọn nhanh quốc gia MK NETWORK hoặc mạng xã hội đang có tỷ lệ nhận OTP cao:</div>
                     
                     <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 15px;">
-                        <!-- Quốc gia MK Network -->
                         <button class="btn-small copy" onclick="selectRadarPlatform('Guinea')">🇬🇳 Guinea (MK)</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('Zambia')">🇿🇲 Zambia (MK)</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('Sudan')">🇸🇩 Sudan (MK)</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('Ethiopia')">🇪🇹 Ethiopia (MK)</button>
-                        
-                        <!-- Mạng xã hội quốc tế đầy đủ -->
                         <button class="btn-small copy" onclick="selectRadarPlatform('Instagram')">📸 Instagram</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('Facebook')">📘 Facebook</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('TikTok')">🎬 TikTok</button>
@@ -480,7 +476,6 @@ MINIAPP_HTML = """
                         <input type="text" class="form-control" id="broadcast-platform" value="Guinea">
                     </div>
 
-                    <!-- THANH TRƯỢT 1 ĐẾN 10 (10% - 100%) -->
                     <div class="form-group">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                             <label class="form-label" style="margin-bottom:0;">⚡ Tỷ lệ nhận OTP (%):</label>
@@ -789,9 +784,9 @@ MINIAPP_HTML = """
 
             const domRes = await api('/api/mini/mail/domains');
             if (domRes.domains && domRes.domains.length > 0) {
-                domainSel.innerHTML = domRes.domains.map(d => `<option value="${d}">${d}</option>`).join('');
+                domainSel.innerHTML = domRes.domains.map(d => `<option value="${d}">🔒 Domain: ${d}</option>`).join('');
             } else {
-                domainSel.innerHTML = `<option value="inbox.numberpanel.tech">inbox.numberpanel.tech</option>`;
+                domainSel.innerHTML = `<option value="inbox.numberpanel.tech">🔒 Domain: inbox.numberpanel.tech</option>`;
             }
 
             const histRes = await api('/api/mini/mail/history');
@@ -997,7 +992,7 @@ MINIAPP_HTML = """
             const listDiv = document.getElementById('history-list');
             const pagDiv = document.getElementById('history-pagination');
             if (!listDiv) return;
-            listDiv.innerHTML = '<div class="loading"><div class="spinner"></div>Đang tải...</div>';
+            listDiv.innerHTML = '<div class="loading"><div class="spinner"></div>Đang tải lịch sử...</div>';
             
             const data = await api('/api/mini/orders?page=' + page);
             if (!data.orders || data.orders.length === 0) {
@@ -1081,7 +1076,7 @@ MINIAPP_HTML = """
             if (!providerSel || !container) return;
             
             const provider = providerSel.value;
-            container.innerHTML = '<div class="loading" style="grid-column: 1/-1;"><div class="spinner"></div>Đang tải...</div>';
+            container.innerHTML = '<div class="loading" style="grid-column: 1/-1;"><div class="spinner"></div>Đang tải kho số...</div>';
 
             if (provider === 'MK') {
                 const data = await api('/api/mini/mk/ranges');
@@ -1115,7 +1110,7 @@ MINIAPP_HTML = """
 
         async function loadNpCountries(serviceName) {
             const container = document.getElementById('buy-list-container');
-            container.innerHTML = '<div class="loading" style="grid-column: 1/-1;"><div class="spinner"></div>Đang tải...</div>';
+            container.innerHTML = '<div class="loading" style="grid-column: 1/-1;"><div class="spinner"></div>Đang tải quốc gia NP...</div>';
             const data = await api('/api/mini/np/countries?service=' + encodeURIComponent(serviceName));
             if (!data.countries) return container.innerHTML = '<div class="loading" style="grid-column: 1/-1;">Lỗi tải quốc gia NP.</div>';
             container.innerHTML = data.countries.map(c => `
@@ -1182,7 +1177,6 @@ MINIAPP_HTML = """
             navigator.clipboard.writeText(document.getElementById('ref-link').innerText).then(() => showToast('Đã sao chép link!'));
         }
 
-        // ADMIN PANEL & BROADCAST SLIDER LOGIC
         function selectRadarPlatform(platName) {
             document.getElementById('broadcast-platform').value = platName;
             const sliderVal = document.getElementById('broadcast-rate-slider').value;
@@ -1442,9 +1436,9 @@ MINIAPP_HTML = """
         async function runAdminCmd(cmd) {
             const out = document.getElementById('cmd-output');
             if (!out) return;
-            out.innerText = 'Đang chạy...';
+            out.innerText = 'Đang chạy lệnh...';
             const res = await api('/api/mini/admin/cmd', 'POST', { cmd });
-            out.innerText = res.ok ? res.msg : ('Lỗi: ' + (res.error || 'Unknown'));
+            out.innerText = res.ok ? res.msg : ('Kết quả / Lỗi: ' + (res.error || res.msg || 'Unknown'));
         }
 
         async function adminWdAction(wid, action) {
