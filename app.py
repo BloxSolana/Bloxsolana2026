@@ -71,7 +71,7 @@ async def cmd_start(message: Message):
         return await message.answer("🛠 <b>HỆ THỐNG ĐANG BẢO TRÌ</b>\n\nVui lòng quay lại sau.")
     
     if WEBAPP_URL.startswith("https://"):
-        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚡ MỞ ỨNG DỤNG FAST IVAS", web_app=WebAppInfo(url=WEBAPP_URL + "?v=16"))]])
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚡ MỞ ỨNG DỤNG FAST IVAS", web_app=WebAppInfo(url=WEBAPP_URL + "?v=19"))]])
         await message.answer("🚀 Chào mừng đến với <b>FAST IVAS</b>!\n\nVui lòng bấm nút bên dưới để mở ứng dụng.", reply_markup=kb)
     else:
         await message.answer("⚠️ Lỗi: Chưa cấu hình WEBAPP_URL.")
@@ -406,9 +406,30 @@ async def mini_radar_feed(request):
 
 async def mini_leaderboard(request):
     try:
-        top_users = await db_exec("SELECT u.user_id, u.first_name, u.usd_milli, (SELECT COUNT(*) FROM orders WHERE user_id = u.user_id AND status = 'COMPLETED') as total_otps FROM users u ORDER BY u.usd_milli DESC LIMIT 10", fetch="all")
-        return web.json_response({"leaderboard": [{"name": u["first_name"], "balance": u["usd_milli"], "total_otps": u["total_otps"]} for u in top_users] if top_users else []})
-    except Exception as e: return web.json_response({"error": "Lỗi tải bảng xếp hạng"}, status=500)
+        # 1. Bảng All-Time (Sắp xếp theo Tổng OTP, nếu bằng nhau thì xét số dư)
+        top_users = await db_exec(
+            "SELECT u.user_id, u.first_name, u.usd_milli, (SELECT COUNT(*) FROM orders WHERE user_id = u.user_id AND status = 'COMPLETED') as total_otps FROM users u ORDER BY total_otps DESC, u.usd_milli DESC LIMIT 10", 
+            fetch="all"
+        )
+        
+        # 2. Bảng Top OTP Hôm Nay
+        today_str = now().strftime("%Y-%m-%d")
+        today_top = await db_exec(
+            """SELECT u.user_id, u.first_name, COUNT(o.id) as today_otps 
+               FROM users u 
+               JOIN orders o ON u.user_id = o.user_id 
+               WHERE o.status = 'COMPLETED' AND o.created_at >= ? 
+               GROUP BY u.user_id ORDER BY today_otps DESC LIMIT 10""",
+            (today_str,), fetch="all"
+        )
+
+        return web.json_response({
+            "leaderboard": [{"name": u["first_name"], "balance": u["usd_milli"], "total_otps": u["total_otps"]} for u in top_users] if top_users else [],
+            "today_leaderboard": [{"name": u["first_name"], "today_otps": u["today_otps"]} for u in today_top] if today_top else []
+        })
+    except Exception as e: 
+        logger.error(f"Leaderboard error: {e}")
+        return web.json_response({"error": "Lỗi tải bảng xếp hạng"}, status=500)
 
 async def mini_active_orders(request):
     try:
@@ -425,7 +446,6 @@ async def mini_active_orders(request):
         for r in (rows or []):
             plat = r["platform"] or detect_otp_platform(r["full_sms"])
             
-            # Tính toán expires_at fallback chắc chắn 100% có dữ liệu
             exp_at = r["expires_at"]
             if not exp_at and r["status"] == "PENDING":
                 try:
@@ -433,7 +453,6 @@ async def mini_active_orders(request):
                     duration = 30 if r["provider"] == "SLVN" else 15
                     exp_at = (c_dt + timedelta(minutes=duration)).isoformat()
                 except:
-                    # Nếu created_at cũng lỗi, lấy thời gian hiện tại + 15p
                     exp_at = (now() + timedelta(minutes=15)).isoformat()
 
             orders.append({
@@ -506,7 +525,6 @@ async def mini_create_order(request):
             country = order_data.get("country")
             if not rid: return web.json_response({"error": "Lỗi SLVN: Không lấy được rentalId."}, status=400)
             
-            # SLVN thời gian là 30 phút
             await db_exec("INSERT INTO orders (user_id, request_id, provider, phone, country, range_code, status, created_at, expires_at) VALUES (?, ?, 'SLVN', ?, ?, ?, 'PENDING', ?, ?)", 
                           (uid, rid, phone, country, body.get("tag"), now_text(), (now() + timedelta(minutes=30)).isoformat()))
             await clean_old_orders(uid)
@@ -717,7 +735,7 @@ async def mini_admin_maintenance(request):
         if not mini_admin_guard(request): return web.json_response({"error": "Forbidden"}, status=403)
         body = await request.json(); action = body.get("action")
         
-        if action == "enable": # Tương ứng ON -> Tắt bảo trì và thông báo Bot hoạt động
+        if action == "enable": 
             message = body.get("message", "").strip()
             if not message: message = "🎉 <b>Bot đã hoạt động trở lại!</b>\nMời anh em vào lấy số tiếp nhé!"
             await set_setting("maintenance", "off")
@@ -732,7 +750,7 @@ async def mini_admin_maintenance(request):
                 await asyncio.sleep(0.05)
             return web.json_response({"ok": True, "msg": f"Đã TẮT bảo trì. Đã thông báo {sent} user."})
             
-        elif action == "disable": # Tương ứng OFF -> Bật bảo trì
+        elif action == "disable":
             message = body.get("message", ""); image_b64 = body.get("image_b64", "")
             await set_setting("maintenance", "on"); await set_setting("maint_message", message); await set_setting("maint_image", image_b64)
             
@@ -939,7 +957,7 @@ async def main():
     try: 
         me = await bot.get_me(); BOT_USERNAME = me.username; await set_bot_commands()
         if WEBAPP_URL.startswith("https://"):
-            await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="FAST IVAS", web_app=WebAppInfo(url=WEBAPP_URL + "?v=16")))
+            await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="FAST IVAS", web_app=WebAppInfo(url=WEBAPP_URL + "?v=19")))
     except Exception as e: logger.error(f"Error setting menu: {e}")
     
     await init_db()
