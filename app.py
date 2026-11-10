@@ -1,4 +1,4 @@
-# File: app.py (Full Code chuẩn chỉnh - Chống lộ lỗi, không lỗi Unique Constraint)
+# File: app.py (Full Code chuẩn chỉnh - Đã fix toàn bộ lỗi logic và API)
 
 import os
 import sys
@@ -714,12 +714,14 @@ async def mini_admin_maintenance(request):
     try:
         if not mini_admin_guard(request): return web.json_response({"error": "Forbidden"}, status=403)
         body = await request.json(); action = body.get("action")
+        
+        # Đã fix: action == "enable" tương ứng với bật chế độ bảo trì (on)
         if action == "enable":
-            await set_setting("maintenance", "off")
-            return web.json_response({"ok": True, "msg": "Đã TẮT bảo trì. Bot hoạt động bình thường."})
-        elif action == "disable":
             message = body.get("message", ""); image_b64 = body.get("image_b64", "")
-            await set_setting("maintenance", "on"); await set_setting("maint_message", message); await set_setting("maint_image", image_b64)
+            await set_setting("maintenance", "on")
+            await set_setting("maint_message", message)
+            await set_setting("maint_image", image_b64)
+            
             users = await db_exec("SELECT user_id FROM users", fetch="all"); sent = 0
             photo_bytes = None
             if image_b64:
@@ -735,6 +737,12 @@ async def mini_admin_maintenance(request):
                 except: pass
                 await asyncio.sleep(0.05)
             return web.json_response({"ok": True, "msg": f"Đã BẬT bảo trì. Đã gửi thông báo đến {sent} user."})
+            
+        # action == "disable" tương ứng với tắt bảo trì (off)
+        elif action == "disable":
+            await set_setting("maintenance", "off")
+            return web.json_response({"ok": True, "msg": "Đã TẮT bảo trì. Bot hoạt động bình thường."})
+            
     except Exception as e:
         logger.error(f"mini_admin_maintenance error: {e}")
         return web.json_response({"error": "Lỗi cập nhật bảo trì"}, status=500)
@@ -820,7 +828,9 @@ async def mini_np_services(request):
 
 async def mini_np_countries(request):
     try:
-        data, err = await api_request("GET", "countries", params={"service": request.match_info["service"]}, api_type="NP")
+        # Lấy service từ query param (?service=...) đúng theo cách frontend gọi
+        service_name = request.query.get("service")
+        data, err = await api_request("GET", "countries", params={"service": service_name}, api_type="NP")
         countries = data.get("countries", []) if data and not err else []
         return web.json_response({"countries": [{"code": c["name"], "name": ISO_MAP.get(c["name"], c["name"]), "count": c["count"]} for c in countries if c.get("count", 0) > 0]})
     except Exception as e:
@@ -867,7 +877,10 @@ async def web_server():
     app.router.add_post('/api/mini/orders/{oid}/cancel', mini_cancel_order)
     app.router.add_get('/api/mini/mk/ranges', mini_mk_ranges)
     app.router.add_get('/api/mini/np/services', mini_np_services)
-    app.router.add_get('/api/mini/np/countries/{service}', mini_np_countries)
+    
+    # Route chuẩn cho NP countries dùng query parameter ?service=...
+    app.router.add_get('/api/mini/np/countries', mini_np_countries)
+    
     app.router.add_get('/api/mini/bs/countries', mini_bs_countries)
     app.router.add_get('/api/mini/slvn/countries', mini_slvn_countries)
     app.router.add_post('/api/mini/wallet/address', mini_save_wallet)
