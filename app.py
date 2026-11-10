@@ -1,4 +1,4 @@
-# File: app.py
+# File: app.py (Gộp toàn bộ API Services, Poller và Web/Bot Server vào 1 file duy nhất)
 
 import os
 import json
@@ -11,7 +11,7 @@ import time
 from urllib.parse import parse_qsl
 from types import SimpleNamespace
 from datetime import datetime, timedelta
-from aiohttp import web
+from aiohttp import web, ClientSession
 
 from aiogram import Bot, Dispatcher, BaseMiddleware
 from aiogram.client.default import DefaultBotProperties
@@ -23,15 +23,19 @@ from database import (
     is_admin, unix_now, clean_old_orders, open_db, change_usd, safe,
     COUNTRY_CODES, SORTED_PREFIXES, ISO_MAP, FALLBACK_COUNTRIES, get_country_flag, get_network_icon, detect_otp_platform
 )
-from api_services import api_request, MkOtpPoller, MK_API_KEY, NP_API_KEY
 from handlers import setup_handlers
 from miniapp_html import MINIAPP_HTML
 
 BOT_TOKEN        = os.getenv("BOT_TOKEN", "").strip()
 WEBAPP_URL       = os.getenv("WEBAPP_URL", "").strip()
 ADMIN_ID         = int(os.getenv("ADMIN_ID", "0") or 0)
-OTP_GROUP_ID     = int(os.getenv("OTP_GROUP_ID", "-1004341368656"))
+OTP_GROUP_ID     = int(os.getenv("OTP_GROUP_ID", "-1004341368656") or -1004341368656)
 PORT             = int(os.getenv("PORT", "10000"))
+
+MK_API_KEY       = os.getenv("MK_API_KEY", "badacaa33d287233567a49db").strip()
+MK_API_URL       = os.getenv("MK_API_URL", "https://mknetworkbd.com/api/v3/public").strip()
+NP_API_KEY       = os.getenv("NP_API_KEY", "").strip()
+SLVN_API_KEY     = os.getenv("SLVN_API_KEY", "").strip()
 
 ORDER_LIFETIME_MINUTES = 15
 MIN_WITHDRAW_MILLI     = 1000
@@ -44,6 +48,148 @@ bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp  = Dispatcher()
 BOT_USERNAME = ""
 _mk_poller = None
+
+# ==================== API SERVICES INTEGRATION ====================
+
+async def api_request(method, endpoint, json_data=None, params=None, api_type="MK"):
+    url = ""
+    headers = {}
+    if api_type == "MK":
+        base_url = MK_API_URL.rstrip('/')
+        url = f"{base_url}/{endpoint.lstrip('/')}"
+        headers = {"mknetwork-key": MK_API_KEY, "Content-Type": "application/json"}
+    elif api_type == "NP":
+        url = f"https://api.number2.vn/v1/{endpoint}"
+        headers = {"Authorization": f"Bearer {NP_API_KEY}", "Content-Type": "application/json"}
+    elif api_type == "SLVN":
+        url = f"https://api.slvn.vn/v1/{endpoint}"
+        headers = {"Authorization": f"Bearer {SLVN_API_KEY}", "Content-Type": "application/json"}
+    
+    async with ClientSession() as session:
+        try:
+            async with session.request(method, url, json=json_data, params=params, headers=headers, timeout=20) as resp:
+                text = await resp.text()
+                try:
+                    data = await resp.json()
+                except:
+                    data = {"raw": text}
+                if resp.status >= 400:
+                    return None, f"HTTP {resp.status}: {text}"
+                return data, None
+        except Exception as e:
+            return None, str(e)
+
+class MkOtpPoller:
+    def __init__(self, bot_instance, group_id, interval=3):
+        self.bot = bot_instance
+        self.group_id = int(group_id) if group_id else 0
+        self.interval = interval
+        self.is_running = False
+
+    async def run_forever(self):
+        self.is_running = True
+        logger.info("MkOtpPoller started for Real-Time OTP checking (API v3 batch)...")
+        while self.is_running:
+            try:
+                await self._poll_once()
+            except Exception as e:
+                logger.error(f"Poller error: {e}")
+            await asyncio.sleep(self.interval)
+
+    async def _poll_once(self):
+        pending_orders = await db_exec("SELECT id, user_id, request_id, phone, country FROM orders WHERE status='PENDING' AND provider='MK'", fetch="all")
+        if not pending_orders:
+            return 0, 0, None
+
+        request_ids_map = {}
+        for order in pending_orders:
+            try:
+                rid = int(order["request_id"])
+                request_ids_map[rid] = order
+            except:
+                continue
+
+        if not request_ids_map:
+            return 0, 0, None
+
+        req_ids_list = list(request_ids_map.keys())
+        checked_count = 0
+        new_otp_count = 0
+
+        for i in range(0, len(req_ids_list), 100):
+            chunk = req_ids_list[i:i+100]
+            checked_count += len(chunk)
+            
+            data, err = await api_request("POST", "check/status", {"request_ids": chunk}, api_type="MK")
+            if err or not data:
+                continue
+
+            resp_data = data.get("data", {})
+            results = resp_data.get("results", [])
+            
+            for res in results:
+                rid = res.get("request_id")
+                if rid not in request_ids_map:
+                    continue
+                
+                order = request_ids_map[rid]
+                oid = order["id"]
+                uid = order["user_id"]
+                phone = order["phone"]
+                country = order["country"]
+                
+                status = str(res.get("status", "")).lower()
+                otp_code = res.get("otp_code") or res.get("otp") or res.get("code")
+                full_sms = res.get("full_sms") or res.get("message") or ""
+
+                if otp_code or status in ["success", "completed"] or full_sms:
+                    if not otp_code and full_sms:
+                        match = re.search(r'\b\d{4,8}\b', full_sms)
+                        if match:
+                            otp_code = match.group(0)
+
+                    if otp_code:
+                        plat = detect_otp_platform(full_sms)
+                        icon = get_network_icon(plat)
+                        flag = get_country_flag(country)
+
+                        # 1. Cập nhật trạng thái COMPLETED trong Database
+                        await db_exec("UPDATE orders SET status='COMPLETED', otp_code=?, full_sms=?, platform=?, updated_at=? WHERE id=?", 
+                                      (str(otp_code), str(full_sms), plat, now_text(), oid))
+                        
+                        new_otp_count += 1
+
+                        # 2. Gửi thông báo real-time về Group Telegram
+                        if self.group_id != 0:
+                            group_text = (
+                                f"⚡ <b>FAST IVAS - REAL-TIME OTP RECEIVED</b>\n\n"
+                                f"📱 Số điện thoại: <code>{phone}</code>\n"
+                                f"{flag} Quốc gia: <b>{country}</b>\n"
+                                f"{icon} Nền tảng: <b>{plat}</b>\n"
+                                f"🔑 Mã OTP: <code>{otp_code}</code>\n"
+                                f"💬 Nội dung SMS: <i>{full_sms}</i>"
+                            )
+                            try:
+                                await self.bot.send_message(self.group_id, group_text)
+                            except Exception as e:
+                                logger.error(f"Failed to send OTP to group {self.group_id}: {e}")
+
+                        # 3. Gửi tin nhắn riêng trực tiếp cho User mua số
+                        try:
+                            user_text = (
+                                f"🎉 <b>ĐÃ NHẬN ĐƯỢC MÃ OTP!</b>\n\n"
+                                f"📱 Số: <code>{phone}</code>\n"
+                                f"{icon} Nền tảng: <b>{plat}</b>\n"
+                                f"🔑 Mã OTP: <code><b>{otp_code}</b></code>\n"
+                                f"💬 Nội dung: <i>{full_sms}</i>"
+                            )
+                            await self.bot.send_message(uid, user_text)
+                        except Exception as e:
+                            logger.error(f"Failed to send OTP to user {uid}: {e}")
+
+        return checked_count, new_otp_count, None
+
+# ==================== TELEGRAM & WEB MIDDLEWARES ====================
 
 class ErrorMiddleware(BaseMiddleware):
     async def __call__(self, handler, event, data):
@@ -87,6 +233,8 @@ async def mini_auth_middleware(request, handler):
 
 def mini_uid(request): return int(request["tg_user"]["id"])
 def mini_admin_guard(request): return is_admin(mini_uid(request))
+
+# ==================== MINI APP API ENDPOINTS ====================
 
 async def mini_me(request):
     uid = mini_uid(request)
@@ -132,7 +280,6 @@ async def mini_radar_feed(request):
     country_counts = {}
     current_unix = int(time.time())
 
-    # 1. Lấy dữ liệu từ MK API v3 (/radar?charts=true)
     try:
         data, err = await api_request("GET", "radar", params={"charts": "true", "limit": 100}, api_type="MK")
         if not err and data:
@@ -161,7 +308,6 @@ async def mini_radar_feed(request):
     except Exception as e:
         logger.warning(f"MK API v3 Radar Fetch Error: {e}")
 
-    # 2. Lấy đơn hàng COMPLETED thực tế trong Database (30 phút gần nhất)
     cutoff_time = (now() - timedelta(minutes=30)).isoformat()
     local_orders = await db_exec(
         "SELECT phone, country, operator, full_sms, platform, updated_at, created_at FROM orders WHERE status='COMPLETED' AND (updated_at >= ? OR created_at >= ?) ORDER BY id DESC LIMIT 50", 
@@ -214,14 +360,29 @@ async def mini_leaderboard(request):
 
 async def mini_active_orders(request):
     uid = mini_uid(request)
-    rows = await db_exec("SELECT id, provider, phone, country, status, created_at, otp_code, platform, full_sms FROM orders WHERE user_id=? AND status='PENDING' ORDER BY id DESC", (uid,), fetch="all")
+    cutoff = (now() - timedelta(minutes=30)).isoformat()
+    rows = await db_exec(
+        """SELECT id, provider, phone, country, status, created_at, otp_code, platform, full_sms 
+           FROM orders 
+           WHERE user_id=? AND (status='PENDING' OR (status='COMPLETED' AND (updated_at >= ? OR created_at >= ?))) 
+           ORDER BY id DESC""", 
+        (uid, cutoff, cutoff), fetch="all"
+    )
     orders = []
     for r in (rows or []):
         plat = r["platform"] or detect_otp_platform(r["full_sms"])
         orders.append({
-            "id": r["id"], "provider": r["provider"], "phone": r["phone"], "country": r["country"], 
-            "status": r["status"], "created_at": r["created_at"], "otp": r["otp_code"], 
-            "platform": plat, "icon": get_network_icon(plat), "flag": get_country_flag(r["country"])
+            "id": r["id"], 
+            "provider": r["provider"], 
+            "phone": r["phone"], 
+            "country": r["country"], 
+            "status": r["status"], 
+            "created_at": r["created_at"], 
+            "otp": r["otp_code"], 
+            "platform": plat, 
+            "icon": get_network_icon(plat), 
+            "flag": get_country_flag(r["country"]),
+            "full_sms": r["full_sms"]
         })
     return web.json_response({"orders": orders})
 
@@ -332,6 +493,8 @@ async def mini_withdraw(request):
     if not ok: return web.json_response({"error": res}, status=400)
     wid = await db_exec("INSERT INTO withdrawals (user_id, amount_milli, wallet_ton, status, created_at) VALUES (?, ?, ?, 'PENDING', ?)", (uid, amt_milli, u["wallet_ton"], now_text()))
     return web.json_response({"ok": True, "withdrawal_id": wid})
+
+# ==================== ADMIN MINI APP ENDPOINTS ====================
 
 async def mini_admin_data(request):
     if not mini_admin_guard(request): return web.json_response({"error": "Forbidden"}, status=403)
@@ -542,7 +705,6 @@ async def mini_admin_wd_action(request):
         return web.json_response({"ok": True})
 
 async def mini_mk_ranges(request):
-    # API v3 /access_list
     data, err = await api_request("GET", "access_list", params={"limit": 1000}, api_type="MK")
     countries = []
     if not err and data and isinstance(data, dict):
@@ -578,6 +740,8 @@ async def mini_slvn_countries(request):
     data, err = await api_request("GET", "available-countries", params={"service": "any"}, api_type="SLVN")
     if err or not data: return web.json_response({"countries": []})
     return web.json_response({"countries": [{"name": c.get("country"), "code": c.get("countryCode"), "flag": c.get("flag"), "tag": c.get("tag"), "rate": c.get("rateUsd")} for c in data.get("data", [])]})
+
+# ==================== WEB SERVER & APP ROUTING ====================
 
 async def web_server():
     app = web.Application(middlewares=[mini_auth_middleware], client_max_size=10 * 1024 * 1024)
@@ -640,7 +804,9 @@ async def main():
     setup_handlers(dp, bot, WEBAPP_URL, ADMIN_ID)
     
     asyncio.create_task(web_server())
-    _mk_poller = MkOtpPoller(bot, OTP_GROUP_ID)
+    
+    # Khởi chạy Poller quét OTP real-time định kỳ với Group ID cố định
+    _mk_poller = MkOtpPoller(bot, OTP_GROUP_ID, interval=3)
     asyncio.create_task(_mk_poller.run_forever())
     
     logger.info("FAST IVAS starting...")
