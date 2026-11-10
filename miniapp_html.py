@@ -614,6 +614,7 @@ MINIAPP_HTML = r"""
         let autoRefreshInterval = null;
         let statsRefreshInterval = null;
         let radarRefreshInterval = null;
+        let timerInterval = null; // FIX: Khai báo timerInterval
         let currentHistoryPage = 1;
         let totalHistoryPages = 1;
         let currentLang = 'vi';
@@ -810,6 +811,11 @@ MINIAPP_HTML = r"""
             
             const validOrders = data.orders.filter(o => {
                 if (o.status === 'CANCELLED' || o.status === 'EXPIRED') return false;
+                // FIX: Lọc bỏ các đơn đã quá hạn từ server trả về (đề phòng cronjob chưa kịp update)
+                if (o.status === 'PENDING' && o.expires_at) {
+                    const exp = new Date(o.expires_at);
+                    if (exp.getTime() < Date.now()) return false;
+                }
                 return true;
             });
 
@@ -929,7 +935,7 @@ MINIAPP_HTML = r"""
         }
 
         async function loadRadarFeed() {
-            if (isLoadingRadar) return; // Chống đơ
+            if (isLoadingRadar) return; 
             isLoadingRadar = true;
             
             const feedDiv = document.getElementById('radar-feed-list');
@@ -1009,8 +1015,33 @@ MINIAPP_HTML = r"""
         function startRadarRefresh() { stopRadarRefresh(); radarRefreshInterval = setInterval(loadRadarFeed, 3000); }
         function stopRadarRefresh() { if (radarRefreshInterval) clearInterval(radarRefreshInterval); }
 
+        // FIX: Hàm đếm ngược chạy mỗi 1 giây
+        function startTimer() {
+            if (timerInterval) clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                document.querySelectorAll('.countdown').forEach(el => {
+                    const expStr = el.getAttribute('data-exp');
+                    if(!expStr) return;
+                    const exp = new Date(expStr);
+                    const now = new Date();
+                    const diff = Math.max(0, Math.floor((exp - now) / 1000));
+                    
+                    if (diff <= 0) {
+                        el.innerText = "⌛ Đã hết hạn";
+                        // Tự động xóa đơn khỏi giao diện nếu đã hết hạn
+                        const card = el.closest('.order-card');
+                        if(card) card.style.display = 'none';
+                    } else {
+                        const m = Math.floor(diff / 60).toString().padStart(2, '0');
+                        const s = (diff % 60).toString().padStart(2, '0');
+                        el.innerText = `⏳ Còn lại: ${m}:${s}`;
+                    }
+                });
+            }, 1000);
+        }
+
         async function loadStats() {
-            if (isLoadingStats) return; // Chống đơ
+            if (isLoadingStats) return; 
             isLoadingStats = true;
             
             const listC = document.getElementById('stats-countries-list');
@@ -1117,6 +1148,12 @@ MINIAPP_HTML = r"""
                 cardClass = 'order-card expired';
             }
 
+            // FIX: Thêm div countdown nếu có expires_at
+            let countdownHtml = '';
+            if (o.status === 'PENDING' && o.expires_at) {
+                countdownHtml = `<div id="timer-${o.id}" class="countdown" data-exp="${o.expires_at}">⏳ Đang tính toán...</div>`;
+            }
+
             return `
                 <div class="${cardClass}">
                     <div class="order-header">
@@ -1132,6 +1169,7 @@ MINIAPP_HTML = r"""
                         <label><input type="checkbox" id="chk-plus-${o.id}" onchange="updatePhoneDisplay('${o.id}', '${o.phone}')"> Remove (+)</label>
                         <label><input type="checkbox" id="chk-nat-${o.id}" onchange="updatePhoneDisplay('${o.id}', '${o.phone}')"> National Format</label>
                     </div>
+                    ${countdownHtml} <!-- CHÈN ĐẾM NGƯỢC VÀO ĐÂY -->
                     ${hasOtp ? `
                         <div class="otp-box">
                             <div>
@@ -1177,7 +1215,7 @@ MINIAPP_HTML = r"""
                 if (!data.countries || data.countries.length === 0) container.innerHTML = '<div class="loading" style="grid-column: 1/-1;">No SLVN numbers.</div>';
                 else container.innerHTML = data.countries.map(c => `
                     <button class="list-btn" onclick="buyNumber('SLVN', '${c.code}', '${c.name}', '${c.tag}')"><div class="name">${c.flag} ${c.name}</div></button>
-                `).join(''); // Đã bỏ Rate
+                `).join('');
             }
             else if (provider === 'NP') {
                 const data = await api('/api/mini/np/services');
@@ -1600,6 +1638,7 @@ MINIAPP_HTML = r"""
         loadUserData();
         loadHome();
         startAutoRefresh();
+        startTimer(); // FIX: Kích hoạt đếm ngược
     </script>
 </body>
 </html>
