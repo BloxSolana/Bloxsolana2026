@@ -184,7 +184,6 @@ async def mini_leaderboard(request):
 
 async def mini_active_orders(request):
     uid = mini_uid(request)
-    # CHỈ LẤY CÁC ĐƠN ĐANG CHỜ (PENDING), không lấy đơn cũ đã COMPLETED để tránh hiển thị rác
     rows = await db_exec("SELECT id, provider, phone, country, status, created_at, otp_code, platform, full_sms FROM orders WHERE user_id=? AND status='PENDING' ORDER BY id DESC", (uid,), fetch="all")
     orders = []
     for r in (rows or []):
