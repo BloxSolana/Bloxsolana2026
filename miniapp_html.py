@@ -462,6 +462,11 @@ MINIAPP_HTML = r"""
                         <button class="btn-small copy" onclick="selectRadarPlatform('Zambia (MK)')">🇿🇲 Zambia (MK)</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('Sudan (MK)')">🇸🇩 Sudan (MK)</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('Ethiopia (MK)')">🇪🇹 Ethiopia (MK)</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Vietnam')">🇻🇳 Vietnam</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Indonesia')">🇮🇩 Indonesia</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Philippines')">🇵🇭 Philippines</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Malaysia')">🇲🇾 Malaysia</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Thailand')">🇹🇭 Thailand</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('Instagram')">📸 Instagram</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('Facebook')">📘 Facebook</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('TikTok')">🎬 TikTok</button>
@@ -475,6 +480,11 @@ MINIAPP_HTML = r"""
                         <button class="btn-small copy" onclick="selectRadarPlatform('Apple')">🍎 Apple</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('Microsoft')">💻 Microsoft</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('Binance/Crypto')">🪙 Binance/Crypto</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Viber')">📞 Viber</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Line')">💬 Line</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('KakaoTalk')">💬 KakaoTalk</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Discord')">🎮 Discord</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('LinkedIn')">💼 LinkedIn</button>
                         <button class="btn-small copy" style="grid-column: span 2;" onclick="selectRadarPlatform('🌐 Tất cả MXH & Quốc gia khác')">🌐 Tất cả MXH & Quốc gia khác</button>
                     </div>
 
@@ -531,7 +541,10 @@ MINIAPP_HTML = r"""
             <div id="admin-tab-bs" class="admin-tab-content" style="display: none;">
                 <div class="card">
                     <div class="form-label" data-i18n="admin_add_bs">➕ Thêm Số BS</div>
-                    <textarea class="form-control" id="bs-input" rows="4" placeholder="Mỗi dòng 1 số..."></textarea>
+                    <div class="form-group" style="display: flex; gap: 10px; margin-bottom: 10px;">
+                        <input type="file" id="bs-file-input" class="form-control" accept=".txt,.csv" onchange="handleBsFileUpload(event)">
+                    </div>
+                    <textarea class="form-control" id="bs-input" rows="4" placeholder="Hoặc nhập mỗi dòng 1 số..."></textarea>
                     <button class="btn btn-success" onclick="addBsNumbers()" data-i18n="admin_btn_add">Thêm Số</button>
                 </div>
                 <div class="card"><div class="form-label" data-i18n="admin_manage_bs">⚙️ Quản lý số BS</div><div id="admin-bs-list"></div></div>
@@ -560,15 +573,15 @@ MINIAPP_HTML = r"""
                     </div>
                 </div>
                 <div class="card" id="maint-form-container" style="display: none;">
-                    <div class="form-label" data-i18n="admin_maint_msg">📝 Nội dung thông báo</div>
+                    <div class="form-label" id="maint-form-title" data-i18n="admin_maint_msg">📝 Nội dung thông báo</div>
                     <div style="display:flex; gap:5px; margin-bottom:10px;">
                         <button class="btn-small copy" onclick="setMaintTemplate(1)" data-i18n="admin_template1">Mẫu 1</button>
                         <button class="btn-small copy" onclick="setMaintTemplate(2)" data-i18n="admin_template2">Mẫu 2</button>
                     </div>
-                    <textarea class="form-control" id="maint-msg" rows="4" placeholder="Nhập thông báo bảo trì..."></textarea>
+                    <textarea class="form-control" id="maint-msg" rows="4" placeholder="Nhập thông báo..."></textarea>
                     <div class="form-label" style="margin-top:10px;" data-i18n="admin_img_opt">🖼 Ảnh đính kèm (Tùy chọn)</div>
                     <input type="file" id="maint-image" class="form-control" accept="image/*">
-                    <button class="btn btn-danger" style="margin-top:15px;" onclick="submitMaintenance()" data-i18n="admin_confirm_maint">Xác nhận BẢO TRÌ & Gửi thông báo</button>
+                    <button class="btn btn-danger" style="margin-top:15px;" id="maint-submit-btn" onclick="submitMaintenance()" data-i18n="admin_confirm_maint">Xác nhận BẢO TRÌ & Gửi thông báo</button>
                 </div>
             </div>
         </div>
@@ -610,6 +623,10 @@ MINIAPP_HTML = r"""
         let isMaintenanceOn = false;
         let lastKnownCompletedOrders = new Set();
         let currentActiveMailAddress = null;
+
+        // Cờ chống spam API gây đơ
+        let isLoadingRadar = false;
+        let isLoadingStats = false;
 
         const translations = {
             vi: { 
@@ -912,67 +929,74 @@ MINIAPP_HTML = r"""
         }
 
         async function loadRadarFeed() {
+            if (isLoadingRadar) return; // Chống đơ
+            isLoadingRadar = true;
+            
             const feedDiv = document.getElementById('radar-feed-list');
             const platDiv = document.getElementById('radar-platforms-chart');
             const ctryDiv = document.getElementById('radar-countries-chart');
             const countEl = document.getElementById('radar-records-count');
-            if (!feedDiv) return;
+            if (!feedDiv) { isLoadingRadar = false; return; }
 
-            const data = await api('/api/mini/radar');
-            if (data.error) return feedDiv.innerHTML = `<div style="color:var(--danger)">${data.error}</div>`;
-            if (countEl) countEl.innerText = (data.total_records || 0) + " records";
+            try {
+                const data = await api('/api/mini/radar');
+                if (data.error) { feedDiv.innerHTML = `<div style="color:var(--danger)">${data.error}</div>`; isLoadingRadar = false; return; }
+                if (countEl) countEl.innerText = (data.total_records || 0) + " records";
 
-            if (platDiv && data.platforms) {
-                const maxPlat = Math.max(...data.platforms.map(p => p.count), 1);
-                platDiv.innerHTML = data.platforms.map(p => `
-                    <div style="background: rgba(15,23,42,0.6); padding: 12px; border-radius: 12px; border: 1px solid var(--border);">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 14px;">
-                            <span style="font-weight: 600;">${p.icon} ${p.name}</span>
-                            <span style="color: var(--primary); font-weight: bold;">${p.count}</span>
+                if (platDiv && data.platforms) {
+                    const maxPlat = Math.max(...data.platforms.map(p => p.count), 1);
+                    platDiv.innerHTML = data.platforms.map(p => `
+                        <div style="background: rgba(15,23,42,0.6); padding: 12px; border-radius: 12px; border: 1px solid var(--border);">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 14px;">
+                                <span style="font-weight: 600;">${p.icon} ${p.name}</span>
+                                <span style="color: var(--primary); font-weight: bold;">${p.count}</span>
+                            </div>
+                            <div style="width: 100%; background: rgba(255,255,255,0.08); height: 8px; border-radius: 4px; overflow: hidden;">
+                                <div style="width: ${Math.round((p.count / maxPlat) * 100)}%; background: var(--primary); height: 100%; border-radius: 4px;"></div>
+                            </div>
                         </div>
-                        <div style="width: 100%; background: rgba(255,255,255,0.08); height: 8px; border-radius: 4px; overflow: hidden;">
-                            <div style="width: ${Math.round((p.count / maxPlat) * 100)}%; background: var(--primary); height: 100%; border-radius: 4px;"></div>
+                    `).join('');
+                }
+
+                if (ctryDiv && data.countries) {
+                    const maxCtry = Math.max(...data.countries.map(c => c.count), 1);
+                    ctryDiv.innerHTML = data.countries.map(c => `
+                        <div style="background: rgba(15,23,42,0.6); padding: 12px; border-radius: 12px; border: 1px solid var(--border);">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 14px;">
+                                <span style="font-weight: 600;">${c.flag} ${c.name}</span>
+                                <span style="color: var(--success); font-weight: bold;">${c.count} OTPs</span>
+                            </div>
+                            <div style="width: 100%; background: rgba(255,255,255,0.08); height: 8px; border-radius: 4px; overflow: hidden;">
+                                <div style="width: ${Math.round((c.count / maxCtry) * 100)}%; background: var(--success); height: 100%; border-radius: 4px;"></div>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+
+                if (!data.items || data.items.length === 0) { feedDiv.innerHTML = '<div class="loading">No Radar Data.</div>'; isLoadingRadar = false; return; }
+
+                feedDiv.innerHTML = data.items.map(i => `
+                    <div class="order-card" style="border-left-color: var(--primary);">
+                        <div class="order-header">
+                            <div class="order-phone">${i.phone}</div>
+                            <div class="order-badge" style="color: var(--success);">🟢 NEW</div>
+                        </div>
+                        <div class="order-info">
+                            <span>${i.flag} ${i.country}</span>
+                            <span>🔧 ${i.operator}</span>
+                            <span style="color: var(--warning);" class="radar-time" data-timestamp="${i.timestamp}">⏳ ${formatTimeAgo(i.timestamp)}</span>
+                        </div>
+                        <div class="otp-box">
+                            <div>
+                                <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">SMS Content:</div>
+                                <div style="font-size: 14px; font-weight: 500; color: var(--text);">${i.message}</div>
+                            </div>
                         </div>
                     </div>
                 `).join('');
+            } finally {
+                isLoadingRadar = false;
             }
-
-            if (ctryDiv && data.countries) {
-                const maxCtry = Math.max(...data.countries.map(c => c.count), 1);
-                ctryDiv.innerHTML = data.countries.map(c => `
-                    <div style="background: rgba(15,23,42,0.6); padding: 12px; border-radius: 12px; border: 1px solid var(--border);">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 14px;">
-                            <span style="font-weight: 600;">${c.flag} ${c.name}</span>
-                            <span style="color: var(--success); font-weight: bold;">${c.count} OTPs</span>
-                        </div>
-                        <div style="width: 100%; background: rgba(255,255,255,0.08); height: 8px; border-radius: 4px; overflow: hidden;">
-                            <div style="width: ${Math.round((c.count / maxCtry) * 100)}%; background: var(--success); height: 100%; border-radius: 4px;"></div>
-                        </div>
-                    </div>
-                `).join('');
-            }
-
-            if (!data.items || data.items.length === 0) return feedDiv.innerHTML = '<div class="loading">No Radar Data.</div>';
-
-            feedDiv.innerHTML = data.items.map(i => `
-                <div class="order-card" style="border-left-color: var(--primary);">
-                    <div class="order-header">
-                        <div class="order-phone">${i.phone}</div>
-                        <div class="order-badge" style="color: var(--success);">🟢 NEW</div>
-                    </div>
-                    <div class="order-info">
-                        <span>${i.flag} ${i.country}</span>
-                        <span>🔧 ${i.operator}</span>
-                        <span style="color: var(--warning);" class="radar-time" data-timestamp="${i.timestamp}">⏳ ${formatTimeAgo(i.timestamp)}</span>
-                    </div>
-                    <div class="otp-box">
-                        <div>
-                            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">SMS Content:</div>
-                            <div style="font-size: 14px; font-weight: 500; color: var(--text);">${i.message}</div>
-                        </div>
-                    </div>
-                </div>
-            `).join('');
         }
 
         setInterval(() => {
@@ -986,27 +1010,38 @@ MINIAPP_HTML = r"""
         function stopRadarRefresh() { if (radarRefreshInterval) clearInterval(radarRefreshInterval); }
 
         async function loadStats() {
+            if (isLoadingStats) return; // Chống đơ
+            isLoadingStats = true;
+            
             const listC = document.getElementById('stats-countries-list');
             const listP = document.getElementById('stats-platforms-list');
-            if (!listC || !listP) return;
+            if (!listC || !listP) { isLoadingStats = false; return; }
             
-            const data = await api('/api/mini/stats');
-            if(data.error) return;
+            try {
+                const data = await api('/api/mini/stats');
+                if(data.error) { isLoadingStats = false; return; }
 
-            document.getElementById('stats-all-time-otps').innerText = data.total_all_otps;
-            document.getElementById('stats-today-otps').innerText = data.today_otps;
+                document.getElementById('stats-all-time-otps').innerText = data.total_all_otps || 0;
+                document.getElementById('stats-today-otps').innerText = data.today_otps || 0;
 
-            listC.innerHTML = data.countries.length === 0 ? '<div style="color:var(--text-muted);font-size:14px;">No data today.</div>' : data.countries.map(c => `
-                <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);">
-                    <span>${c.flag} ${c.country}</span><b style="color:var(--primary);">${c.count}</b>
-                </div>
-            `).join('');
+                if (data.countries) {
+                    listC.innerHTML = data.countries.length === 0 ? '<div style="color:var(--text-muted);font-size:14px;">No data today.</div>' : data.countries.map(c => `
+                        <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);">
+                            <span>${c.flag} ${c.country}</span><b style="color:var(--primary);">${c.count}</b>
+                        </div>
+                    `).join('');
+                }
 
-            listP.innerHTML = data.platforms.length === 0 ? '<div style="color:var(--text-muted);font-size:14px;">No data today.</div>' : data.platforms.map(p => `
-                <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);">
-                    <span>${p.icon} ${p.platform}</span><b style="color:var(--success);">${p.count}</b>
-                </div>
-            `).join('');
+                if (data.platforms) {
+                    listP.innerHTML = data.platforms.length === 0 ? '<div style="color:var(--text-muted);font-size:14px;">No data today.</div>' : data.platforms.map(p => `
+                        <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);">
+                            <span>${p.icon} ${p.platform}</span><b style="color:var(--success);">${p.count}</b>
+                        </div>
+                    `).join('');
+                }
+            } finally {
+                isLoadingStats = false;
+            }
         }
 
         function startStatsRefresh() { stopStatsRefresh(); statsRefreshInterval = setInterval(loadStats, 5000); }
@@ -1141,8 +1176,8 @@ MINIAPP_HTML = r"""
                 const data = await api('/api/mini/slvn/countries');
                 if (!data.countries || data.countries.length === 0) container.innerHTML = '<div class="loading" style="grid-column: 1/-1;">No SLVN numbers.</div>';
                 else container.innerHTML = data.countries.map(c => `
-                    <button class="list-btn" onclick="buyNumber('SLVN', '${c.code}', '${c.name}', '${c.tag}')"><div class="name">${c.flag} ${c.name}</div><div class="count">Rate: $${c.rate}</div></button>
-                `).join('');
+                    <button class="list-btn" onclick="buyNumber('SLVN', '${c.code}', '${c.name}', '${c.tag}')"><div class="name">${c.flag} ${c.name}</div></button>
+                `).join(''); // Đã bỏ Rate
             }
             else if (provider === 'NP') {
                 const data = await api('/api/mini/np/services');
@@ -1337,8 +1372,15 @@ MINIAPP_HTML = r"""
             const btnOff = document.getElementById('btn-maint-off');
             const form = document.getElementById('maint-form-container');
             if (!btnOn || !btnOff || !form) return;
+            
+            const formTitle = document.getElementById('maint-form-title');
+            const submitBtn = document.getElementById('maint-submit-btn');
+            
             if (isMaintenanceOn) {
                 btnOn.classList.remove('on'); btnOff.classList.add('off'); form.style.display = 'block';
+                formTitle.innerText = "📝 Nội dung thông báo (Bảo trì)";
+                submitBtn.innerText = "Xác nhận BẢO TRÌ & Gửi thông báo";
+                submitBtn.onclick = function() { submitMaintenanceAction('disable'); };
             } else {
                 btnOn.classList.add('on'); btnOff.classList.remove('off'); form.style.display = 'none';
             }
@@ -1346,9 +1388,15 @@ MINIAPP_HTML = r"""
 
         async function toggleMaintenance(enable) {
             if (enable) {
-                const res = await api('/api/mini/admin/maintenance', 'POST', { action: 'disable' }); // Disable maintenance -> Bot ON
-                if (res.ok) { showToast(res.msg); isMaintenanceOn = false; updateMaintUI(); loadAdmin(); }
-                else alert(res.error);
+                // Khi bấm ON -> Hiển thị form nhập thông báo (Bot hoạt động lại)
+                const form = document.getElementById('maint-form-container');
+                const formTitle = document.getElementById('maint-form-title');
+                const submitBtn = document.getElementById('maint-submit-btn');
+                form.style.display = 'block';
+                formTitle.innerText = "📝 Thông báo hoạt động trở lại";
+                submitBtn.innerText = "Xác nhận HOẠT ĐỘNG & Thông báo";
+                submitBtn.onclick = function() { submitMaintenanceAction('enable'); };
+                document.getElementById('maint-msg').value = "🎉 <b>Bot đã hoạt động trở lại!</b>\nMời anh em vào lấy số tiếp nhé!";
             } else {
                 isMaintenanceOn = true;
                 updateMaintUI();
@@ -1362,7 +1410,7 @@ MINIAPP_HTML = r"""
             if (id === 2) ta.value = "Server đang gặp sự cố kỹ thuật. Admin đang khắc phục!";
         }
 
-        async function submitMaintenance() {
+        async function submitMaintenanceAction(action) {
             const ta = document.getElementById('maint-msg');
             if (!ta || !ta.value) return alert("Vui lòng nhập thông báo!");
             const fileInput = document.getElementById('maint-image');
@@ -1374,11 +1422,18 @@ MINIAPP_HTML = r"""
                     reader.readAsDataURL(fileInput.files[0]);
                 });
             }
-            const confirmed = await showCustomModal('Confirm Maintenance', 'System will turn ON maintenance and notify all users. Continue?');
+            const confirmed = await showCustomModal('Confirm', `Xác nhận thực hiện?`);
             if(!confirmed) return;
 
-            const res = await api('/api/mini/admin/maintenance', 'POST', { action: 'enable', message: ta.value, image_b64: b64 }); // Enable maintenance
-            if(res.ok) { alert(res.msg); ta.value = ''; if (fileInput) fileInput.value = ''; isMaintenanceOn = true; updateMaintUI(); loadAdmin(); }
+            const res = await api('/api/mini/admin/maintenance', 'POST', { action: action, message: ta.value, image_b64: b64 });
+            if(res.ok) { 
+                alert(res.msg); 
+                ta.value = ''; 
+                if (fileInput) fileInput.value = ''; 
+                isMaintenanceOn = (action === 'disable'); 
+                document.getElementById('maint-form-container').style.display = 'none';
+                loadAdmin(); 
+            }
             else alert("Error: " + (res.error || 'Unknown'));
         }
 
@@ -1477,6 +1532,21 @@ MINIAPP_HTML = r"""
                 const data = await api(`/api/mini/admin/users/${currentAdminUid}?page=${newPage}`);
                 if(!data.error) renderAdminUserOrders(data);
             }
+        }
+
+        // Upload file xử lý
+        function handleBsFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const content = e.target.result;
+                const bsInput = document.getElementById('bs-input');
+                bsInput.value += (bsInput.value ? '\n' : '') + content;
+                showToast('Đã tải file! Bấm "Thêm Số" để lưu.');
+            };
+            reader.readAsText(file);
+            event.target.value = ''; // reset input
         }
 
         async function loadAdminBs() {
