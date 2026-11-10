@@ -19,7 +19,7 @@ MINIAPP_HTML = """
             --radius: 16px; --shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37); --glass-blur: blur(12px);
         }
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Outfit', sans-serif; -webkit-tap-highlight-color: transparent; }
-        body { background-color: var(--bg); background-image: radial-gradient(circle at 10% 20%, rgba(59, 130, 246, 0.15) 0%, transparent 20%), radial-gradient(circle at 90% 80%, rgba(139, 92, 246, 0.15) 0%, transparent 20%); color: var(--text); padding-bottom: 80px; overflow-x: hidden; min-height: 100vh; }
+        body { background-color: var(--bg); background-image: radial-gradient(circle at 10% 20%, rgba(59, 130, 246, 0.15) 0%, transparent 20%), radial-gradient(circle at 90% 80%, rgba(139, 92, 246, 0.15) 0%, transparent 20%); color: var(--text); padding-bottom: 90px; overflow-x: hidden; min-height: 100vh; }
         button { cursor: pointer; font-family: inherit; border: none; outline: none; }
 
         #custom-modal { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); backdrop-filter: blur(5px); z-index: 9999; display: none; justify-content: center; align-items: center; padding: 20px; }
@@ -110,9 +110,9 @@ MINIAPP_HTML = """
         .pagination button:disabled { opacity: 0.3; cursor: not-allowed; }
         .pagination span { flex: 1; text-align: center; font-size: 14px; color: var(--text-muted); font-weight: 500; }
 
-        .bottom-nav { position: fixed; bottom: 0; left: 0; width: 100%; height: 70px; background: rgba(15, 23, 42, 0.9); backdrop-filter: var(--glass-blur); display: flex; justify-content: space-around; align-items: center; border-top: 1px solid var(--border); z-index: 100; }
-        .nav-item { display: flex; flex-direction: column; align-items: center; color: var(--text-muted); font-size: 11px; gap: 4px; background: none; transition: 0.2s; width: 20%; font-weight: 500; }
-        .nav-item .icon { font-size: 24px; transition: 0.2s; }
+        .bottom-nav { position: fixed; bottom: 0; left: 0; width: 100%; height: 75px; background: rgba(15, 23, 42, 0.95); backdrop-filter: var(--glass-blur); display: flex; justify-content: space-around; align-items: center; border-top: 1px solid var(--border); z-index: 100; overflow-x: auto; }
+        .nav-item { display: flex; flex-direction: column; align-items: center; color: var(--text-muted); font-size: 10px; gap: 3px; background: none; transition: 0.2s; min-width: 16%; font-weight: 500; white-space: nowrap; }
+        .nav-item .icon { font-size: 20px; transition: 0.2s; }
         .nav-item.active { color: var(--primary); }
         .nav-item.active .icon { transform: translateY(-3px); }
 
@@ -120,7 +120,7 @@ MINIAPP_HTML = """
         .spinner { border: 3px solid rgba(255,255,255,0.1); border-top-color: var(--primary); border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 0 auto 15px; }
         @keyframes spin { to { transform: rotate(360deg); } }
         
-        #toast { position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--surface); backdrop-filter: var(--glass-blur); color: white; padding: 12px 24px; border-radius: 30px; font-weight: 500; border: 1px solid var(--border); box-shadow: var(--shadow); opacity: 0; transition: 0.3s; z-index: 2000; pointer-events: none; }
+        #toast { position: fixed; bottom: 95px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--surface); backdrop-filter: var(--glass-blur); color: white; padding: 12px 24px; border-radius: 30px; font-weight: 500; border: 1px solid var(--border); box-shadow: var(--shadow); opacity: 0; transition: 0.3s; z-index: 2000; pointer-events: none; }
         #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
         .admin-tabs { display: flex; overflow-x: auto; gap: 8px; margin-bottom: 15px; padding-bottom: 5px; }
@@ -172,6 +172,7 @@ MINIAPP_HTML = """
         <div class="sidebar-menu">
             <a href="#" class="menu-item active" onclick="navTo('home')"><span class="icon">🏠</span> <span data-i18n="home">Trang chủ</span></a>
             <a href="#" class="menu-item" onclick="navTo('buy')"><span class="icon">🛒</span> <span data-i18n="buy">Mua Số OTP</span></a>
+            <a href="#" class="menu-item" onclick="navTo('tempmail')"><span class="icon">📧</span> <span>Tạo Temp Mail</span></a>
             <a href="#" class="menu-item" onclick="navTo('radar')"><span class="icon">📡</span> <span data-i18n="radar_title">Radar OTP</span></a>
             <a href="#" class="menu-item" onclick="navTo('history')"><span class="icon">📜</span> <span data-i18n="history">Lịch sử</span></a>
             <a href="#" class="menu-item" onclick="navTo('wallet')"><span class="icon">💵</span> <span data-i18n="wallet">Ví & Rút Tiền</span></a>
@@ -229,6 +230,46 @@ MINIAPP_HTML = """
                 </div>
             </div>
             <div id="buy-list-container" class="list-grid"></div>
+        </div>
+
+        <!-- TEMP MAIL (TẠO GMAIL ẢO) -->
+        <div id="view-tempmail" class="view">
+            <div class="card">
+                <div class="form-label" style="font-size: 18px; font-weight: 700; color: var(--text); margin-bottom: 15px;">📧 Hòm Thư Tạm Thời (Temp Mail)</div>
+                <div class="form-group">
+                    <label class="form-label">Tên tài khoản tùy chỉnh (Tùy chọn):</label>
+                    <input type="text" class="form-control" id="mail-username" placeholder="VD: myaccount, demo,...">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Chọn Tên Miền (Domain):</label>
+                    <select class="form-control" id="mail-domain-select">
+                        <option value="">Đang tải tên miền...</option>
+                    </select>
+                </div>
+                <button class="btn btn-primary" onclick="generateTempMail()">✨ Tạo Hòm Thư Mới</button>
+            </div>
+
+            <div class="card" id="mail-active-box" style="display: none;">
+                <div class="form-label" style="font-size: 16px; font-weight: bold; color: var(--success); margin-bottom: 10px;">📬 Hòm thư đang hoạt động:</div>
+                <div style="background: rgba(16,185,129,0.1); padding: 12px; border-radius: 10px; border: 1px solid var(--success); display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <div id="current-mail-address" style="font-weight: 700; font-size: 15px; color: var(--text); word-break: break-all;"></div>
+                    <button class="btn-small copy" style="background: var(--success); width: 85px;" onclick="copyText(document.getElementById('current-mail-address').innerText)">📋 Copy</button>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <span style="font-weight: 600; font-size: 15px;">📥 Hộp thư đến (Messages):</span>
+                    <button class="btn-small copy" style="width: auto; padding: 6px 12px;" onclick="loadMailMessages()">🔄 Làm mới</button>
+                </div>
+                <div id="mail-messages-list">
+                    <div style="color: var(--text-muted); font-size: 14px; text-align: center; padding: 15px;">Chưa có tin nhắn nào.</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="form-label" style="font-size: 16px; font-weight: bold; margin-bottom: 10px;">📜 Lịch sử các hòm thư đã tạo</div>
+                <div id="mail-history-list">
+                    <div class="loading">Đang tải lịch sử...</div>
+                </div>
+            </div>
         </div>
 
         <!-- RADAR OTP -->
@@ -515,6 +556,7 @@ MINIAPP_HTML = """
     <div class="bottom-nav" id="main-bottom-nav">
         <button class="nav-item active" id="nav-home" onclick="navTo('home')"><span class="icon">🏠</span><span data-i18n="home">Trang chủ</span></button>
         <button class="nav-item" id="nav-buy" onclick="navTo('buy')"><span class="icon">🛒</span><span data-i18n="buy">Mua số</span></button>
+        <button class="nav-item" id="nav-tempmail" onclick="navTo('tempmail')"><span class="icon">📧</span><span>Temp Mail</span></button>
         <button class="nav-item" id="nav-radar" onclick="navTo('radar')"><span class="icon">📡</span><span data-i18n="radar_title">Radar</span></button>
         <button class="nav-item" id="nav-history" onclick="navTo('history')"><span class="icon">📜</span><span data-i18n="history">Lịch sử</span></button>
         <button class="nav-item" id="nav-wallet" onclick="navTo('wallet')"><span class="icon">💵</span><span data-i18n="wallet">Ví</span></button>
@@ -551,10 +593,11 @@ MINIAPP_HTML = """
         let totalUserDetailPages = 1;
         let isMaintenanceOn = false;
         let lastKnownCompletedOrders = new Set();
+        let currentActiveMailAddress = null;
 
         const translations = {
             vi: { 
-                home: "Trang chủ", buy: "Mua Số OTP", radar_title: "Radar OTP", history: "Lịch sử", wallet: "Ví & Rút Tiền", leaderboard: "Bảng Xếp Hạng", stats: "Thống Kê", profile: "Hồ Sơ", admin: "ADMIN PANEL", otp_group: "OTP Group",
+                home: "Trang chủ", buy: "Buy OTP Number", radar_title: "Radar OTP", history: "Lịch sử", wallet: "Ví & Rút Tiền", leaderboard: "Bảng Xếp Hạng", stats: "Thống Kê", profile: "Hồ Sơ", admin: "ADMIN PANEL", otp_group: "OTP Group",
                 balance: "Số dư khả dụng", today_otp: "OTP Hôm Nay", total_orders: "Tổng Đơn", active_orders: "⏳ Đơn Đang Chờ", 
                 select_source: "Chọn Nguồn Số", ton_wallet: "💵 Ví TON", save_address: "Lưu Địa Chỉ", withdraw: "💰 Rút Tiền", withdraw_all: "⚡ Rút Toàn Bộ (Phí $0.1)", send_request: "Gửi Yêu Cầu", 
                 invite_friends: "💌 Mời Bạn Bè", copy_link: "📋 Sao Chép Link", top_10: "🏆 TOP 10 CAO THỦ", your_profile: "👤 HỒ SƠ CỦA BẠN", language: "🌐 Ngôn Ngữ (Language)", 
@@ -676,6 +719,7 @@ MINIAPP_HTML = """
             try {
                 if (viewId === 'home') loadHome();
                 if (viewId === 'buy') renderBuyOptions();
+                if (viewId === 'tempmail') loadTempMailData();
                 if (viewId === 'radar') { loadRadarFeed(); startRadarRefresh(); } else { stopRadarRefresh(); }
                 if (viewId === 'history') loadHistory(1);
                 if (viewId === 'wallet') loadWallet();
@@ -766,6 +810,69 @@ MINIAPP_HTML = """
             });
 
             listDiv.innerHTML = data.orders.map(o => renderOrderCard(o, false)).join('');
+        }
+
+        // --- TEMP MAIL LOGIC ---
+        async function loadTempMailData() {
+            const domainSel = document.getElementById('mail-domain-select');
+            const historyDiv = document.getElementById('mail-history-list');
+            if (!domainSel || !historyDiv) return;
+
+            const domRes = await api('/api/mini/mail/domains');
+            if (domRes.domains && domRes.domains.length > 0) {
+                domainSel.innerHTML = domRes.domains.map(d => `<option value="${d}">${d}</option>`).join('');
+            } else {
+                domainSel.innerHTML = `<option value="inbox.numberpanel.tech">inbox.numberpanel.tech</option>`;
+            }
+
+            const histRes = await api('/api/mini/mail/history');
+            if (histRes.history && histRes.history.length > 0) {
+                historyDiv.innerHTML = histRes.history.map(h => `
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border);">
+                        <span style="font-size: 14px; font-weight: 500; word-break: break-all;">${h.address}</span>
+                        <button class="btn-small copy" style="width: auto; padding: 6px 12px;" onclick="selectMailBox('${h.address}')">📥 Xem</button>
+                    </div>
+                `).join('');
+            } else {
+                historyDiv.innerHTML = '<div style="color: var(--text-muted); font-size: 14px;">Chưa có hòm thư nào được tạo.</div>';
+            }
+        }
+
+        async function generateTempMail() {
+            const username = document.getElementById('mail-username').value;
+            const domain = document.getElementById('mail-domain-select').value;
+            const res = await api('/api/mini/mail/generate', 'POST', { username, domain });
+            if (res.success && res.mail) {
+                selectMailBox(res.mail.address);
+                loadTempMailData();
+                showToast('Đã tạo hòm thư thành công!');
+            } else {
+                alert(res.error || 'Lỗi tạo email ảo');
+            }
+        }
+
+        function selectMailBox(address) {
+            currentActiveMailAddress = address;
+            document.getElementById('current-mail-address').innerText = address;
+            document.getElementById('mail-active-box').style.display = 'block';
+            loadMailMessages();
+        }
+
+        async function loadMailMessages() {
+            if (!currentActiveMailAddress) return;
+            const msgList = document.getElementById('mail-messages-list');
+            msgList.innerHTML = '<div class="spinner"></div>';
+            const res = await api(`/api/mini/mail/messages?address=${encodeURIComponent(currentActiveMailAddress)}`);
+            if (res.messages && res.messages.length > 0) {
+                msgList.innerHTML = res.messages.map(m => `
+                    <div style="background: rgba(15,23,42,0.6); padding: 12px; border-radius: 8px; border: 1px solid var(--border); margin-top: 8px;">
+                        <div style="font-weight: bold; font-size: 14px; color: var(--primary); margin-bottom: 4px;">📩 ${m.sender || 'Sender'}</div>
+                        <div style="font-size: 13px; color: var(--text); white-space: pre-wrap;">${m.snippet || m.body || 'Không có nội dung'}</div>
+                    </div>
+                `).join('');
+            } else {
+                msgList.innerHTML = '<div style="color: var(--text-muted); font-size: 14px; text-align: center; padding: 15px;">Hộp thư chưa có tin nhắn nào.</div>';
+            }
         }
 
         function formatPhoneNumber(phone, removePlus, nationalFormat) {
@@ -1114,7 +1221,7 @@ MINIAPP_HTML = """
                 const data = await api('/api/mini/np/services');
                 if (!data.services) return container.innerHTML = '<div class="loading" style="grid-column: 1/-1;">Không có dữ liệu (Kiểm tra NP Key).</div>';
                 container.innerHTML = data.services.map(s => `
-                    <button class="list-btn" onclick="loadNpCountries('${s.key}')">
+                    <button class="list-btn" onclick="loadNpCountries('${s.name}')">
                         <div class="name">🔧 ${s.name}</div>
                         <div class="count">Còn ${s.count} số</div>
                     </button>
@@ -1142,14 +1249,14 @@ MINIAPP_HTML = """
             }
         }
 
-        async function loadNpCountries(service) {
+        async function loadNpCountries(serviceName) {
             const container = document.getElementById('buy-list-container');
             if (!container) return;
             container.innerHTML = '<div class="loading" style="grid-column: 1/-1;"><div class="spinner"></div>Đang tải...</div>';
-            const data = await api('/api/mini/np/countries/' + service);
+            const data = await api('/api/mini/np/countries?service=' + encodeURIComponent(serviceName));
             if (!data.countries) return container.innerHTML = '<div class="loading" style="grid-column: 1/-1;">Lỗi tải quốc gia NP.</div>';
             container.innerHTML = data.countries.map(c => `
-                <button class="list-btn" onclick="buyNumber('NP', '${c.code}', '${c.name}', '${service}')">
+                <button class="list-btn" onclick="buyNumber('NP', '${c.name}', '${c.name}', '${serviceName}')">
                     <div class="name">🌍 ${c.name}</div>
                     <div class="count">Còn ${c.count} số</div>
                 </button>
