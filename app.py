@@ -1,3 +1,5 @@
+# File: app.py
+
 import os
 import json
 import hashlib
@@ -8,7 +10,7 @@ import re
 import time
 from urllib.parse import parse_qsl
 from types import SimpleNamespace
-from datetime import timedelta
+from datetime import datetime, timedelta
 from aiohttp import web
 
 from aiogram import Bot, Dispatcher, BaseMiddleware
@@ -125,45 +127,71 @@ async def mini_stats(request):
     except Exception as e: return web.json_response({"error": str(e)}, status=500)
 
 async def mini_radar_feed(request):
-    data, err = await api_request("GET", "radar", params={"limit": 160}, api_type="MK")
-    if err or not data:
-        return web.json_response({"items": [], "platforms": [], "countries": [], "total_records": 0})
-    
-    resp_data = data.get("data", data)
-    items = resp_data.get("items") or (data.get("items") if isinstance(data, dict) else []) or []
-    if not isinstance(items, list):
-        items = []
-
     formatted_items = []
     platform_counts = {}
     country_counts = {}
-
     current_unix = int(time.time())
-    for idx, item in enumerate(items):
-        p_name = item.get("platform") or item.get("service") or item.get("app") or item.get("message") or "Other"
-        plat = detect_otp_platform(p_name)
+
+    # 1. Lấy dữ liệu từ MK API nếu có
+    data, err = await api_request("GET", "radar", params={"limit": 160}, api_type="MK")
+    if not err and data:
+        resp_data = data.get("data", data)
+        items = resp_data.get("items") or (data.get("items") if isinstance(data, dict) else []) or []
+        if isinstance(items, list):
+            for idx, item in enumerate(items):
+                p_name = item.get("platform") or item.get("service") or item.get("app") or item.get("message") or "Other"
+                plat = detect_otp_platform(p_name)
+                platform_counts[plat] = platform_counts.get(plat, 0) + 1
+
+                country = item.get("country") or item.get("country_name") or "Zambia"
+                country_counts[country] = country_counts.get(country, 0) + 1
+
+                raw_ts = item.get("timestamp") or item.get("created_at") or item.get("time")
+                if raw_ts and str(raw_ts).isdigit() and int(raw_ts) > 1000000:
+                    timestamp = int(raw_ts)
+                else:
+                    timestamp = current_unix - (idx * 3)
+
+                formatted_items.append({
+                    "phone": item.get("phone") or item.get("number") or item.get("full_number") or "260XXX",
+                    "country": country,
+                    "flag": get_country_flag(country),
+                    "operator": item.get("operator") or item.get("network") or "Zamtel",
+                    "message": item.get("message") or item.get("sms") or item.get("text") or "OTP Code received",
+                    "timestamp": timestamp,
+                    "platform": plat
+                })
+
+    # 2. Lấy thêm các đơn hàng đã hoàn thành (COMPLETED) từ Database để Radar luôn có dữ liệu thực tế
+    local_orders = await db_exec("SELECT phone, country, operator, full_sms, platform, updated_at, created_at FROM orders WHERE status='COMPLETED' ORDER BY id DESC LIMIT 50", fetch="all")
+    for r in (local_orders or []):
+        plat = r["platform"] or detect_otp_platform(r["full_sms"])
         platform_counts[plat] = platform_counts.get(plat, 0) + 1
-
-        country = item.get("country") or item.get("country_name") or "Zambia"
+        country = r["country"] or "Vietnam"
         country_counts[country] = country_counts.get(country, 0) + 1
-
-        raw_ts = item.get("timestamp") or item.get("created_at") or item.get("time")
-        if raw_ts and str(raw_ts).isdigit() and int(raw_ts) > 1000000:
-            timestamp = int(raw_ts)
-        else:
-            timestamp = current_unix - (idx * 3)
+        
+        t_str = r["updated_at"] or r["created_at"]
+        try:
+            dt = datetime.fromisoformat(t_str)
+            timestamp = int(dt.timestamp())
+        except:
+            timestamp = current_unix
 
         formatted_items.append({
-            "phone": item.get("phone") or item.get("number") or item.get("full_number") or "260XXX",
+            "phone": r["phone"] or "N/A",
             "country": country,
             "flag": get_country_flag(country),
-            "operator": item.get("operator") or item.get("network") or "Zamtel",
-            "message": item.get("message") or item.get("sms") or item.get("text") or "OTP Code received",
+            "operator": r["operator"] or "Network",
+            "message": r["full_sms"] or "OTP Received successfully",
             "timestamp": timestamp,
             "platform": plat
         })
 
-    total_records = resp_data.get("total") or len(formatted_items)
+    # Sắp xếp theo thời gian mới nhất
+    formatted_items.sort(key=lambda x: x["timestamp"], reverse=True)
+    formatted_items = formatted_items[:100]
+
+    total_records = len(formatted_items)
     platforms = [{"name": k, "count": v, "icon": get_network_icon(k)} for k, v in sorted(platform_counts.items(), key=lambda x: x[1], reverse=True) if v > 0]
     countries = [{"name": k, "count": v, "flag": get_country_flag(k)} for k, v in sorted(country_counts.items(), key=lambda x: x[1], reverse=True)]
 
