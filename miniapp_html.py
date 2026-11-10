@@ -1055,21 +1055,20 @@ MINIAPP_HTML = r"""
                 document.getElementById('stats-all-time-otps').innerText = data.total_all_otps || 0;
                 document.getElementById('stats-today-otps').innerText = data.today_otps || 0;
 
-                if (data.countries) {
-                    listC.innerHTML = data.countries.length === 0 ? '<div style="color:var(--text-muted);font-size:14px;">No data today.</div>' : data.countries.map(c => `
-                        <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);">
-                            <span>${c.flag} ${c.country}</span><b style="color:var(--primary);">${c.count}</b>
-                        </div>
-                    `).join('');
-                }
+                const cList = data.countries || [];
+                const pList = data.platforms || [];
 
-                if (data.platforms) {
-                    listP.innerHTML = data.platforms.length === 0 ? '<div style="color:var(--text-muted);font-size:14px;">No data today.</div>' : data.platforms.map(p => `
-                        <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);">
-                            <span>${p.icon} ${p.platform}</span><b style="color:var(--success);">${p.count}</b>
-                        </div>
-                    `).join('');
-                }
+                listC.innerHTML = cList.length === 0 ? '<div style="color:var(--text-muted);font-size:14px;">No data today.</div>' : cList.map(c => `
+                    <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);">
+                        <span>${c.flag} ${c.country}</span><b style="color:var(--primary);">${c.count}</b>
+                    </div>
+                `).join('');
+
+                listP.innerHTML = pList.length === 0 ? '<div style="color:var(--text-muted);font-size:14px;">No data today.</div>' : pList.map(p => `
+                    <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);">
+                        <span>${p.icon} ${p.platform}</span><b style="color:var(--success);">${p.count}</b>
+                    </div>
+                `).join('');
             } finally {
                 isLoadingStats = false;
             }
