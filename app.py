@@ -132,12 +132,12 @@ async def mini_radar_feed(request):
     country_counts = {}
     current_unix = int(time.time())
 
-    # 1. Lấy dữ liệu từ MK API nếu có và không bị lỗi kết nối
+    # 1. Lấy dữ liệu từ MK API v3 (/radar?charts=true)
     try:
-        data, err = await api_request("GET", "radar", params={"limit": 100}, api_type="MK")
+        data, err = await api_request("GET", "radar", params={"charts": "true", "limit": 100}, api_type="MK")
         if not err and data:
             resp_data = data.get("data", data)
-            items = resp_data.get("items") or (data.get("items") if isinstance(data, dict) else []) or []
+            items = resp_data.get("feed") or resp_data.get("items") or []
             if isinstance(items, list):
                 for idx, item in enumerate(items):
                     p_name = item.get("platform") or item.get("service") or item.get("app") or item.get("message") or "Other"
@@ -147,25 +147,21 @@ async def mini_radar_feed(request):
                     country = item.get("country") or item.get("country_name") or "Vietnam"
                     country_counts[country] = country_counts.get(country, 0) + 1
 
-                    raw_ts = item.get("timestamp") or item.get("created_at") or item.get("time")
-                    if raw_ts and str(raw_ts).isdigit() and int(raw_ts) > 1000000:
-                        timestamp = int(raw_ts)
-                    else:
-                        timestamp = current_unix - (idx * 3)
+                    timestamp = current_unix - (idx * 3)
 
                     formatted_items.append({
-                        "phone": item.get("phone") or item.get("number") or item.get("full_number") or "N/A",
+                        "phone": item.get("number") or item.get("phone") or item.get("full_number") or "N/A",
                         "country": country,
                         "flag": get_country_flag(country),
                         "operator": item.get("operator") or item.get("network") or "Network",
-                        "message": item.get("message") or item.get("sms") or item.get("text") or "OTP Code received",
+                        "message": item.get("otp") or item.get("message") or item.get("sms") or "OTP Code received",
                         "timestamp": timestamp,
                         "platform": plat
                     })
     except Exception as e:
-        logger.warning(f"MK API Radar Fetch Error: {e}")
+        logger.warning(f"MK API v3 Radar Fetch Error: {e}")
 
-    # 2. Lấy các đơn hàng COMPLETED thực tế trong Database (CHỈ LẤY TRONG 30 PHÚT GẦN NHẤT)
+    # 2. Lấy đơn hàng COMPLETED thực tế trong Database (30 phút gần nhất)
     cutoff_time = (now() - timedelta(minutes=30)).isoformat()
     local_orders = await db_exec(
         "SELECT phone, country, operator, full_sms, platform, updated_at, created_at FROM orders WHERE status='COMPLETED' AND (updated_at >= ? OR created_at >= ?) ORDER BY id DESC LIMIT 50", 
@@ -194,7 +190,6 @@ async def mini_radar_feed(request):
             "platform": plat
         })
 
-    # Sắp xếp theo thời gian mới nhất
     formatted_items.sort(key=lambda x: x["timestamp"], reverse=True)
     formatted_items = formatted_items[:100]
 
@@ -262,7 +257,7 @@ async def mini_create_order(request):
         range_val = body.get("range")
         if not range_val or range_val == "undefined" or range_val == "null":
             return web.json_response({"error": "Lỗi MK: Range không hợp lệ."}, status=400)
-        data, err = await api_request("POST", "getnum/number", {"range": str(range_val).strip()})
+        data, err = await api_request("POST", "getnum/number", {"range": str(range_val).strip()}, api_type="MK")
         if err: return web.json_response({"error": f"Lỗi MK: {err}"}, status=400)
         inner_data = data.get("data", {})
         rid = inner_data.get("request_id")
@@ -473,13 +468,13 @@ async def mini_admin_cmd(request):
             poller = "OFF" if not _mk_poller else f"ON ({_mk_poller.interval}s)"
             return web.json_response({"ok": True, "msg": f"DB: Turso\nMK Key: {'OK' if MK_API_KEY else 'MISSING'}\nNP Key: {'OK' if NP_API_KEY else 'MISSING'}\nPending Orders: {pending_count}\nPoller: {poller}"})
         elif cmd == "whoami":
-            data, err = await api_request("GET", "whoami")
+            data, err = await api_request("GET", "whoami", api_type="MK")
             return web.json_response({"ok": True, "msg": f"API Error: {err}" if err else json.dumps(data, indent=2, ensure_ascii=False)})
         elif cmd == "testnp":
             data, err = await api_request("GET", "services", api_type="NP")
             return web.json_response({"ok": True, "msg": f"API Error: {err}" if err else json.dumps(data, indent=2, ensure_ascii=False)[:1000]})
         elif cmd == "radar":
-            data, err = await api_request("GET", "radar", params={"limit": 10}, api_type="MK")
+            data, err = await api_request("GET", "radar", params={"charts": "true", "limit": 10}, api_type="MK")
             return web.json_response({"ok": True, "msg": f"API Error: {err}" if err else json.dumps(data, indent=2, ensure_ascii=False)[:2000]})
         return web.json_response({"ok": True, "msg": "Unknown command"})
     except Exception as e:
@@ -547,6 +542,7 @@ async def mini_admin_wd_action(request):
         return web.json_response({"ok": True})
 
 async def mini_mk_ranges(request):
+    # API v3 /access_list
     data, err = await api_request("GET", "access_list", params={"limit": 1000}, api_type="MK")
     countries = []
     if not err and data and isinstance(data, dict):
