@@ -37,8 +37,11 @@ PORT             = int(os.getenv("PORT", "10000"))
 MK_API_KEY       = os.getenv("MK_API_KEY", "badacaa33d287233567a49db").strip()
 MK_API_URL       = "https://mknetworkbd.com/api/v3/public"
 
-NP_API_KEY       = os.getenv("NP_API_KEY", "").strip()
-NP_API_URL       = "https://numberpanel.tech/api" # Đã sửa lại domain chuẩn theo tài liệu
+NP_API_KEY       = os.getenv("NP_API_KEY", "np_live_lrRtdKcOeg-syi8UCpmaA_idYmBZY0zbpwl5P--gF-g").strip()
+NP_API_URL       = "https://numberpanel.tech/api" 
+
+BS_API_KEY       = os.getenv("BS_API_KEY", "bsh_k24s8NA57a0M4A52NwbDmX0hTm1GTlJW").strip()
+BS_API_URL       = "https://basha.cc/api"
 
 SLVN_API_KEY     = os.getenv("SLVN_API_KEY", "sl_live_ffd4ae564be89edb2d26d9a06ef2d4ff8a39387cafa00bd2").strip()
 SLVN_API_URL     = "https://slvirtualnumber.com/api/v1/developer"
@@ -56,7 +59,6 @@ BOT_USERNAME = ""
 _mk_poller = None
 
 # ==================== TELEGRAM COMMANDS ====================
-
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
     try: await message.delete()
@@ -69,7 +71,7 @@ async def cmd_start(message: Message):
         return await message.answer("🛠 <b>HỆ THỐNG ĐANG BẢO TRÌ</b>\n\nVui lòng quay lại sau.")
     
     if WEBAPP_URL.startswith("https://"):
-        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚡ MỞ ỨNG DỤNG FAST IVAS", web_app=WebAppInfo(url=WEBAPP_URL + "?v=10"))]])
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚡ MỞ ỨNG DỤNG FAST IVAS", web_app=WebAppInfo(url=WEBAPP_URL + "?v=11"))]])
         await message.answer("🚀 Chào mừng đến với <b>FAST IVAS</b>!\n\nVui lòng bấm nút bên dưới để mở ứng dụng.", reply_markup=kb)
     else:
         await message.answer("⚠️ Lỗi: Chưa cấu hình WEBAPP_URL.")
@@ -101,8 +103,7 @@ async def handle_text(message: Message):
 # ==================== API SERVICES ====================
 
 async def api_request(method, endpoint, json_data=None, params=None, api_type="MK"):
-    url = ""
-    headers = {"Accept": "application/json"}
+    url, headers = "", {"Accept": "application/json"}
     
     if api_type == "MK":
         url = f"{MK_API_URL}/{endpoint.lstrip('/')}"
@@ -110,6 +111,9 @@ async def api_request(method, endpoint, json_data=None, params=None, api_type="M
     elif api_type == "NP":
         url = f"{NP_API_URL}/{endpoint.lstrip('/')}"
         headers["Authorization"] = f"Bearer {NP_API_KEY}"
+    elif api_type == "BS":
+        url = f"{BS_API_URL}/{endpoint.lstrip('/')}"
+        headers["Authorization"] = f"Bearer {BS_API_KEY}"
     elif api_type == "SLVN":
         url = f"{SLVN_API_URL}/{endpoint.lstrip('/')}"
         headers["x-api-key"] = SLVN_API_KEY
@@ -176,6 +180,24 @@ class MkOtpPoller:
                         full_sms = inner.get("fullSms", "")
                         if otp_code:
                             await self._process_otp(order, otp_code, full_sms)
+
+            # 3. Poll NP
+            pending_np = await db_exec("SELECT id, user_id, request_id, phone, country FROM orders WHERE status='PENDING' AND provider='NP'", fetch="all")
+            for order in (pending_np or []):
+                data, err = await api_request("GET", "latest_otp", params={"number": order["phone"]}, api_type="NP")
+                if not err and data and data.get("has_otp"):
+                    otp_code = data.get("otp_code")
+                    if otp_code:
+                        await self._process_otp(order, otp_code, f"OTP: {otp_code}")
+
+            # 4. Poll BS
+            pending_bs = await db_exec("SELECT id, user_id, request_id, phone, country FROM orders WHERE status='PENDING' AND provider='BS'", fetch="all")
+            for order in (pending_bs or []):
+                data, err = await api_request("POST", "legacy/get-last-sms", {"number": order["phone"]}, api_type="BS")
+                if not err and data and data.get("message"):
+                    otp_match = re.search(r'\b(\d{4,8})\b', data["message"])
+                    if otp_match:
+                        await self._process_otp(order, otp_match.group(1), data["message"])
 
             return 0, 0, None
         except Exception as e:
@@ -462,6 +484,28 @@ async def mini_create_order(request):
             await clean_old_orders(uid)
             return web.json_response({"ok": True})
 
+        elif provider == "NP":
+            data, err = await api_request("POST", "request_number", {"service": body.get("service"), "country": body.get("country")}, api_type="NP")
+            if err: return web.json_response({"error": f"Lỗi NP: {err}"}, status=400)
+            phone = data.get("number"); rid = data.get("id") or phone
+            if not phone: return web.json_response({"error": "Lỗi NP: API không trả về số."}, status=400)
+            await db_exec("INSERT INTO orders (user_id, request_id, provider, phone, country, operator, range_code, status, created_at, expires_at) VALUES (?, ?, 'NP', ?, ?, ?, ?, 'PENDING', ?, ?)", 
+                          (uid, str(rid), str(phone), body.get("country"), body.get("service"), body.get("service"), now_text(), (now() + timedelta(minutes=15)).isoformat()))
+            await clean_old_orders(uid)
+            return web.json_response({"ok": True})
+
+        elif provider == "BS":
+            row = await db_exec("SELECT phone, country FROM basha_numbers WHERE country=? ORDER BY RANDOM() LIMIT 1", (body.get("country"),), fetch="one")
+            if not row: return web.json_response({"error": "Hết số BS cho quốc gia này"}, status=404)
+            phone = row["phone"] if isinstance(row, dict) else row[0]
+            country_val = row["country"] if isinstance(row, dict) else row[1]
+            
+            req_id = f"BS_{phone}_{int(time.time())}"
+            await db_exec("INSERT INTO orders (user_id, request_id, provider, phone, country, range_code, status, created_at, expires_at) VALUES (?, ?, 'BS', ?, ?, ?, 'PENDING', ?, ?)", 
+                          (uid, req_id, str(phone), country_val, country_val, now_text(), (now() + timedelta(minutes=15)).isoformat()))
+            await clean_old_orders(uid)
+            return web.json_response({"ok": True})
+
         return web.json_response({"error": "Provider không hợp lệ"}, status=400)
     except Exception as e: return web.json_response({"error": "Lỗi tạo đơn mua số"}, status=500)
 
@@ -529,7 +573,7 @@ async def mini_admin_user_detail(request):
         offset = (page - 1) * HISTORY_PAGE_SIZE
         orders = await db_exec("SELECT id, provider, phone, status, created_at FROM orders WHERE user_id=? ORDER BY id DESC LIMIT ? OFFSET ?", (uid, HISTORY_PAGE_SIZE, offset), fetch="all")
         stats = await db_exec("SELECT provider, COUNT(*) as c FROM orders WHERE user_id=? GROUP BY provider", (uid,), fetch="all")
-        s_map = {"MK": 0, "NP": 0, "BASHA": 0, "SLVN": 0}
+        s_map = {"MK": 0, "NP": 0, "BS": 0, "SLVN": 0}
         for s in (stats or []): s_map[s["provider"]] = s["c"]
         return web.json_response({"user": {"id": u["user_id"], "name": u["first_name"], "username": u["username"], "balance": u["usd_milli"], "joined": u["joined_at"]}, "stats": s_map, "orders": [{"id": r["id"], "provider": r["provider"], "phone": r["phone"], "status": r["status"], "date": r["created_at"]} for r in (orders or [])], "current_page": page, "total_pages": total_pages})
     except Exception as e: return web.json_response({"error": "Lỗi tải chi tiết user"}, status=500)
@@ -627,7 +671,7 @@ async def mini_admin_cmd(request):
             pending = await db_exec("SELECT COUNT(*) FROM orders WHERE status='PENDING'", fetch='one')
             pending_count = pending[0] if pending and len(pending) > 0 else 0
             poller = "OFF" if not _mk_poller else f"ON ({_mk_poller.interval}s)"
-            return web.json_response({"ok": True, "msg": f"DB: Turso\nMK Key: {'OK' if MK_API_KEY else 'MISSING'}\nNP Key: {'OK' if NP_API_KEY else 'MISSING'}\nSLVN Key: {'OK' if SLVN_API_KEY else 'MISSING'}\nPending Orders: {pending_count}\nPoller: {poller}"})
+            return web.json_response({"ok": True, "msg": f"DB: Turso\nMK Key: {'OK' if MK_API_KEY else 'MISSING'}\nNP Key: {'OK' if NP_API_KEY else 'MISSING'}\nBS Key: {'OK' if BS_API_KEY else 'MISSING'}\nSLVN Key: {'OK' if SLVN_API_KEY else 'MISSING'}\nPending Orders: {pending_count}\nPoller: {poller}"})
         elif cmd == "whoami":
             data, err = await api_request("GET", "whoami", api_type="MK")
             return web.json_response({"ok": True, "msg": f"API Error: {err}" if err else json.dumps(data, indent=2, ensure_ascii=False)})
@@ -758,50 +802,40 @@ async def mini_slvn_countries(request):
         return web.json_response({"countries": [{"name": c.get("country"), "code": c.get("countryCode"), "flag": c.get("flag"), "tag": c.get("tag"), "rate": c.get("rateUsd")} for c in data.get("data", [])]})
     except Exception as e: return web.json_response({"countries": []})
 
-# ==================== TEMP MAIL APIs (REAL-TIME QUA 1SECMAIL) ====================
+# ==================== TEMP MAIL APIs (REAL-TIME QUA NUMBER PANEL) ====================
 async def mini_mail_domains(request):
     try:
-        async with ClientSession() as session:
-            async with session.get("https://www.1secmail.com/api/v1/?action=getDomainList") as resp:
-                domains = await resp.json()
-                return web.json_response({"domains": domains})
-    except Exception as e:
-        logger.error(f"Lỗi lấy domains temp mail: {e}")
-        return web.json_response({"domains": ["1secmail.com", "1secmail.org"]})
+        data, err = await api_request("GET", "mail/domains", api_type="NP")
+        if err: return web.json_response({"domains": []})
+        return web.json_response({"domains": data.get("domains", [])})
+    except Exception as e: return web.json_response({"domains": []})
 
 async def mini_mail_generate(request):
     try:
-        body = await request.json()
-        username = body.get("username") or ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
-        domain = body.get("domain") or "1secmail.com"
-        address = f"{username}@{domain}"
-        uid = mini_uid(request)
-        await db_exec("INSERT INTO mail_history (user_id, address, created_at) VALUES (?, ?, ?)", (uid, address, now_text()))
-        return web.json_response({"success": True, "mail": {"address": address}})
+        body = await request.json(); username = body.get("username"); domain = body.get("domain")
+        payload = {}
+        if username: payload["username"] = username
+        if domain: payload["domain"] = domain
+        data, err = await api_request("POST", "mail/generate", payload, api_type="NP")
+        if err: return web.json_response({"error": err}, status=500)
+        return web.json_response({"success": True, "mail": data.get("mail", {})})
     except Exception as e: return web.json_response({"error": "Lỗi tạo mail"}, status=500)
 
 async def mini_mail_history(request):
     try:
-        uid = mini_uid(request)
-        rows = await db_exec("SELECT address FROM mail_history WHERE user_id=? ORDER BY id DESC LIMIT 5", (uid,), fetch="all")
-        return web.json_response({"history": [{"address": r["address"]} for r in (rows or [])]})
+        data, err = await api_request("GET", "mail/history", api_type="NP")
+        if err: return web.json_response({"history": []})
+        return web.json_response({"history": data.get("history", [])})
     except Exception as e: return web.json_response({"history": []})
 
 async def mini_mail_messages(request):
     try:
         address = request.query.get("address")
-        if not address or "@" not in address: return web.json_response({"messages": []})
-        
-        login, domain = address.split("@")
-        url = f"https://www.1secmail.com/api/v1/?action=getMessages&login={login}&domain={domain}"
-        
-        async with ClientSession() as session:
-            async with session.get(url) as resp:
-                msgs = await resp.json()
-                return web.json_response({"messages": msgs})
-    except Exception as e:
-        logger.error(f"Lỗi lấy messages temp mail: {e}")
-        return web.json_response({"messages": []})
+        if not address: return web.json_response({"messages": []})
+        data, err = await api_request("GET", "mail/messages", params={"address": address}, api_type="NP")
+        if err: return web.json_response({"messages": []})
+        return web.json_response({"messages": data.get("messages", [])})
+    except Exception as e: return web.json_response({"messages": []})
 
 # ==================== WEB SERVER ====================
 async def web_server():
@@ -866,7 +900,7 @@ async def main():
     try: 
         me = await bot.get_me(); BOT_USERNAME = me.username; await set_bot_commands()
         if WEBAPP_URL.startswith("https://"):
-            await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="FAST IVAS", web_app=WebAppInfo(url=WEBAPP_URL + "?v=10")))
+            await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="FAST IVAS", web_app=WebAppInfo(url=WEBAPP_URL + "?v=11")))
     except Exception as e: logger.error(f"Error setting menu: {e}")
     
     await init_db()
