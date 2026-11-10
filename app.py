@@ -11,7 +11,7 @@ import random
 import string
 from urllib.parse import parse_qsl
 from types import SimpleNamespace
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from aiohttp import web, ClientSession
 
 from aiogram import Bot, Dispatcher, BaseMiddleware, F
@@ -71,7 +71,7 @@ async def cmd_start(message: Message):
         return await message.answer("🛠 <b>HỆ THỐNG ĐANG BẢO TRÌ</b>\n\nVui lòng quay lại sau.")
     
     if WEBAPP_URL.startswith("https://"):
-        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚡ MỞ ỨNG DỤNG FAST IVAS", web_app=WebAppInfo(url=WEBAPP_URL + "?v=12"))]])
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚡ MỞ ỨNG DỤNG FAST IVAS", web_app=WebAppInfo(url=WEBAPP_URL + "?v=16"))]])
         await message.answer("🚀 Chào mừng đến với <b>FAST IVAS</b>!\n\nVui lòng bấm nút bên dưới để mở ứng dụng.", reply_markup=kb)
     else:
         await message.answer("⚠️ Lỗi: Chưa cấu hình WEBAPP_URL.")
@@ -357,7 +357,15 @@ async def mini_radar_feed(request):
                     country = item.get("country") or item.get("country_name") or "Vietnam"
                     country_counts[country] = country_counts.get(country, 0) + 1
 
-                    timestamp = current_unix - (idx * 3)
+                    time_str = item.get("time")
+                    if time_str:
+                        try:
+                            dt = datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+                            timestamp = int(dt.timestamp())
+                        except:
+                            timestamp = current_unix - (idx * 5)
+                    else:
+                        timestamp = current_unix - (idx * 5)
 
                     formatted_items.append({
                         "phone": item.get("number") or item.get("phone") or item.get("full_number") or "N/A",
@@ -407,7 +415,7 @@ async def mini_active_orders(request):
         uid = mini_uid(request)
         cutoff = (now() - timedelta(minutes=30)).isoformat()
         rows = await db_exec(
-            """SELECT id, provider, phone, country, status, created_at, otp_code, platform, full_sms 
+            """SELECT id, provider, phone, country, status, created_at, expires_at, otp_code, platform, full_sms 
                FROM orders 
                WHERE user_id=? AND (status='PENDING' OR (status='COMPLETED' AND (updated_at >= ? OR created_at >= ?))) 
                ORDER BY id DESC""", 
@@ -416,10 +424,22 @@ async def mini_active_orders(request):
         orders = []
         for r in (rows or []):
             plat = r["platform"] or detect_otp_platform(r["full_sms"])
+            
+            # Tính toán expires_at fallback chắc chắn 100% có dữ liệu
+            exp_at = r["expires_at"]
+            if not exp_at and r["status"] == "PENDING":
+                try:
+                    c_dt = datetime.fromisoformat(r["created_at"])
+                    duration = 30 if r["provider"] == "SLVN" else 15
+                    exp_at = (c_dt + timedelta(minutes=duration)).isoformat()
+                except:
+                    # Nếu created_at cũng lỗi, lấy thời gian hiện tại + 15p
+                    exp_at = (now() + timedelta(minutes=15)).isoformat()
+
             orders.append({
                 "id": r["id"], "provider": r["provider"], "phone": r["phone"], "country": r["country"], 
-                "status": r["status"], "created_at": r["created_at"], "otp": r["otp_code"], 
-                "platform": plat, "icon": get_network_icon(plat), "flag": get_country_flag(r["country"]), "full_sms": r["full_sms"]
+                "status": r["status"], "created_at": r["created_at"], "expires_at": exp_at,
+                "otp": r["otp_code"], "platform": plat, "icon": get_network_icon(plat), "flag": get_country_flag(r["country"]), "full_sms": r["full_sms"]
             })
         return web.json_response({"orders": orders})
     except Exception as e: return web.json_response({"error": "Lỗi tải đơn hàng đang chờ"}, status=500)
@@ -437,14 +457,14 @@ async def mini_history_orders(request):
         total_pages = max(1, (total + HISTORY_PAGE_SIZE - 1) // HISTORY_PAGE_SIZE)
         if page > total_pages: page = total_pages
         
-        rows = await db_exec("SELECT id, provider, phone, country, status, created_at, otp_code, platform, full_sms FROM orders WHERE user_id=? ORDER BY id DESC LIMIT ? OFFSET ?", (uid, HISTORY_PAGE_SIZE, offset), fetch="all")
+        rows = await db_exec("SELECT id, provider, phone, country, status, created_at, expires_at, otp_code, platform, full_sms FROM orders WHERE user_id=? ORDER BY id DESC LIMIT ? OFFSET ?", (uid, HISTORY_PAGE_SIZE, offset), fetch="all")
         orders = []
         for r in (rows or []):
             plat = r["platform"] or detect_otp_platform(r["full_sms"])
             orders.append({
                 "id": r["id"], "provider": r["provider"], "phone": r["phone"], "country": r["country"], 
-                "status": r["status"], "created_at": r["created_at"], "otp": r["otp_code"], 
-                "platform": plat, "icon": get_network_icon(plat), "flag": get_country_flag(r["country"])
+                "status": r["status"], "created_at": r["created_at"], "expires_at": r["expires_at"], 
+                "otp": r["otp_code"], "platform": plat, "icon": get_network_icon(plat), "flag": get_country_flag(r["country"])
             })
         return web.json_response({"orders": orders, "current_page": page, "total_pages": total_pages, "total_records": total})
     except Exception as e: return web.json_response({"error": "Lỗi tải lịch sử giao dịch"}, status=500)
@@ -486,8 +506,9 @@ async def mini_create_order(request):
             country = order_data.get("country")
             if not rid: return web.json_response({"error": "Lỗi SLVN: Không lấy được rentalId."}, status=400)
             
+            # SLVN thời gian là 30 phút
             await db_exec("INSERT INTO orders (user_id, request_id, provider, phone, country, range_code, status, created_at, expires_at) VALUES (?, ?, 'SLVN', ?, ?, ?, 'PENDING', ?, ?)", 
-                          (uid, rid, phone, country, body.get("tag"), now_text(), (now() + timedelta(minutes=15)).isoformat()))
+                          (uid, rid, phone, country, body.get("tag"), now_text(), (now() + timedelta(minutes=30)).isoformat()))
             await clean_old_orders(uid)
             return web.json_response({"ok": True})
 
@@ -918,7 +939,7 @@ async def main():
     try: 
         me = await bot.get_me(); BOT_USERNAME = me.username; await set_bot_commands()
         if WEBAPP_URL.startswith("https://"):
-            await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="FAST IVAS", web_app=WebAppInfo(url=WEBAPP_URL + "?v=12")))
+            await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="FAST IVAS", web_app=WebAppInfo(url=WEBAPP_URL + "?v=16")))
     except Exception as e: logger.error(f"Error setting menu: {e}")
     
     await init_db()
