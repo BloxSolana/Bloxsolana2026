@@ -399,9 +399,24 @@ MINIAPP_HTML = r"""
 
         <!-- ================= VIEW LEADERBOARD ================= -->
         <div id="view-leaderboard" class="view">
+            <!-- Bộ đếm ngược Real-time reset theo giờ VN -->
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; background: var(--surface); padding: 12px 15px; border-radius: 12px; border: 1px solid var(--border);">
+                <div style="font-weight: 600; color: var(--text-muted); font-size: 14px;">⏳ Reset ngày mới (Giờ VN):</div>
+                <div id="lb-countdown" style="font-family: monospace; font-size: 18px; font-weight: bold; color: var(--warning); letter-spacing: 1px;">00:00:00</div>
+            </div>
+
+            <!-- Bảng All-Time -->
             <div class="card">
                 <div class="form-label" style="font-size: 16px; color: var(--text); margin-bottom: 15px;" data-i18n="top_10">🏆 TOP 10 CAO THỦ</div>
                 <div id="leaderboard-list">
+                    <div class="loading"><div class="spinner"></div>Đang tải...</div>
+                </div>
+            </div>
+
+            <!-- Bảng OTP Hôm Nay -->
+            <div class="card" style="border-color: rgba(59, 130, 246, 0.4);">
+                <div class="form-label" style="font-size: 16px; color: var(--primary); margin-bottom: 15px;">🔥 TOP OTP HÔM NAY</div>
+                <div id="leaderboard-today-list">
                     <div class="loading"><div class="spinner"></div>Đang tải...</div>
                 </div>
             </div>
@@ -617,7 +632,8 @@ MINIAPP_HTML = r"""
         let autoRefreshInterval = null;
         let statsRefreshInterval = null;
         let radarRefreshInterval = null;
-        let buyRefreshInterval = null; // FIX: Thêm biến auto-refresh cho tab Buy
+        let buyRefreshInterval = null;
+        let lbCountdownInterval = null;
         let timerInterval = null;
         
         let currentHistoryPage = 1;
@@ -630,7 +646,7 @@ MINIAPP_HTML = r"""
         let lastKnownCompletedOrders = new Set();
         let currentActiveMailAddress = null;
         
-        let currentBuyView = 'root'; // FIX: Lưu trạng thái xem (root hoặc np_countries)
+        let currentBuyView = 'root';
         let currentNpService = null;
 
         let isLoadingRadar = false;
@@ -783,24 +799,25 @@ MINIAPP_HTML = r"""
 
             if (document.getElementById('sidebar').classList.contains('open')) toggleSidebar();
 
-            // FIX: Dọn dẹp các interval cũ khi chuyển tab
+            // Dọn dẹp các interval cũ
             stopRadarRefresh();
             stopStatsRefresh();
             stopBuyRefresh();
+            stopLeaderboardCountdown();
 
             try {
                 if (viewId === 'home') loadHome();
                 if (viewId === 'buy') {
                     currentBuyView = 'root';
                     renderBuyOptions();
-                    startBuyRefresh(); // Bật auto-refresh kho số
+                    startBuyRefresh();
                 }
                 if (viewId === 'tempmail') loadTempMailData();
                 if (viewId === 'radar') { loadRadarFeed(); startRadarRefresh(); }
                 if (viewId === 'history') loadHistory(1);
                 if (viewId === 'wallet') loadWallet();
                 if (viewId === 'stats') { loadStats(); startStatsRefresh(); }
-                if (viewId === 'leaderboard') loadLeaderboard();
+                if (viewId === 'leaderboard') { loadLeaderboard(); startLeaderboardCountdown(); }
                 if (viewId === 'profile') loadProfile();
                 if (viewId === 'admin') loadAdmin();
             } catch(err) {}
@@ -1066,8 +1083,6 @@ MINIAPP_HTML = r"""
                     if (diff <= 0) {
                         el.innerText = "⌛ Đã hết hạn";
                         const card = el.closest('.order-card');
-                        // FIX: CHỈ ẩn thẻ nếu đang nằm ở danh sách "Đơn Đang Chờ" (Home)
-                        // KHÔNG ẩn nếu nằm trong Lịch Sử (History)
                         if(card && card.closest('#active-orders-list')) {
                             card.style.display = 'none';
                         }
@@ -1080,6 +1095,7 @@ MINIAPP_HTML = r"""
             }, 1000);
         }
 
+        // FIX LỖI ẢNH 2: Thêm kiểm tra nhiều key trả về và hiển thị lỗi nếu API sập
         async function loadStats() {
             if (isLoadingStats) return; 
             isLoadingStats = true;
@@ -1090,25 +1106,36 @@ MINIAPP_HTML = r"""
             
             try {
                 const data = await api('/api/mini/stats');
-                if(data.error) { isLoadingStats = false; return; }
+                if(data.error) { 
+                    listC.innerHTML = `<div class="error-box" style="grid-column: 1/-1;">Lỗi tải thống kê: ${data.error}</div>`;
+                    listP.innerHTML = '';
+                    isLoadingStats = false; 
+                    return; 
+                }
 
-                document.getElementById('stats-all-time-otps').innerText = data.total_all_otps || 0;
-                document.getElementById('stats-today-otps').innerText = data.today_otps || 0;
+                // Fallback cho key Backend có thể trả về
+                const allTime = data.total_all_otps !== undefined ? data.total_all_otps : (data.total_otps || 0);
+                const todayOtp = data.today_otps || 0;
+
+                document.getElementById('stats-all-time-otps').innerText = allTime;
+                document.getElementById('stats-today-otps').innerText = todayOtp;
 
                 const cList = data.countries || [];
                 const pList = data.platforms || [];
 
-                listC.innerHTML = cList.length === 0 ? '<div style="color:var(--text-muted);font-size:14px;">No data today.</div>' : cList.map(c => `
+                listC.innerHTML = cList.length === 0 ? '<div style="color:var(--text-muted);font-size:14px;text-align:center;padding:10px;">Chưa có dữ liệu hôm nay.</div>' : cList.map(c => `
                     <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);">
                         <span>${c.flag} ${c.country}</span><b style="color:var(--primary);">${c.count}</b>
                     </div>
                 `).join('');
 
-                listP.innerHTML = pList.length === 0 ? '<div style="color:var(--text-muted);font-size:14px;">No data today.</div>' : pList.map(p => `
+                listP.innerHTML = pList.length === 0 ? '<div style="color:var(--text-muted);font-size:14px;text-align:center;padding:10px;">Chưa có dữ liệu hôm nay.</div>' : pList.map(p => `
                     <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);">
                         <span>${p.icon} ${p.platform}</span><b style="color:var(--success);">${p.count}</b>
                     </div>
                 `).join('');
+            } catch(e) {
+                console.error(e);
             } finally {
                 isLoadingStats = false;
             }
@@ -1117,26 +1144,99 @@ MINIAPP_HTML = r"""
         function startStatsRefresh() { stopStatsRefresh(); statsRefreshInterval = setInterval(loadStats, 5000); }
         function stopStatsRefresh() { if (statsRefreshInterval) clearInterval(statsRefreshInterval); }
 
+        // FIX ẢNH 1: Thêm đồng hồ đếm ngược reset ngày mới và Bảng Top OTP Hôm Nay
+        function startLeaderboardCountdown() {
+            if (lbCountdownInterval) clearInterval(lbCountdownInterval);
+            const el = document.getElementById('lb-countdown');
+            if (!el) return;
+
+            lbCountdownInterval = setInterval(() => {
+                const now = new Date();
+                const utcHours = now.getUTCHours();
+                const utcMinutes = now.getUTCMinutes();
+                const utcSeconds = now.getUTCSeconds();
+                
+                // Giờ VN = UTC + 7
+                let vnHours = (utcHours + 7) % 24;
+                let secondsPassed = vnHours * 3600 + utcMinutes * 60 + utcSeconds;
+                let totalSeconds = 24 * 3600;
+                let secondsLeft = totalSeconds - secondsPassed;
+                
+                if (secondsLeft < 0) secondsLeft = 0;
+
+                const h = Math.floor(secondsLeft / 3600).toString().padStart(2, '0');
+                const m = Math.floor((secondsLeft % 3600) / 60).toString().padStart(2, '0');
+                const s = (secondsLeft % 60).toString().padStart(2, '0');
+                
+                el.innerText = `${h}:${m}:${s}`;
+            }, 1000);
+        }
+
+        function stopLeaderboardCountdown() {
+            if (lbCountdownInterval) clearInterval(lbCountdownInterval);
+        }
+
         async function loadLeaderboard() {
             const listDiv = document.getElementById('leaderboard-list');
-            if (!listDiv) return;
-            const data = await api('/api/mini/leaderboard');
-            if (!data.leaderboard || data.leaderboard.length === 0) return listDiv.innerHTML = '<div class="loading">No data.</div>';
-            
-            // FIX: Ép lại logic sắp xếp trên Frontend: Ưu tiên OTP giảm dần, nếu bằng nhau mới xét Balance
-            const sortedData = [...data.leaderboard].sort((a, b) => {
-                if (b.total_otps !== a.total_otps) {
-                    return b.total_otps - a.total_otps;
-                }
-                return b.balance - a.balance;
-            });
+            const listTodayDiv = document.getElementById('leaderboard-today-list');
+            if (!listDiv || !listTodayDiv) return;
 
-            listDiv.innerHTML = sortedData.map((u, i) => `
-                <div style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border);">
-                    <div><div>${i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '🔹'} ${u.name}</div><div style="font-size: 12px; color: var(--text-muted);">OTPs: ${u.total_otps}</div></div>
-                    <strong style="color: var(--success); align-self:center;">$${(u.balance/1000).toFixed(3)}</strong>
-                </div>
-            `).join('');
+            const data = await api('/api/mini/leaderboard');
+            
+            if (data.error) {
+                listDiv.innerHTML = `<div class="error-box">${data.error}</div>`;
+                listTodayDiv.innerHTML = `<div class="error-box">${data.error}</div>`;
+                return;
+            }
+
+            // 1. Bảng Top 10 All-Time (Bỏ chữ OTPs)
+            if (!data.leaderboard || data.leaderboard.length === 0) {
+                listDiv.innerHTML = '<div class="loading">Chưa có dữ liệu.</div>';
+            } else {
+                // Sắp xếp theo số dư (hoặc bro muốn theo OTP all-time thì đổi lại)
+                const sortedAllTime = [...data.leaderboard].sort((a, b) => b.balance - a.balance);
+                listDiv.innerHTML = sortedAllTime.map((u, i) => `
+                    <div style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border);">
+                        <div style="font-weight: 500;">${i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '🔹'} ${u.name}</div>
+                        <strong style="color: var(--success); align-self:center;">$${(u.balance/1000).toFixed(3)}</strong>
+                    </div>
+                `).join('');
+            }
+
+            // 2. Bảng Top OTP Hôm Nay
+            // Lấy data.today_leaderboard nếu backend có, nếu không thì fallback dùng data.leaderboard
+            const todayData = data.today_leaderboard || data.leaderboard;
+            
+            if (!todayData || todayData.length === 0) {
+                listTodayDiv.innerHTML = '<div class="loading">Chưa có ai nhận OTP hôm nay.</div>';
+            } else {
+                // Lọc những user có OTP hôm nay > 0 (nếu có trường today_otps)
+                let filteredToday = todayData.filter(u => {
+                    let otpCount = u.today_otps !== undefined ? u.today_otps : (u.total_otps || 0);
+                    return otpCount > 0;
+                });
+
+                // Sắp xếp theo số lượng OTP giảm dần
+                filteredToday.sort((a, b) => {
+                    let otpA = a.today_otps !== undefined ? a.today_otps : (a.total_otps || 0);
+                    let otpB = b.today_otps !== undefined ? b.today_otps : (b.total_otps || 0);
+                    return otpB - otpA;
+                });
+
+                if (filteredToday.length === 0) {
+                    listTodayDiv.innerHTML = '<div class="loading">Chưa có ai nhận OTP hôm nay.</div>';
+                } else {
+                    listTodayDiv.innerHTML = filteredToday.map((u, i) => {
+                        let otpCount = u.today_otps !== undefined ? u.today_otps : (u.total_otps || 0);
+                        return `
+                        <div style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border);">
+                            <div style="font-weight: 500;">${i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '🔹'} ${u.name}</div>
+                            <div style="font-weight: bold; color: var(--primary); align-self:center;">${otpCount} OTPs</div>
+                        </div>
+                        `;
+                    }).join('');
+                }
+            }
         }
 
         async function loadHistory(page = 1) {
@@ -1179,7 +1279,6 @@ MINIAPP_HTML = r"""
         function renderOrderCard(o, isHistory) {
             const hasOtp = o.status === 'COMPLETED' || (o.otp && o.otp !== 'null' && o.otp !== '');
             
-            // FIX: Xử lý logic hiển thị cho đơn đã quá hạn ngay từ lúc render
             let isExpired = false;
             let expDate = null;
             if (o.status === 'PENDING') {
@@ -1261,15 +1360,11 @@ MINIAPP_HTML = r"""
             else { showAlert('Error: ' + res.error); }
         }
 
-        // ==========================================
-        // FIX: Auto-refresh cho tab Buy (Real-time tồn kho)
-        // ==========================================
         function startBuyRefresh() {
             stopBuyRefresh();
             buyRefreshInterval = setInterval(() => {
-                // Chỉ auto-refresh khi đang ở tab Buy VÀ đang ở màn hình chính (không phải trong màn hình chọn nước của NP)
                 if (document.querySelector('.view.active')?.id === 'view-buy' && currentBuyView === 'root') {
-                    renderBuyOptions(true); // true = silent refresh (không hiện spinner)
+                    renderBuyOptions(true); 
                 }
             }, 5000);
         }
@@ -1341,9 +1436,9 @@ MINIAPP_HTML = r"""
         }
 
         async function loadNpCountries(serviceKey, serviceName) {
-            currentBuyView = 'np'; // Đánh dấu đang ở trong màn hình chọn quốc gia NP
+            currentBuyView = 'np';
             currentNpService = { key: serviceKey, name: serviceName };
-            stopBuyRefresh(); // Tạm dừng auto-refresh để không bị load đè
+            stopBuyRefresh();
 
             const container = document.getElementById('buy-list-container');
             if (!container) return;
@@ -1376,7 +1471,7 @@ MINIAPP_HTML = r"""
         function backToBuyRoot() {
             currentBuyView = 'root';
             renderBuyOptions();
-            startBuyRefresh(); // Bật lại auto-refresh
+            startBuyRefresh();
         }
 
         async function buyNumber(provider, code, name, param3 = null) {
@@ -1769,7 +1864,6 @@ MINIAPP_HTML = r"""
             }, 2000);
         }
 
-        // FIX: Gắn event listener cho dropdown
         (function attachProviderListener() {
             const sel = document.getElementById('provider-select');
             if (sel) {
@@ -1777,7 +1871,6 @@ MINIAPP_HTML = r"""
                     currentBuyView = 'root';
                     renderBuyOptions();
                 });
-                console.log('[OK] Provider listener attached');
             }
         })();
 
