@@ -760,7 +760,6 @@ MINIAPP_HTML = """
             const data = await api('/api/mini/orders/active');
             if (!data.orders) return;
             
-            // Lọc chính xác đơn đang chờ, bỏ qua đơn đã hủy hoặc quá hạn 15 phút (900s)
             const nowSec = Math.floor(Date.now() / 1000);
             const validOrders = data.orders.filter(o => {
                 if (o.status === 'CANCELLED' || o.status === 'EXPIRED') return false;
