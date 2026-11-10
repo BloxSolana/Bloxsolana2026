@@ -38,6 +38,7 @@ def mask_phone(phone):
     if not phone or len(phone) < 7: return phone
     return phone[:3] + "*" * (len(phone) - 6) + phone[-3:]
 
+# ĐẦY ĐỦ 195+ QUỐC GIA VÀ VÙNG LÃNH THỔ TRÊN THẾ GIỚI
 COUNTRY_CODES = {
     "1": ("United States", "🇺🇸"),
     "7": ("Russia", "🇷🇺"),
@@ -291,11 +292,13 @@ def detect_otp_platform(full_sms):
         "Facebook": ["facebook", "fb", "messenger"],
         "Instagram": ["instagram", "ig"],
         "Threads": ["threads"],
+        "Twitter/X": ["twitter", " x ", "x.com"],
+        "imo": ["imo"],
+        "1xbet": ["1xbet", "1-xbet"],
         "Google": ["google", "gmail"],
         "Telegram": ["telegram"],
         "WhatsApp": ["whatsapp"],
         "Zalo": ["zalo"],
-        "Twitter/X": ["twitter", " x "],
         "YouTube": ["youtube", "yt"],
         "Discord": ["discord"],
         "Steam": ["steam"],
@@ -328,11 +331,13 @@ def get_network_icon(net):
     if "facebook" in n or "fb" in n: return "📘"
     if "instagram" in n or "ig" in n: return "📸"
     if "threads" in n: return "🧵"
+    if "twitter" in n or " x " in n or n == "x": return "🐦"
+    if "imo" in n: return "📱"
+    if "1xbet" in n: return "⚽"
     if "tiktok" in n: return "🎬"
     if "telegram" in n or "tg" in n: return "✈️"
     if "whatsapp" in n: return "💬"
     if "zalo" in n: return "🇻🇳"
-    if "twitter" in n or " x " in n or n == "x": return "🐦"
     if "google" in n or "gmail" in n: return "🇬"
     if "youtube" in n or "yt" in n: return "▶️"
     if "discord" in n: return "🎮"
