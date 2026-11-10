@@ -614,7 +614,7 @@ MINIAPP_HTML = r"""
         let autoRefreshInterval = null;
         let statsRefreshInterval = null;
         let radarRefreshInterval = null;
-        let timerInterval = null; // FIX: Khai báo timerInterval
+        let timerInterval = null;
         let currentHistoryPage = 1;
         let totalHistoryPages = 1;
         let currentLang = 'vi';
@@ -625,7 +625,6 @@ MINIAPP_HTML = r"""
         let lastKnownCompletedOrders = new Set();
         let currentActiveMailAddress = null;
 
-        // Cờ chống spam API gây đơ
         let isLoadingRadar = false;
         let isLoadingStats = false;
 
@@ -1147,10 +1146,22 @@ MINIAPP_HTML = r"""
                 cardClass = 'order-card expired';
             }
 
-            // FIX: Thêm div countdown nếu có expires_at
+            // FIX: Thêm div countdown nếu có expires_at hoặc fallback tính từ created_at
             let countdownHtml = '';
-            if (o.status === 'PENDING' && o.expires_at) {
-                countdownHtml = `<div id="timer-${o.id}" class="countdown" data-exp="${o.expires_at}">⏳ Đang tính toán...</div>`;
+            if (o.status === 'PENDING') {
+                let expDate;
+                if (o.expires_at && o.expires_at !== 'null' && o.expires_at !== 'undefined') {
+                    expDate = new Date(o.expires_at);
+                } else {
+                    // Fallback: Tính từ created_at
+                    const createdDate = new Date(o.created_at);
+                    const durationMs = (o.provider === 'SLVN') ? 30 * 60 * 1000 : 15 * 60 * 1000;
+                    expDate = new Date(createdDate.getTime() + durationMs);
+                }
+                
+                if (!isNaN(expDate.getTime())) {
+                    countdownHtml = `<div id="timer-${o.id}" class="countdown" data-exp="${expDate.toISOString()}">⏳ Đang tính toán...</div>`;
+                }
             }
 
             return `
