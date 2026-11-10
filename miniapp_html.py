@@ -229,6 +229,8 @@ MINIAPP_HTML = r"""
                     <select class="form-control" id="provider-select" onchange="renderBuyOptions()">
                         <option value="MK">🎱 Numbers 1 (MK)</option>
                         <option value="SLVN">🌐 Numbers 2 (SLVN)</option>
+                        <option value="NP">📱 Numbers 3 (NP)</option>
+                        <option value="BS">🔢 Numbers 4 (BS)</option>
                     </select>
                 </div>
             </div>
@@ -816,9 +818,9 @@ MINIAPP_HTML = r"""
 
             const domRes = await api('/api/mini/mail/domains');
             if (domRes.domains && domRes.domains.length > 0) {
-                domainSel.innerHTML = domRes.domains.map((d, i) => `<option value="${d}">🔒 Server Mail #${i+1} (${d})</option>`).join('');
+                domainSel.innerHTML = domRes.domains.map((d, i) => `<option value="${d}">🔒 Máy chủ Mail #${i+1} (${d})</option>`).join('');
             } else {
-                domainSel.innerHTML = `<option value="1secmail.com">🔒 Server Mail #1</option>`;
+                domainSel.innerHTML = `<option value="inbox.numberpanel.tech">🔒 Máy chủ Mail #1</option>`;
             }
 
             const histRes = await api('/api/mini/mail/history');
@@ -826,7 +828,7 @@ MINIAPP_HTML = r"""
                 historyDiv.innerHTML = histRes.history.map(h => `
                     <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border);">
                         <span style="font-size: 14px; font-weight: 500; word-break: break-all;">${h.address}</span>
-                        <button class="btn-small copy" style="width: auto; padding: 6px 12px;" onclick="selectMailBox('${h.address}')">📥 View</button>
+                        <button class="btn-small copy" style="width: auto; padding: 6px 12px;" onclick="selectMailBox('${h.address}')">📥 Xem</button>
                     </div>
                 `).join('');
             } else {
@@ -841,8 +843,8 @@ MINIAPP_HTML = r"""
             if (res.success && res.mail) {
                 selectMailBox(res.mail.address);
                 loadTempMailData();
-                showToast('Email generated successfully!');
-            } else { alert(res.error || 'Error creating temp mail'); }
+                showToast('Đã tạo hòm thư thành công!');
+            } else { alert(res.error || 'Lỗi tạo email ảo'); }
         }
 
         function selectMailBox(address) {
@@ -1142,6 +1144,30 @@ MINIAPP_HTML = r"""
                     <button class="list-btn" onclick="buyNumber('SLVN', '${c.code}', '${c.name}', '${c.tag}')"><div class="name">${c.flag} ${c.name}</div><div class="count">Rate: $${c.rate}</div></button>
                 `).join('');
             }
+            else if (provider === 'NP') {
+                const data = await api('/api/mini/np/services');
+                if (!data.services || data.services.length === 0) container.innerHTML = '<div class="loading" style="grid-column: 1/-1;">No NP services.</div>';
+                else container.innerHTML = data.services.map(s => `
+                    <button class="list-btn" onclick="loadNpCountries('${s.key}')"><div class="name">🔧 ${s.name}</div><div class="count">Còn ${s.count} số</div></button>
+                `).join('');
+            }
+            else if (provider === 'BS') {
+                const data = await api('/api/mini/bs/countries');
+                if (!data.countries || data.countries.length === 0) container.innerHTML = '<div class="loading" style="grid-column: 1/-1;">No BS Stock.</div>';
+                else container.innerHTML = data.countries.map(c => `
+                    <button class="list-btn" onclick="buyNumber('BS', '${c.name}', '${c.name}')"><div class="name">${c.flag} ${c.name}</div><div class="count">Còn ${c.count} số</div></button>
+                `).join('');
+            }
+        }
+
+        async function loadNpCountries(serviceName) {
+            const container = document.getElementById('buy-list-container');
+            container.innerHTML = '<div class="loading" style="grid-column: 1/-1;"><div class="spinner"></div>Loading...</div>';
+            const data = await api('/api/mini/np/countries?service=' + encodeURIComponent(serviceName));
+            if (!data.countries) return container.innerHTML = '<div class="loading" style="grid-column: 1/-1;">Error loading NP countries.</div>';
+            container.innerHTML = data.countries.map(c => `
+                <button class="list-btn" onclick="buyNumber('NP', '${c.name}', '${c.name}', '${serviceName}')"><div class="name">🌍 ${c.name}</div><div class="count">Còn ${c.count} số</div></button>
+            `).join('');
         }
 
         async function buyNumber(provider, code, name, param3 = null) {
@@ -1151,6 +1177,8 @@ MINIAPP_HTML = r"""
             let body = { provider };
             if (provider === 'MK') { body.range = code; body.country_name = name; }
             if (provider === 'SLVN') { body.country_code = code; body.tag = param3; }
+            if (provider === 'NP') { body.country = code; body.service = param3; }
+            if (provider === 'BS') { body.country = code; }
 
             const res = await api('/api/mini/orders', 'POST', body);
             if (res.ok) { showToast('✅ Number acquired!'); navTo('home'); }
