@@ -277,12 +277,19 @@ async def mini_language_update(request):
 async def mini_stats(request):
     try:
         today_str = now().strftime("%Y-%m-%d")
-        total_otps = await db_exec("SELECT COUNT(*) FROM orders WHERE status='COMPLETED' AND created_at >= ?", (today_str,), fetch='one')
+        
+        # Thống kê hôm nay
+        today_otps = await db_exec("SELECT COUNT(*) FROM orders WHERE status='COMPLETED' AND created_at >= ?", (today_str,), fetch='one')
+        
+        # Tổng OTP toàn thời gian (All-time)
+        total_all_otps = await db_exec("SELECT COUNT(*) FROM orders WHERE status='COMPLETED'", fetch='one')
+        
         countries = await db_exec("SELECT country, COUNT(id) FROM orders WHERE status='COMPLETED' AND created_at >= ? GROUP BY country ORDER BY COUNT(id) DESC", (today_str,), fetch='all')
         platforms = await db_exec("SELECT COALESCE(NULLIF(platform, ''), 'Other') as p, COUNT(id) FROM orders WHERE status='COMPLETED' AND created_at >= ? GROUP BY p ORDER BY COUNT(id) DESC", (today_str,), fetch='all')
 
         return web.json_response({
-            "total_otps": total_otps[0] if total_otps else 0,
+            "today_otps": today_otps[0] if today_otps else 0,
+            "total_all_otps": total_all_otps[0] if total_all_otps else 0,
             "countries": [{"country": r[0], "count": r[1], "flag": get_country_flag(r[0])} for r in (countries or [])],
             "platforms": [{"platform": r[0], "count": r[1], "icon": get_network_icon(r[0])} for r in (platforms or [])]
         })
@@ -426,19 +433,31 @@ async def mini_history_orders(request):
         total_pages = max(1, (total + HISTORY_PAGE_SIZE - 1) // HISTORY_PAGE_SIZE)
         if page > total_pages: page = total_pages
         
-        rows = await db_exec("SELECT id, provider, phone, country, status, created_at, otp_code, platform, full_sms FROM orders WHERE user_id=? ORDER BY id DESC LIMIT ? OFFSET ?", (uid, HISTORY_PAGE_SIZE, offset), fetch="all")
+        # Lấy tất cả các trạng thái đơn (COMPLETED, CANCELLED, PENDING, EXPIRED)
+        rows = await db_exec(
+            "SELECT id, provider, phone, country, status, created_at, otp_code, platform, full_sms FROM orders WHERE user_id=? ORDER BY id DESC LIMIT ? OFFSET ?", 
+            (uid, HISTORY_PAGE_SIZE, offset), fetch="all"
+        )
         orders = []
         for r in (rows or []):
             plat = r["platform"] or detect_otp_platform(r["full_sms"])
             orders.append({
-                "id": r["id"], "provider": r["provider"], "phone": r["phone"], "country": r["country"], 
-                "status": r["status"], "created_at": r["created_at"], "otp": r["otp_code"], 
-                "platform": plat, "icon": get_network_icon(plat), "flag": get_country_flag(r["country"])
+                "id": r["id"], 
+                "provider": r["provider"], 
+                "phone": r["phone"], 
+                "country": r["country"], 
+                "status": r["status"], # COMPLETED / CANCELLED / EXPIRED / PENDING
+                "created_at": r["created_at"], 
+                "otp": r["otp_code"], 
+                "platform": plat, 
+                "icon": get_network_icon(plat), 
+                "flag": get_country_flag(r["country"])
             })
         return web.json_response({"orders": orders, "current_page": page, "total_pages": total_pages, "total_records": total})
     except Exception as e:
         logger.error(f"mini_history_orders error: {e}")
         return web.json_response({"error": "Lỗi tải lịch sử giao dịch"}, status=500)
+
 
 async def mini_create_order(request):
     try:
