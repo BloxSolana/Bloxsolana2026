@@ -436,7 +436,7 @@ MINIAPP_HTML = """
                 </div>
             </div>
 
-            <!-- ADMIN BROADCAST TAB TÍCH HỢP THANH TRƯỢT % (10% - 100%) NHƯ BRO YÊU CẦU -->
+            <!-- ADMIN BROADCAST TAB VỚI THANH TRƯỢT 1 ĐẾN 10 -->
             <div id="admin-tab-broadcast" class="admin-tab-content" style="display: none;">
                 <div class="card">
                     <div class="form-label" style="font-size:16px; font-weight:bold; margin-bottom:10px;">📡 Gửi Thông Báo Radar Nền Tảng</div>
@@ -473,7 +473,7 @@ MINIAPP_HTML = """
                         <input type="text" class="form-control" id="broadcast-platform" value="Instagram">
                     </div>
 
-                    <!-- THANH TRƯỢT % TỶ LỆ NHẬN OTP (10% ĐẾN 100%) -->
+                    <!-- THANH TRƯỢT 1 ĐẾN 10 (10% - 100%) -->
                     <div class="form-group">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                             <label class="form-label" style="margin-bottom:0;">⚡ Tỷ lệ nhận OTP (%):</label>
@@ -789,7 +789,7 @@ MINIAPP_HTML = """
                     </div>
                 `).join('');
             } else {
-                historyDiv.innerHTML = '<div style="color: var(--text-muted); font-size: 14px;">Chưa có hòm thư nào được tạo.</div>';
+                historyDiv.innerHTML = '<div style="color: var(--text-muted); font-size: 14px; text-align: center; padding: 10px;">No saved history yet.</div>';
             }
         }
 
@@ -824,7 +824,7 @@ MINIAPP_HTML = """
                     </div>
                 `).join('');
             } else {
-                msgList.innerHTML = '<div style="color: var(--text-muted); font-size: 14px; text-align: center; padding: 15px;">Hộp thư chưa có tin nhắn nào.</div>';
+                msgList.innerHTML = '<div style="color: var(--text-muted); font-size: 14px; text-align: center; padding: 15px;">No messages yet.</div>';
             }
         }
 
