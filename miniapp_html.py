@@ -184,6 +184,9 @@ MINIAPP_HTML = r"""
             <a href="#" class="menu-item" onclick="navTo('wallet')"><span class="icon">💵</span> <span data-i18n="menu_wallet">Ví & Rút Tiền</span></a>
             <a href="#" class="menu-item" onclick="navTo('stats')"><span class="icon">📊</span> <span data-i18n="menu_stats">Thống Kê</span></a>
             <a href="#" class="menu-item" onclick="navTo('leaderboard')"><span class="icon">🏆</span> <span data-i18n="menu_leaderboard">Bảng Xếp Hạng</span></a>
+            
+            <a href="#" class="menu-item" onclick="openSupport()"><span class="icon">💬</span> <span data-i18n="menu_support">Hỗ trợ (Support)</span></a>
+
             <a href="#" class="menu-item" onclick="window.open('https://t.me/LIVEOTPIVAS', '_blank')"><span class="icon">📢</span> <span data-i18n="menu_group">OTP Group</span></a>
             <a href="#" class="menu-item" onclick="navTo('profile')"><span class="icon">👤</span> <span data-i18n="menu_profile">Hồ Sơ</span></a>
             
@@ -399,13 +402,11 @@ MINIAPP_HTML = r"""
 
         <!-- ================= VIEW LEADERBOARD ================= -->
         <div id="view-leaderboard" class="view">
-            <!-- Bộ đếm ngược Real-time reset theo giờ VN -->
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; background: var(--surface); padding: 12px 15px; border-radius: 12px; border: 1px solid var(--border);">
                 <div style="font-weight: 600; color: var(--text-muted); font-size: 14px;">⏳ Reset ngày mới (Giờ VN):</div>
                 <div id="lb-countdown" style="font-family: monospace; font-size: 18px; font-weight: bold; color: var(--warning); letter-spacing: 1px;">00:00:00</div>
             </div>
 
-            <!-- Bảng All-Time -->
             <div class="card">
                 <div class="form-label" style="font-size: 16px; color: var(--text); margin-bottom: 15px;" data-i18n="top_10">🏆 TOP 10 CAO THỦ</div>
                 <div id="leaderboard-list">
@@ -413,7 +414,6 @@ MINIAPP_HTML = r"""
                 </div>
             </div>
 
-            <!-- Bảng OTP Hôm Nay -->
             <div class="card" style="border-color: rgba(59, 130, 246, 0.4);">
                 <div class="form-label" style="font-size: 16px; color: var(--primary); margin-bottom: 15px;">🔥 TOP OTP HÔM NAY</div>
                 <div id="leaderboard-today-list">
@@ -618,7 +618,7 @@ MINIAPP_HTML = r"""
 
     <script>
         const tg = window.Telegram?.WebApp || {
-            initData: "", expand: function() {}, setHeaderColor: function() {}, setBackgroundColor: function() {}, ready: function() {}, showAlert: function(msg) { alert(msg); }
+            initData: "", expand: function() {}, setHeaderColor: function() {}, setBackgroundColor: function() {}, ready: function() {}, showAlert: function(msg) { alert(msg); }, openTelegramLink: function(link) { window.open(link, '_blank'); }
         };
 
         try {
@@ -654,7 +654,7 @@ MINIAPP_HTML = r"""
 
         const translations = {
             vi: { 
-                menu_home: "Trang chủ", menu_buy: "Mua Số OTP", menu_mail: "Tạo Temp Mail", menu_radar: "Radar OTP", menu_history: "Lịch sử", menu_wallet: "Ví & Rút Tiền", menu_stats: "Thống Kê", menu_leaderboard: "Bảng Xếp Hạng", menu_group: "OTP Group", menu_profile: "Hồ Sơ", menu_admin: "ADMIN PANEL",
+                menu_home: "Trang chủ", menu_buy: "Mua Số OTP", menu_mail: "Tạo Temp Mail", menu_radar: "Radar OTP", menu_history: "Lịch sử", menu_wallet: "Ví & Rút Tiền", menu_stats: "Thống Kê", menu_leaderboard: "Bảng Xếp Hạng", menu_group: "OTP Group", menu_profile: "Hồ Sơ", menu_admin: "ADMIN PANEL", menu_support: "Hỗ trợ (Support)",
                 balance: "Số dư khả dụng", today_otp: "OTP Hôm Nay", total_orders: "Tổng Đơn", active_orders: "⏳ Đơn Đang Chờ", 
                 select_source: "Chọn Nguồn Số", ton_wallet: "💵 Ví TON", save_address: "Lưu Địa Chỉ", withdraw: "💰 Rút Tiền", withdraw_all: "⚡ Rút Toàn Bộ (Phí $0.1)", send_request: "Gửi Yêu Cầu", 
                 invite_friends: "💌 Mời Bạn Bè", copy_link: "📋 Sao Chép Link", top_10: "🏆 TOP 10 CAO THỦ", your_profile: "👤 HỒ SƠ CỦA BẠN", language: "🌐 Ngôn Ngữ (Language)", 
@@ -670,7 +670,7 @@ MINIAPP_HTML = r"""
                 cmd_health: "Health Check", cmd_poll: "Force Poll OTP", cmd_whoami: "MK Account", cmd_testnp: "Test NP API", cmd_radar: "MK Radar", admin_sys_status: "🛠 Trạng thái hệ thống", admin_on: "🟢 ON (Hoạt động)", admin_off: "🔴 OFF (Bảo trì)", admin_maint_msg: "📝 Nội dung thông báo", admin_template1: "Mẫu 1", admin_template2: "Mẫu 2", admin_img_opt: "🖼 Ảnh đính kèm (Tùy chọn)", admin_confirm_maint: "Xác nhận BẢO TRÌ & Gửi thông báo"
             },
             en: { 
-                menu_home: "Home", menu_buy: "Buy OTP Number", menu_mail: "Temp Mail", menu_radar: "Radar OTP", menu_history: "History", menu_wallet: "Wallet & Withdraw", menu_stats: "Statistics", menu_leaderboard: "Leaderboard", menu_group: "OTP Group", menu_profile: "Profile", menu_admin: "ADMIN PANEL",
+                menu_home: "Home", menu_buy: "Buy OTP Number", menu_mail: "Temp Mail", menu_radar: "Radar OTP", menu_history: "History", menu_wallet: "Wallet & Withdraw", menu_stats: "Statistics", menu_leaderboard: "Leaderboard", menu_group: "OTP Group", menu_profile: "Profile", menu_admin: "ADMIN PANEL", menu_support: "Support",
                 balance: "Available Balance", today_otp: "Today's OTP", total_orders: "Total Orders", active_orders: "⏳ Active Orders", 
                 select_source: "Select Source", ton_wallet: "💵 TON Wallet", save_address: "Save Address", withdraw: "💰 Withdraw", withdraw_all: "⚡ Withdraw All (Fee $0.1)", send_request: "Send Request", 
                 invite_friends: "💌 Invite Friends", copy_link: "📋 Copy Link", top_10: "🏆 TOP 10 PLAYERS", your_profile: "👤 YOUR PROFILE", language: "🌐 Language", 
@@ -756,6 +756,22 @@ MINIAPP_HTML = r"""
             }
         }
 
+        // FIX: Hàm mở Support qua Telegram
+        function openSupport() {
+            const adminUser = 'Nothavedie';
+            const text = 'Xin chào Admin, tôi cần được hỗ trợ về FAST IVAS!';
+            const url = `https://t.me/${adminUser}?text=${encodeURIComponent(text)}`;
+            try {
+                if (tg && typeof tg.openTelegramLink === 'function') {
+                    tg.openTelegramLink(url);
+                } else {
+                    window.open(url, '_blank');
+                }
+            } catch (e) {
+                window.open(url, '_blank');
+            }
+        }
+
         async function api(path, method = 'GET', body = null) {
             const opts = { method, headers: { 'X-Telegram-Init-Data': tg.initData || '', 'Content-Type': 'application/json' } };
             if (body) opts.body = JSON.stringify(body);
@@ -799,7 +815,6 @@ MINIAPP_HTML = r"""
 
             if (document.getElementById('sidebar').classList.contains('open')) toggleSidebar();
 
-            // Dọn dẹp các interval cũ
             stopRadarRefresh();
             stopStatsRefresh();
             stopBuyRefresh();
@@ -1095,7 +1110,6 @@ MINIAPP_HTML = r"""
             }, 1000);
         }
 
-        // FIX LỖI ẢNH 2: Thêm kiểm tra nhiều key trả về và hiển thị lỗi nếu API sập
         async function loadStats() {
             if (isLoadingStats) return; 
             isLoadingStats = true;
@@ -1113,7 +1127,6 @@ MINIAPP_HTML = r"""
                     return; 
                 }
 
-                // Fallback cho key Backend có thể trả về
                 const allTime = data.total_all_otps !== undefined ? data.total_all_otps : (data.total_otps || 0);
                 const todayOtp = data.today_otps || 0;
 
@@ -1144,7 +1157,6 @@ MINIAPP_HTML = r"""
         function startStatsRefresh() { stopStatsRefresh(); statsRefreshInterval = setInterval(loadStats, 5000); }
         function stopStatsRefresh() { if (statsRefreshInterval) clearInterval(statsRefreshInterval); }
 
-        // FIX ẢNH 1: Thêm đồng hồ đếm ngược reset ngày mới và Bảng Top OTP Hôm Nay
         function startLeaderboardCountdown() {
             if (lbCountdownInterval) clearInterval(lbCountdownInterval);
             const el = document.getElementById('lb-countdown');
@@ -1156,7 +1168,6 @@ MINIAPP_HTML = r"""
                 const utcMinutes = now.getUTCMinutes();
                 const utcSeconds = now.getUTCSeconds();
                 
-                // Giờ VN = UTC + 7
                 let vnHours = (utcHours + 7) % 24;
                 let secondsPassed = vnHours * 3600 + utcMinutes * 60 + utcSeconds;
                 let totalSeconds = 24 * 3600;
@@ -1189,11 +1200,9 @@ MINIAPP_HTML = r"""
                 return;
             }
 
-            // 1. Bảng Top 10 All-Time (Bỏ chữ OTPs)
             if (!data.leaderboard || data.leaderboard.length === 0) {
                 listDiv.innerHTML = '<div class="loading">Chưa có dữ liệu.</div>';
             } else {
-                // Sắp xếp theo số dư (hoặc bro muốn theo OTP all-time thì đổi lại)
                 const sortedAllTime = [...data.leaderboard].sort((a, b) => b.balance - a.balance);
                 listDiv.innerHTML = sortedAllTime.map((u, i) => `
                     <div style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border);">
@@ -1203,20 +1212,16 @@ MINIAPP_HTML = r"""
                 `).join('');
             }
 
-            // 2. Bảng Top OTP Hôm Nay
-            // Lấy data.today_leaderboard nếu backend có, nếu không thì fallback dùng data.leaderboard
             const todayData = data.today_leaderboard || data.leaderboard;
             
             if (!todayData || todayData.length === 0) {
                 listTodayDiv.innerHTML = '<div class="loading">Chưa có ai nhận OTP hôm nay.</div>';
             } else {
-                // Lọc những user có OTP hôm nay > 0 (nếu có trường today_otps)
                 let filteredToday = todayData.filter(u => {
                     let otpCount = u.today_otps !== undefined ? u.today_otps : (u.total_otps || 0);
                     return otpCount > 0;
                 });
 
-                // Sắp xếp theo số lượng OTP giảm dần
                 filteredToday.sort((a, b) => {
                     let otpA = a.today_otps !== undefined ? a.today_otps : (a.total_otps || 0);
                     let otpB = b.today_otps !== undefined ? b.today_otps : (b.total_otps || 0);
