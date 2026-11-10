@@ -1,146 +1,119 @@
 # File: api_services.py
 
 import os
+import logging
 import aiohttp
 import asyncio
-import logging
 import re
-from database import db_exec, get_country_flag, get_network_icon, detect_otp_platform, now_text
+from datetime import datetime
+from database import open_db, db_exec, get_user, change_usd, now_text, detect_otp_platform, get_country_flag, get_network_icon
 
 logger = logging.getLogger("FAST_IVAS")
 
-MK_API_KEY = os.getenv("MK_API_KEY", "").strip()
-NP_API_KEY = os.getenv("NP_API_KEY", "").strip()
+MK_API_KEY   = os.getenv("MK_API_KEY", "").strip()
+NP_API_KEY   = os.getenv("NP_API_KEY", "").strip()
 SLVN_API_KEY = os.getenv("SLVN_API_KEY", "").strip()
 
-MK_BASE_URL = "https://mknetworkbd.com/api/v1/"
-NP_BASE_URL = "https://api.nonvoip.com/v1/" # Hoặc endpoint NP của bro
-SLVN_BASE_URL = "https://api.slvn.io/v1/"
-
-async def api_request(method, endpoint, params=None, data=None, api_type="MK"):
-    base_url = MK_BASE_URL
-    api_key = MK_API_KEY
-    if api_type == "NP":
-        base_url = NP_BASE_URL
-        api_key = NP_API_KEY
+async def api_request(method, endpoint, json_data=None, params=None, api_type="MK"):
+    url = ""
+    headers = {}
+    if api_type == "MK":
+        url = f"https://api.number1.vn/v1/{endpoint}"
+        headers = {"Authorization": f"Bearer {MK_API_KEY}", "Content-Type": "application/json"}
+    elif api_type == "NP":
+        url = f"https://api.number2.vn/v1/{endpoint}"
+        headers = {"Authorization": f"Bearer {NP_API_KEY}", "Content-Type": "application/json"}
     elif api_type == "SLVN":
-        base_url = SLVN_BASE_URL
-        api_key = SLVN_API_KEY
-
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    url = base_url + endpoint.lstrip("/")
-
+        url = f"https://api.slvn.vn/v1/{endpoint}"
+        headers = {"Authorization": f"Bearer {SLVN_API_KEY}", "Content-Type": "application/json"}
+    
     async with aiohttp.ClientSession() as session:
         try:
-            async with session.request(method, url, headers=headers, params=params, json=data, timeout=20) as resp:
-                if resp.content_type == "application/json":
-                    res_json = await resp.json()
-                    return res_json, None
+            async with session.request(method, url, json=json_data, params=params, headers=headers, timeout=20) as resp:
                 text = await resp.text()
-                return {"text": text}, None
+                try:
+                    data = await resp.json()
+                except:
+                    data = {"raw": text}
+                if resp.status >= 400:
+                    return None, f"HTTP {resp.status}: {text}"
+                return data, None
         except Exception as e:
             return None, str(e)
 
 class MkOtpPoller:
-    def __init__(self, bot, group_id, interval=4):
+    def __init__(self, bot, group_id, interval=3):
         self.bot = bot
         self.group_id = group_id
         self.interval = interval
+        self.is_running = False
 
     async def run_forever(self):
-        logger.info("MkOtpPoller started successfully.")
-        while True:
+        self.is_running = True
+        logger.info("MkOtpPoller started for Real-Time OTP checking...")
+        while self.is_running:
             try:
                 await self._poll_once()
             except Exception as e:
-                logger.error(f"Error in MkOtpPoller: {e}")
+                logger.error(f"Poller error: {e}")
             await asyncio.sleep(self.interval)
 
     async def _poll_once(self):
-        pending_orders = await db_exec("SELECT * FROM orders WHERE status='PENDING' AND provider='MK'", fetch="all")
+        # Lấy danh sách đơn hàng đang PENDING của provider MK
+        pending_orders = await db_exec("SELECT id, user_id, request_id, phone, country FROM orders WHERE status='PENDING' AND provider='MK'", fetch="all")
         if not pending_orders:
             return 0, 0, None
 
-        data, err = await api_request("GET", "getnum/active", params={"limit": 200}, api_type="MK")
-        if err or not data:
-            return 0, 0, err
-
-        active_items = data.get("data", {}).get("items") or data.get("items") or []
-        active_map = {}
-        for item in active_items:
-            rid = str(item.get("request_id") or item.get("id") or "")
-            if rid:
-                active_map[rid] = item
-
-        checked = 0
-        new_otps = 0
+        checked_count = len(pending_orders)
+        new_otp_count = 0
 
         for order in pending_orders:
-            checked += 1
-            rid = str(order["request_id"])
-            item = active_map.get(rid)
+            oid = order["id"]
+            uid = order["user_id"]
+            req_id = order["request_id"]
+            phone = order["phone"]
+            country = order["country"]
 
-            if not item:
+            # Gọi API kiểm tra trạng thái đơn hàng MK
+            data, err = await api_request("GET", "getnum/status", params={"request_id": req_id}, api_type="MK")
+            if err or not data:
                 continue
 
-            status = str(item.get("status", "")).upper()
-            sms_text = item.get("message") or item.get("sms") or item.get("text") or ""
-            otp_code = item.get("otp") or item.get("code") or ""
+            resp_data = data.get("data", data)
+            status = str(resp_data.get("status", "")).upper()
+            otp_code = resp_data.get("otp") or resp_data.get("code") or resp_data.get("otp_code")
+            full_sms = resp_data.get("message") or resp_data.get("sms") or resp_data.get("full_sms") or ""
 
-            if not otp_code and sms_text:
-                match = re.search(r'\b\d{4,8}\b', sms_text)
-                if match:
-                    otp_code = match.group(0)
+            if otp_code or status in ["COMPLETED", "SUCCESS"] or full_sms:
+                if not otp_code and full_sms:
+                    match = re.search(r'\b\d{4,8}\b', full_sms)
+                    if match:
+                        otp_code = match.group(0)
 
-            if status in ["COMPLETED", "SUCCESS"] or otp_code or (sms_text and "otp" in sms_text.lower()):
-                if not otp_code:
-                    otp_code = "SUCCESS"
+                if otp_code:
+                    plat = detect_otp_platform(full_sms)
+                    icon = get_network_icon(plat)
+                    flag = get_country_flag(country)
 
-                platform = detect_otp_platform(sms_text)
-                
-                await db_exec(
-                    "UPDATE orders SET status='COMPLETED', otp_code=?, full_sms=?, platform=?, updated_at=? WHERE id=?",
-                    (str(otp_code), str(sms_text), str(platform), now_text(), order["id"])
-                )
-                new_otps += 1
+                    # Cập nhật trạng thái đơn hàng thành COMPLETED trong CSDL
+                    await db_exec("UPDATE orders SET status='COMPLETED', otp_code=?, full_sms=?, platform=?, updated_at=? WHERE id=?", 
+                                  (str(otp_code), str(full_sms), plat, now_text(), oid))
+                    
+                    new_otp_count += 1
 
-                user_id = order["user_id"]
-                phone = order["phone"]
-                country = order["country"]
-                flag = get_country_flag(country)
-                icon = get_network_icon(platform)
-
-                user_msg = (
-                    f"🎉 <b>ĐÃ NHẬN MÃ OTP THÀNH CÔNG!</b>\n\n"
-                    f"📱 Số điện thoại: <code>{phone}</code>\n"
-                    f"🌍 Quốc gia: {flag} {country}\n"
-                    f"🌐 Nền tảng: {icon} <b>{platform}</b>\n"
-                    f"🔑 Mã OTP: <code>{otp_code}</code>\n\n"
-                    f"💬 Nội dung SMS:\n<code>{sms_text}</code>"
-                )
-
-                try:
-                    await self.bot.send_message(user_id, user_msg)
-                except Exception as e:
-                    logger.error(f"Failed to send OTP to user {user_id}: {e}")
-
-                if self.group_id:
-                    group_msg = (
-                        f"⚡ <b>NEW OTP CAPTURED (FAST IVAS)</b>\n\n"
-                        f"📱 Phone: <code>{phone}</code>\n"
-                        f"🌍 Country: {flag} {country}\n"
-                        f"🌐 Platform: {icon} <b>{platform}</b>\n"
-                        f"🔑 OTP: <code>{otp_code}</code>\n"
-                        f"👤 User ID: <code>{user_id}</code>\n"
-                        f"💬 SMS: <code>{sms_text}</code>"
+                    # Gửi thông báo real-time trực tiếp về Group Telegram
+                    group_text = (
+                        f"⚡ <b>FAST IVAS - REAL-TIME OTP RECEIVED</b>\n\n"
+                        f"📱 Số điện thoại: <code>{phone}</code>\n"
+                        f"{flag} Quốc gia: <b>{country}</b>\n"
+                        f"{icon} Nền tảng: <b>{plat}</b>\n"
+                        f"🔑 Mã OTP: <code>{otp_code}</code>\n"
+                        f"💬 Nội dung SMS: <i>{full_sms}</i>"
                     )
                     try:
-                        await self.bot.send_message(self.group_id, group_msg)
+                        await self.bot.send_message(self.group_id, group_text)
                     except Exception as e:
-                        logger.error(f"Failed to send OTP to group {self.group_id}: {e}")
+                        logger.error(f"Failed to send OTP to group: {e}")
 
-            elif status in ["EXPIRED", "CANCELLED", "FAILED"]:
-                await db_exec("UPDATE orders SET status=?, updated_at=? WHERE id=?", (status, now_text(), order["id"]))
-
-        return checked, new_otps, None
+        return checked_count, new_otp_count, None
         
