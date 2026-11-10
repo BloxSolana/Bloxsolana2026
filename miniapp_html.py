@@ -80,7 +80,7 @@ MINIAPP_HTML = """
         .order-card { background: var(--surface); border-radius: var(--radius); padding: 16px; margin-bottom: 15px; border: 1px solid var(--border); position: relative; overflow: hidden; transition: 0.3s; }
         .order-card.pending { border-left: 4px solid var(--warning); }
         .order-card.completed { border-left: 4px solid var(--success); background: rgba(16, 185, 129, 0.05); }
-        .order-card.expired { border-left: 4px solid var(--danger); opacity: 0.6; display: none; } /* Ẩn đơn đã hủy/hết hạn tránh kẹt màn hình */
+        .order-card.expired, .order-card.cancelled { border-left: 4px solid var(--danger); opacity: 0.6; display: none; }
         .order-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
         .order-phone { font-size: 18px; font-weight: 700; color: var(--text); letter-spacing: 0.5px; }
         .order-badge { font-size: 12px; padding: 4px 10px; border-radius: 20px; font-weight: 600; background: rgba(255,255,255,0.1); display: flex; align-items: center; gap: 5px; }
@@ -436,25 +436,43 @@ MINIAPP_HTML = """
                 </div>
             </div>
 
-            <!-- ADMIN BROADCAST TAB VỚI ĐẦY ĐỦ MK NETWORK & THANH TRƯỢT 1-10 -->
+            <!-- ADMIN BROADCAST TAB VỚI ĐẦY ĐỦ MK NETWORK & TOÀN BỘ MXH -->
             <div id="admin-tab-broadcast" class="admin-tab-content" style="display: none;">
                 <div class="card">
                     <div class="form-label" style="font-size:16px; font-weight:bold; margin-bottom:10px;">📡 Gửi Thông Báo Radar Nền Tảng & MK NETWORK</div>
                     <div style="font-size:13px; color:var(--text-muted); margin-bottom:12px;">Chọn nhanh quốc gia MK NETWORK hoặc mạng xã hội đang có tỷ lệ nhận OTP cao:</div>
                     
                     <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 15px;">
-                        <!-- Danh sách quốc gia MK NETWORK & Nền tảng -->
+                        <!-- Quốc gia MK Network -->
                         <button class="btn-small copy" onclick="selectRadarPlatform('Guinea')">🇬🇳 Guinea (MK)</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('Zambia')">🇿🇲 Zambia (MK)</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('Sudan')">🇸🇩 Sudan (MK)</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('Ethiopia')">🇪🇹 Ethiopia (MK)</button>
+                        
+                        <!-- Mạng xã hội quốc tế đầy đủ -->
                         <button class="btn-small copy" onclick="selectRadarPlatform('Instagram')">📸 Instagram</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('Facebook')">📘 Facebook</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('TikTok')">🎬 TikTok</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Threads')">🧵 Threads</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Twitter / X')">🐦 Twitter / X</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('imo')">📱 imo</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('1xbet')">⚽ 1xbet</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('Telegram')">✈️ Telegram</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('WhatsApp')">💬 WhatsApp</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Zalo')">🇻🇳 Zalo</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Google')">🇬 Google</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('YouTube')">▶️ YouTube</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Discord')">🎮 Discord</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Steam')">🎮 Steam</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Netflix')">🍿 Netflix</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Spotify')">🎧 Spotify</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Shopee')">🛍️ Shopee</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Lazada')">🟠 Lazada</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Amazon')">📦 Amazon</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('Binance/Crypto')">🪙 Binance/Crypto</button>
-                        <button class="btn-small copy" style="grid-column: span 2;" onclick="selectRadarPlatform('🌐 Tất cả mạng xã hội & Quốc gia MK Network khác')">🌐 Tất cả quốc gia MK & Quốc tế khác</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('PayPal')">🅿️ PayPal</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Tinder / Dating')">❤️ Tinder / Dating</button>
+                        <button class="btn-small copy" style="grid-column: span 2;" onclick="selectRadarPlatform('🌐 Tất cả mạng xã hội & Quốc gia MK Network khác')">🌐 Tất cả mạng xã hội & Quốc gia MK khác</button>
                     </div>
 
                     <div class="form-group">
@@ -742,7 +760,7 @@ MINIAPP_HTML = """
             const data = await api('/api/mini/orders/active');
             if (!data.orders) return;
             
-            // Lọc bỏ các đơn đã hủy hoặc quá hạn 15 phút (900 giây)
+            // Lọc chính xác đơn đang chờ, bỏ qua đơn đã hủy hoặc quá hạn 15 phút (900s)
             const nowSec = Math.floor(Date.now() / 1000);
             const validOrders = data.orders.filter(o => {
                 if (o.status === 'CANCELLED' || o.status === 'EXPIRED') return false;
@@ -1447,7 +1465,7 @@ MINIAPP_HTML = """
             if (autoRefreshInterval) clearInterval(autoRefreshInterval);
             autoRefreshInterval = setInterval(() => {
                 if (document.querySelector('.view.active')?.id === 'view-home') loadHome(true);
-            }, 2000); // Rút ngắn xuống 2 giây để đồng bộ real-time cực nhanh
+            }, 2000);
         }
 
         loadUserData();
