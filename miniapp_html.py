@@ -80,7 +80,7 @@ MINIAPP_HTML = """
         .order-card { background: var(--surface); border-radius: var(--radius); padding: 16px; margin-bottom: 15px; border: 1px solid var(--border); position: relative; overflow: hidden; transition: 0.3s; }
         .order-card.pending { border-left: 4px solid var(--warning); }
         .order-card.completed { border-left: 4px solid var(--success); background: rgba(16, 185, 129, 0.05); }
-        .order-card.expired { border-left: 4px solid var(--danger); opacity: 0.6; }
+        .order-card.expired { border-left: 4px solid var(--danger); opacity: 0.6; display: none; } /* Ẩn đơn đã hủy/hết hạn tránh kẹt màn hình */
         .order-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
         .order-phone { font-size: 18px; font-weight: 700; color: var(--text); letter-spacing: 0.5px; }
         .order-badge { font-size: 12px; padding: 4px 10px; border-radius: 20px; font-weight: 600; background: rgba(255,255,255,0.1); display: flex; align-items: center; gap: 5px; }
@@ -436,41 +436,30 @@ MINIAPP_HTML = """
                 </div>
             </div>
 
-            <!-- ADMIN BROADCAST TAB VỚI THANH TRƯỢT 1 ĐẾN 10 -->
+            <!-- ADMIN BROADCAST TAB VỚI ĐẦY ĐỦ MK NETWORK & THANH TRƯỢT 1-10 -->
             <div id="admin-tab-broadcast" class="admin-tab-content" style="display: none;">
                 <div class="card">
-                    <div class="form-label" style="font-size:16px; font-weight:bold; margin-bottom:10px;">📡 Gửi Thông Báo Radar Nền Tảng</div>
-                    <div style="font-size:13px; color:var(--text-muted); margin-bottom:12px;">Chọn nhanh nền tảng quốc tế / mạng xã hội đang có tỷ lệ nhận OTP cao:</div>
+                    <div class="form-label" style="font-size:16px; font-weight:bold; margin-bottom:10px;">📡 Gửi Thông Báo Radar Nền Tảng & MK NETWORK</div>
+                    <div style="font-size:13px; color:var(--text-muted); margin-bottom:12px;">Chọn nhanh quốc gia MK NETWORK hoặc mạng xã hội đang có tỷ lệ nhận OTP cao:</div>
                     
                     <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 15px;">
+                        <!-- Danh sách quốc gia MK NETWORK & Nền tảng -->
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Guinea')">🇬🇳 Guinea (MK)</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Zambia')">🇿🇲 Zambia (MK)</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Sudan')">🇸🇩 Sudan (MK)</button>
+                        <button class="btn-small copy" onclick="selectRadarPlatform('Ethiopia')">🇪🇹 Ethiopia (MK)</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('Instagram')">📸 Instagram</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('Facebook')">📘 Facebook</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('TikTok')">🎬 TikTok</button>
-                        <button class="btn-small copy" onclick="selectRadarPlatform('Threads')">🧵 Threads</button>
-                        <button class="btn-small copy" onclick="selectRadarPlatform('Twitter / X')">🐦 Twitter / X</button>
-                        <button class="btn-small copy" onclick="selectRadarPlatform('imo')">📱 imo</button>
-                        <button class="btn-small copy" onclick="selectRadarPlatform('1xbet')">⚽ 1xbet</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('Telegram')">✈️ Telegram</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('WhatsApp')">💬 WhatsApp</button>
-                        <button class="btn-small copy" onclick="selectRadarPlatform('Zalo')">🇻🇳 Zalo</button>
-                        <button class="btn-small copy" onclick="selectRadarPlatform('Google')">🇬 Google</button>
-                        <button class="btn-small copy" onclick="selectRadarPlatform('YouTube')">▶️ YouTube</button>
-                        <button class="btn-small copy" onclick="selectRadarPlatform('Discord')">🎮 Discord</button>
-                        <button class="btn-small copy" onclick="selectRadarPlatform('Steam')">🎮 Steam</button>
-                        <button class="btn-small copy" onclick="selectRadarPlatform('Netflix')">🍿 Netflix</button>
-                        <button class="btn-small copy" onclick="selectRadarPlatform('Spotify')">🎧 Spotify</button>
-                        <button class="btn-small copy" onclick="selectRadarPlatform('Shopee')">🛍️ Shopee</button>
-                        <button class="btn-small copy" onclick="selectRadarPlatform('Lazada')">🟠 Lazada</button>
-                        <button class="btn-small copy" onclick="selectRadarPlatform('Amazon')">📦 Amazon</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('Binance/Crypto')">🪙 Binance/Crypto</button>
-                        <button class="btn-small copy" onclick="selectRadarPlatform('PayPal')">🅿️ PayPal</button>
-                        <button class="btn-small copy" onclick="selectRadarPlatform('Tinder / Dating')">❤️ Tinder / Dating</button>
-                        <button class="btn-small copy" style="grid-column: span 2;" onclick="selectRadarPlatform('Tất cả mạng xã hội & Dịch vụ quốc tế khác')">🌐 Tất cả mạng xã hội quốc tế khác</button>
+                        <button class="btn-small copy" style="grid-column: span 2;" onclick="selectRadarPlatform('🌐 Tất cả mạng xã hội & Quốc gia MK Network khác')">🌐 Tất cả quốc gia MK & Quốc tế khác</button>
                     </div>
 
                     <div class="form-group">
-                        <label class="form-label">Nền tảng đã chọn:</label>
-                        <input type="text" class="form-control" id="broadcast-platform" value="Instagram">
+                        <label class="form-label">Quốc gia / Nền tảng đã chọn:</label>
+                        <input type="text" class="form-control" id="broadcast-platform" value="Guinea">
                     </div>
 
                     <!-- THANH TRƯỢT 1 ĐẾN 10 (10% - 100%) -->
@@ -753,19 +742,27 @@ MINIAPP_HTML = """
             const data = await api('/api/mini/orders/active');
             if (!data.orders) return;
             
-            if (data.orders.length === 0) {
+            // Lọc bỏ các đơn đã hủy hoặc quá hạn 15 phút (900 giây)
+            const nowSec = Math.floor(Date.now() / 1000);
+            const validOrders = data.orders.filter(o => {
+                if (o.status === 'CANCELLED' || o.status === 'EXPIRED') return false;
+                if (o.timestamp && (nowSec - o.timestamp > 900) && o.status === 'PENDING') return false;
+                return true;
+            });
+
+            if (validOrders.length === 0) {
                 listDiv.innerHTML = '<div class="loading" style="background: var(--surface); border-radius: 16px; border: 1px dashed var(--border);">Không có đơn nào đang chờ.</div>';
                 return;
             }
 
-            data.orders.forEach(o => {
+            validOrders.forEach(o => {
                 if (o.status === 'COMPLETED' && o.otp && !lastKnownCompletedOrders.has(o.id)) {
                     lastKnownCompletedOrders.add(o.id);
                     showToast(`🎉 Đã nhận mã OTP cho số ${o.phone}: ${o.otp}`);
                 }
             });
 
-            listDiv.innerHTML = data.orders.map(o => renderOrderCard(o, false)).join('');
+            listDiv.innerHTML = validOrders.map(o => renderOrderCard(o, false)).join('');
         }
 
         async function loadTempMailData() {
@@ -1180,12 +1177,12 @@ MINIAPP_HTML = """
         function updateRateSlider(val) {
             const pct = val * 10;
             document.getElementById('slider-percent-val').innerText = `${pct}% (Mức ${val})`;
-            const plat = document.getElementById('broadcast-platform').value || 'Instagram';
+            const plat = document.getElementById('broadcast-platform').value || 'Guinea';
             document.getElementById('broadcast-msg').value = `🚨 THÔNG BÁO RADAR OTP CAO\n\nNền tảng / Quốc gia: ${plat}\nTỷ lệ nhận OTP: ${pct}%\nNhanh tay vào ứng dụng lấy số ngay nào anh em!`;
         }
 
         function clearRadarBroadcast() {
-            document.getElementById('broadcast-platform').value = 'Instagram';
+            document.getElementById('broadcast-platform').value = 'Guinea';
             document.getElementById('broadcast-rate-slider').value = 10;
             updateRateSlider(10);
             document.getElementById('broadcast-image').value = '';
@@ -1450,7 +1447,7 @@ MINIAPP_HTML = """
             if (autoRefreshInterval) clearInterval(autoRefreshInterval);
             autoRefreshInterval = setInterval(() => {
                 if (document.querySelector('.view.active')?.id === 'view-home') loadHome(true);
-            }, 3000); 
+            }, 2000); // Rút ngắn xuống 2 giây để đồng bộ real-time cực nhanh
         }
 
         loadUserData();
