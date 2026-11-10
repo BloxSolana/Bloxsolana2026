@@ -71,7 +71,7 @@ async def cmd_start(message: Message):
         return await message.answer("🛠 <b>HỆ THỐNG ĐANG BẢO TRÌ</b>\n\nVui lòng quay lại sau.")
     
     if WEBAPP_URL.startswith("https://"):
-        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚡ MỞ ỨNG DỤNG FAST IVAS", web_app=WebAppInfo(url=WEBAPP_URL + "?v=11"))]])
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚡ MỞ ỨNG DỤNG FAST IVAS", web_app=WebAppInfo(url=WEBAPP_URL + "?v=12"))]])
         await message.answer("🚀 Chào mừng đến với <b>FAST IVAS</b>!\n\nVui lòng bấm nút bên dưới để mở ứng dụng.", reply_markup=kb)
     else:
         await message.answer("⚠️ Lỗi: Chưa cấu hình WEBAPP_URL.")
@@ -147,7 +147,7 @@ class MkOtpPoller:
     async def _poll_once(self):
         try:
             # 1. Poll MK
-            pending_mk = await db_exec("SELECT id, user_id, request_id, phone, country FROM orders WHERE status='PENDING' AND provider='MK'", fetch="all")
+            pending_mk = await db_exec("SELECT id, user_id, provider, request_id, phone, country FROM orders WHERE status='PENDING' AND provider='MK'", fetch="all")
             if pending_mk:
                 request_ids_map = {}
                 for order in pending_mk:
@@ -169,7 +169,7 @@ class MkOtpPoller:
                                     await self._process_otp(order, otp_code, full_sms)
 
             # 2. Poll SLVN
-            pending_slvn = await db_exec("SELECT id, user_id, request_id, phone, country FROM orders WHERE status='PENDING' AND provider='SLVN'", fetch="all")
+            pending_slvn = await db_exec("SELECT id, user_id, provider, request_id, phone, country FROM orders WHERE status='PENDING' AND provider='SLVN'", fetch="all")
             for order in (pending_slvn or []):
                 rid = order["request_id"]
                 data, err = await api_request("GET", f"check-otp/{rid}", api_type="SLVN")
@@ -182,7 +182,7 @@ class MkOtpPoller:
                             await self._process_otp(order, otp_code, full_sms)
 
             # 3. Poll NP
-            pending_np = await db_exec("SELECT id, user_id, request_id, phone, country FROM orders WHERE status='PENDING' AND provider='NP'", fetch="all")
+            pending_np = await db_exec("SELECT id, user_id, provider, request_id, phone, country FROM orders WHERE status='PENDING' AND provider='NP'", fetch="all")
             for order in (pending_np or []):
                 data, err = await api_request("GET", "latest_otp", params={"number": order["phone"]}, api_type="NP")
                 if not err and data and data.get("has_otp"):
@@ -191,7 +191,7 @@ class MkOtpPoller:
                         await self._process_otp(order, otp_code, f"OTP: {otp_code}")
 
             # 4. Poll BS
-            pending_bs = await db_exec("SELECT id, user_id, request_id, phone, country FROM orders WHERE status='PENDING' AND provider='BS'", fetch="all")
+            pending_bs = await db_exec("SELECT id, user_id, provider, request_id, phone, country FROM orders WHERE status='PENDING' AND provider='BS'", fetch="all")
             for order in (pending_bs or []):
                 data, err = await api_request("POST", "legacy/get-last-sms", {"number": order["phone"]}, api_type="BS")
                 if not err and data and data.get("message"):
@@ -209,8 +209,13 @@ class MkOtpPoller:
         icon = get_network_icon(plat)
         flag = get_country_flag(order["country"])
 
+        # Cập nhật DB thành COMPLETED
         await db_exec("UPDATE orders SET status='COMPLETED', otp_code=?, full_sms=?, platform=?, updated_at=? WHERE id=?", 
                       (str(otp_code), str(full_sms), plat, now_text(), order["id"]))
+
+        # Thưởng $0.002 (2 milli) cho MK và SLVN
+        if order["provider"] in ["MK", "SLVN"]:
+            await change_usd(order["user_id"], 2, "OTP_REWARD", f"Reward {order['provider']} OTP")
 
         if self.group_id != 0:
             group_text = (
@@ -323,12 +328,14 @@ async def mini_stats(request):
         platforms = await db_exec("SELECT COALESCE(NULLIF(platform, ''), 'Other') as p, COUNT(id) FROM orders WHERE status='COMPLETED' AND created_at >= ? GROUP BY p ORDER BY COUNT(id) DESC", (today_str,), fetch='all')
 
         return web.json_response({
-            "today_otps": today_otps[0] if today_otps else 0,
-            "total_all_otps": total_all_otps[0] if total_all_otps else 0,
+            "today_otps": int(today_otps[0]) if today_otps else 0,
+            "total_all_otps": int(total_all_otps[0]) if total_all_otps else 0,
             "countries": [{"country": r[0], "count": r[1], "flag": get_country_flag(r[0])} for r in (countries or [])],
             "platforms": [{"platform": r[0], "count": r[1], "icon": get_network_icon(r[0])} for r in (platforms or [])]
         })
-    except Exception as e: return web.json_response({"error": "Lỗi tải thống kê"}, status=500)
+    except Exception as e: 
+        logger.error(f"mini_stats error: {e}")
+        return web.json_response({"error": "Lỗi tải thống kê"}, status=500)
         
 async def mini_radar_feed(request):
     formatted_items = []
@@ -689,7 +696,22 @@ async def mini_admin_maintenance(request):
         if not mini_admin_guard(request): return web.json_response({"error": "Forbidden"}, status=403)
         body = await request.json(); action = body.get("action")
         
-        if action == "enable":
+        if action == "enable": # Tương ứng ON -> Tắt bảo trì và thông báo Bot hoạt động
+            message = body.get("message", "").strip()
+            if not message: message = "🎉 <b>Bot đã hoạt động trở lại!</b>\nMời anh em vào lấy số tiếp nhé!"
+            await set_setting("maintenance", "off")
+            
+            users = await db_exec("SELECT user_id FROM users", fetch="all")
+            sent = 0
+            for row in users or []:
+                try: 
+                    await bot.send_message(row["user_id"], f"🟢 <b>THÔNG BÁO</b>\n\n{message}")
+                    sent += 1
+                except: pass
+                await asyncio.sleep(0.05)
+            return web.json_response({"ok": True, "msg": f"Đã TẮT bảo trì. Đã thông báo {sent} user."})
+            
+        elif action == "disable": # Tương ứng OFF -> Bật bảo trì
             message = body.get("message", ""); image_b64 = body.get("image_b64", "")
             await set_setting("maintenance", "on"); await set_setting("maint_message", message); await set_setting("maint_image", image_b64)
             
@@ -708,10 +730,6 @@ async def mini_admin_maintenance(request):
                 except: pass
                 await asyncio.sleep(0.05)
             return web.json_response({"ok": True, "msg": f"Đã BẬT bảo trì. Đã gửi thông báo đến {sent} user."})
-            
-        elif action == "disable":
-            await set_setting("maintenance", "off")
-            return web.json_response({"ok": True, "msg": "Đã TẮT bảo trì. Bot hoạt động bình thường."})
     except Exception as e: return web.json_response({"error": "Lỗi cập nhật bảo trì"}, status=500)
 
 async def mini_admin_bs_add(request):
@@ -900,7 +918,7 @@ async def main():
     try: 
         me = await bot.get_me(); BOT_USERNAME = me.username; await set_bot_commands()
         if WEBAPP_URL.startswith("https://"):
-            await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="FAST IVAS", web_app=WebAppInfo(url=WEBAPP_URL + "?v=11")))
+            await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="FAST IVAS", web_app=WebAppInfo(url=WEBAPP_URL + "?v=12")))
     except Exception as e: logger.error(f"Error setting menu: {e}")
     
     await init_db()
