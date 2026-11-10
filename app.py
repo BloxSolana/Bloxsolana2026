@@ -296,7 +296,7 @@ async def mini_stats(request):
     except Exception as e:
         logger.error(f"mini_stats error: {e}")
         return web.json_response({"error": "Lỗi tải thống kê"}, status=500)
-
+        
 async def mini_radar_feed(request):
     formatted_items = []
     platform_counts = {}
@@ -433,7 +433,7 @@ async def mini_history_orders(request):
         total_pages = max(1, (total + HISTORY_PAGE_SIZE - 1) // HISTORY_PAGE_SIZE)
         if page > total_pages: page = total_pages
         
-        # Lấy tất cả các trạng thái đơn (COMPLETED, CANCELLED, PENDING, EXPIRED)
+        # Lấy tất cả trạng thái đơn hàng của user (COMPLETED, CANCELLED, EXPIRED, PENDING)
         rows = await db_exec(
             "SELECT id, provider, phone, country, status, created_at, otp_code, platform, full_sms FROM orders WHERE user_id=? ORDER BY id DESC LIMIT ? OFFSET ?", 
             (uid, HISTORY_PAGE_SIZE, offset), fetch="all"
@@ -446,7 +446,7 @@ async def mini_history_orders(request):
                 "provider": r["provider"], 
                 "phone": r["phone"], 
                 "country": r["country"], 
-                "status": r["status"], # COMPLETED / CANCELLED / EXPIRED / PENDING
+                "status": r["status"], 
                 "created_at": r["created_at"], 
                 "otp": r["otp_code"], 
                 "platform": plat, 
