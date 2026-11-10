@@ -91,7 +91,7 @@ MINIAPP_HTML = """
         .format-toggles label { display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text-muted); }
         .format-toggles input[type="checkbox"] { accent-color: var(--primary); width: 15px; height: 15px; }
 
-        .otp-box { background: rgba(15, 23, 42, 0.8); padding: 12px; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border: 1px dashed rgba(16, 185, 129, 0.5); }
+        .otp-box { background: rgba(16, 185, 129, 0.1); padding: 12px; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border: 1px solid var(--success); }
         .otp-code { font-size: 22px; font-weight: 700; color: var(--success); letter-spacing: 3px; font-family: monospace;}
         
         .action-row { display: flex; gap: 10px; margin-top: 10px; }
@@ -1006,17 +1006,17 @@ MINIAPP_HTML = """
 
         function renderOrderCard(o, isHistory) {
             const statusColors = { 'PENDING': 'var(--warning)', 'COMPLETED': 'var(--success)', 'EXPIRED': 'var(--danger)', 'CANCELLED': 'var(--danger)' };
-            const statusTexts = { 
-                'PENDING': currentLang === 'en' ? '⏳ Waiting OTP' : '⏳ Chờ OTP', 
-                'COMPLETED': currentLang === 'en' ? '✅ Received' : '✅ Đã nhận', 
-                'EXPIRED': currentLang === 'en' ? '⌛ Expired' : '⌛ Hết hạn', 
-                'CANCELLED': currentLang === 'en' ? '🚫 Cancelled' : '🚫 Đã hủy' 
-            };
-            const color = statusColors[o.status] || 'var(--text-muted)';
-            const text = statusTexts[o.status] || o.status;
+            
+            const hasOtp = o.status === 'COMPLETED' || (o.otp && o.otp !== 'null' && o.otp !== '');
+            const statusText = hasOtp 
+                ? (currentLang === 'en' ? '🟢 Received OTP Success' : '🟢 Nhận OTP thành công')
+                : (currentLang === 'en' ? '⏳ Waiting OTP' : '⏳ Chờ OTP');
+            
+            const cardClass = hasOtp ? 'order-card completed' : `order-card ${o.status.toLowerCase()}`;
+            const badgeColor = hasOtp ? 'var(--success)' : (statusColors[o.status] || 'var(--text-muted)');
             
             let countdownHtml = '';
-            if (o.status === 'PENDING' && o.created_at) {
+            if (o.status === 'PENDING' && !hasOtp && o.created_at) {
                 const createdTime = new Date(o.created_at).getTime();
                 const expireTime = createdTime + (15 * 60 * 1000);
                 const remaining = Math.max(0, Math.floor((expireTime - Date.now()) / 1000));
@@ -1025,14 +1025,14 @@ MINIAPP_HTML = """
             }
 
             let otpHtml = '';
-            if (o.status === 'COMPLETED' && o.otp) {
+            if (hasOtp) {
                 otpHtml = `
                     <div class="otp-box">
                         <div>
-                            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">Mã OTP (${o.icon || '📱'} ${o.platform || 'Other'}):</div>
+                            <div style="font-size: 12px; color: var(--success); margin-bottom: 4px; font-weight: 600;">🔑 MÃ OTP (${o.icon || '📱'} ${o.platform || 'Other'}):</div>
                             <div class="otp-code">${o.otp}</div>
                         </div>
-                        <button class="btn-small copy" style="background: var(--success); width: 80px;" onclick="copyText('${o.otp}')">📋 Copy</button>
+                        <button class="btn-small copy" style="background: var(--success); width: 85px;" onclick="copyText('${o.otp}')">📋 Copy</button>
                     </div>
                 `;
             }
@@ -1041,10 +1041,10 @@ MINIAPP_HTML = """
             const tNationalFmt = translations[currentLang].national_fmt;
 
             return `
-                <div class="order-card ${o.status.toLowerCase()}">
+                <div class="${cardClass}">
                     <div class="order-header">
                         <div class="order-phone" id="phone-text-${o.id}">${o.phone}</div>
-                        <div class="order-badge" style="color: ${color};">${text}</div>
+                        <div class="order-badge" style="color: ${badgeColor};">${statusText}</div>
                     </div>
                     <div class="order-info">
                         <span>${o.flag} ${o.country}</span>
@@ -1059,7 +1059,7 @@ MINIAPP_HTML = """
                     ${otpHtml}
                     <div class="action-row">
                         <button class="btn-small copy" onclick="copyText(document.getElementById('phone-text-${o.id}').innerText)">📋 Copy Số</button>
-                        ${o.status === 'PENDING' && !isHistory ? `<button class="btn-small cancel" onclick="cancelOrder(${o.id})">❌ Hủy</button>` : ''}
+                        ${o.status === 'PENDING' && !hasOtp && !isHistory ? `<button class="btn-small cancel" onclick="cancelOrder(${o.id})">❌ Hủy</button>` : ''}
                     </div>
                 </div>
             `;
