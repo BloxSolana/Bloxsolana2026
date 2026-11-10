@@ -1,6 +1,6 @@
 # File: miniapp_html.py
 
-MINIAPP_HTML = """
+MINIAPP_HTML = r"""
 <!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -455,7 +455,6 @@ MINIAPP_HTML = """
                 <div class="card">
                     <div class="form-label" style="font-size:16px; font-weight:bold; margin-bottom:10px;" data-i18n="admin_radar_title">📡 Gửi Thông Báo Radar Nền Tảng & MK NETWORK</div>
                     
-                    <!-- DANH SÁCH MXH VÀ QUỐC GIA ĐÃ ĐƯỢC BỔ SUNG -->
                     <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 15px;">
                         <button class="btn-small copy" onclick="selectRadarPlatform('Guinea (MK)')">🇬🇳 Guinea (MK)</button>
                         <button class="btn-small copy" onclick="selectRadarPlatform('Zambia (MK)')">🇿🇲 Zambia (MK)</button>
@@ -649,11 +648,9 @@ MINIAPP_HTML = """
             if (!translations[lang]) lang = 'vi';
             currentLang = lang;
             
-            // Quét toàn bộ các thẻ có data-i18n và thay đổi text
             document.querySelectorAll('[data-i18n]').forEach(el => {
                 const key = el.getAttribute('data-i18n');
                 if (translations[lang][key]) {
-                    // Giữ lại icon nếu có trong thẻ (ví dụ <span class="icon">...</span> <span data-i18n="...">...</span>)
                     if (el.children.length > 0 && el.tagName !== 'BUTTON' && el.tagName !== 'OPTION') {
                         el.lastChild.textContent = ' ' + translations[lang][key];
                     } else {
@@ -1508,4 +1505,4 @@ MINIAPP_HTML = """
     </script>
 </body>
 </html>
-"""```
+"""
