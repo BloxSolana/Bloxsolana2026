@@ -18,7 +18,7 @@ TURSO_AUTH_TOKEN   = os.getenv("TURSO_AUTH_TOKEN", "").strip()
 SQLITE_PATH        = os.getenv("SQLITE_PATH", "fast_ivas.db")
 ADMIN_ID           = int(os.getenv("ADMIN_ID", "0") or 0)
 
-DB_TIMEOUT_SECONDS = 10.0
+DB_TIMEOUT_SECONDS = 3.0
 DB_WORKERS         = 4
 db_executor        = ThreadPoolExecutor(max_workers=DB_WORKERS)
 VN_TZ              = timezone(timedelta(hours=7))
@@ -421,12 +421,17 @@ async def set_setting(key, value):
 
 async def register_user(tg_user, referrer=None):
     fname = tg_user.first_name or tg_user.username or "User"
-    res = await db_exec("SELECT user_id FROM users WHERE user_id=?", (tg_user.id,), fetch="one")
-    if res:
-        await db_exec("UPDATE users SET username=?, first_name=? WHERE user_id=?", (tg_user.username, fname, tg_user.id))
-        return False
     if referrer == tg_user.id: referrer = None
-    await db_exec("INSERT INTO users (user_id, username, first_name, referrer, joined_at, language) VALUES (?, ?, ?, ?, ?, 'vi')", (tg_user.id, tg_user.username, fname, referrer, now_text()))
+    
+    # Dùng UPSERT: Nếu có user rồi thì Update, chưa có thì Insert (Tránh lỗi UNIQUE constraint)
+    query = """
+        INSERT INTO users (user_id, username, first_name, referrer, joined_at, language) 
+        VALUES (?, ?, ?, ?, ?, 'vi') 
+        ON CONFLICT(user_id) DO UPDATE SET 
+            username=excluded.username, 
+            first_name=excluded.first_name
+    """
+    await db_exec(query, (tg_user.id, tg_user.username, fname, referrer, now_text()))
     return True
 
 async def get_user(uid): 
