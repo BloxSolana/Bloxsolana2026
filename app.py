@@ -19,6 +19,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.types import BotCommand, BotCommandScopeChat, BotCommandScopeDefault, MenuButtonWebApp, WebAppInfo, Message, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile, CallbackQuery
+from aiogram.exceptions import TelegramBadRequest
 
 from database import (
     init_db, db_exec, get_setting, set_setting, get_user, register_user, now, now_text, 
@@ -63,18 +64,31 @@ _mk_poller = None
 async def cmd_start(message: Message):
     try: await message.delete()
     except: pass
-    args = message.text.split(maxsplit=1)
-    ref = int(args[1]) if len(args) > 1 and args[1].isdigit() else None
-    await register_user(message.from_user, ref)
     
-    if await get_setting("maintenance", "off") == "on" and not is_admin(message.from_user.id):
-        return await message.answer("🛠 <b>HỆ THỐNG ĐANG BẢO TRÌ</b>\n\nVui lòng quay lại sau.")
-    
-    if WEBAPP_URL.startswith("https://"):
-        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚡ MỞ ỨNG DỤNG FAST IVAS", web_app=WebAppInfo(url=WEBAPP_URL + "?v=24"))]])
-        await message.answer("🚀 Chào mừng đến với <b>FAST IVAS</b>!\n\nVui lòng bấm nút bên dưới để mở ứng dụng.", reply_markup=kb)
-    else:
-        await message.answer("⚠️ Lỗi: Chưa cấu hình WEBAPP_URL.")
+    try:
+        args = message.text.split(maxsplit=1)
+        ref = int(args[1]) if len(args) > 1 and args[1].isdigit() else None
+        
+        # Đăng ký user (Nếu DB lỗi thì vẫn chạy tiếp, không bị đơ bot)
+        try:
+            await register_user(message.from_user, ref)
+        except Exception as e:
+            logger.error(f"Register user error: {e}")
+
+        if await get_setting("maintenance", "off") == "on" and not is_admin(message.from_user.id):
+            return await message.answer("🛠 <b>HỆ THỐNG ĐANG BẢO TRÌ</b>\n\nVui lòng quay lại sau.")
+        
+        if WEBAPP_URL.startswith("https://"):
+            kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚡ MỞ ỨNG DỤNG FAST IVAS", web_app=WebAppInfo(url=WEBAPP_URL + "?v=25"))]])
+            await message.answer("🚀 Chào mừng đến với <b>FAST IVAS</b>!\n\nVui lòng bấm nút bên dưới để mở ứng dụng.", reply_markup=kb)
+        else:
+            await message.answer("⚠️ Lỗi: Chưa cấu hình WEBAPP_URL.")
+            
+    except Exception as e:
+        logger.error(f"Start command error: {e}")
+        try:
+            await message.answer("⚠️ Hệ thống đang bận. Vui lòng thử lại sau giây lát!")
+        except: pass
 
 @dp.message(Command("admin"))
 async def cmd_admin(message: Message):
