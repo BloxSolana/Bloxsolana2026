@@ -362,13 +362,12 @@ def get_network_icon(net):
     return "📱"
 
 def open_db():
-    if TURSO_DATABASE_URL and TURSO_AUTH_TOKEN:
-        try: return libsql.connect(SQLITE_PATH, sync_url=TURSO_DATABASE_URL, auth_token=TURSO_AUTH_TOKEN)
-        except Exception: pass
-    import sqlite3
-    conn = sqlite3.connect(SQLITE_PATH, timeout=15)
-    conn.row_factory = sqlite3.Row
-    return conn
+    # Kết nối trực tiếp lên Turso qua mạng, KHÔNG sync file về máy ảo để tránh Timeout
+    if not TURSO_DATABASE_URL:
+        import logging
+        logging.error("TURSO_DATABASE_URL is missing!")
+        return None
+    return libsql.connect(TURSO_DATABASE_URL, auth_token=TURSO_AUTH_TOKEN)
 
 def row_to_dict(cursor, row):
     if row is None: return None
