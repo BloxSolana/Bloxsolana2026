@@ -2031,10 +2031,11 @@ MINIAPP_HTML = r"""
             }
         })();
 
-        loadUserData();
+                loadUserData();
         loadHome();
         startAutoRefresh();
         startTimer();
     </script>
 </body>
 </html>
+"""
