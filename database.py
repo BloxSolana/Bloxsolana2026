@@ -408,7 +408,9 @@ async def init_db():
     await db_exec("CREATE TABLE IF NOT EXISTS withdrawals (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, amount_milli INTEGER NOT NULL, wallet_ton TEXT, status TEXT NOT NULL DEFAULT 'PENDING', reject_reason TEXT, tx_hash TEXT, created_at TEXT, processed_at TEXT)")
     await db_exec("CREATE TABLE IF NOT EXISTS basha_numbers (id INTEGER PRIMARY KEY AUTOINCREMENT, phone TEXT UNIQUE NOT NULL, country TEXT NOT NULL, flag TEXT NOT NULL, added_at TEXT)")
     await db_exec("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
-    
+
+    await db_exec("CREATE TABLE IF NOT EXISTS admin_history (id INTEGER PRIMARY KEY AUTOINCREMENT, admin_id INTEGER, user_id INTEGER, amount_milli INTEGER, note TEXT, created_at TEXT)")
+    await db_exec("CREATE TABLE IF NOT EXISTS fast_ivas_numbers (id INTEGER PRIMARY KEY AUTOINCREMENT, phone TEXT UNIQUE, country TEXT, added_at TEXT)")
     await db_exec("CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id)")
     await db_exec("CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)")
 
