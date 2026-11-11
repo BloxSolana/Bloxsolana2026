@@ -379,6 +379,7 @@ def _sync_db_exec(query, params=(), fetch=None):
     db = None
     try:
         db = open_db()
+        if not db: return None  # <--- Thêm dòng này để tránh crash nếu thiếu URL
         cursor = db.execute(query, params or ())
         if fetch == "one": return row_to_dict(cursor, cursor.fetchone())
         if fetch == "all": return [row_to_dict(cursor, r) for r in cursor.fetchall()]
@@ -395,6 +396,9 @@ async def db_exec(query, params=(), fetch=None):
         return await asyncio.wait_for(loop.run_in_executor(db_executor, _sync_db_exec, query, params, fetch), timeout=DB_TIMEOUT_SECONDS)
     except asyncio.TimeoutError:
         logger.error("DB Timeout!")
+        return None
+    except Exception as e:  # <--- THÊM DÒNG NÀY ĐỂ BẮT MỌI LỖI KHÁC
+        logger.error(f"DB Error: {e}")
         return None
 
 async def init_db():
